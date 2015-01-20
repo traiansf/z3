@@ -54,7 +54,6 @@ struct core_clause {
 };
 
 
-//typedef std::pair<unsigned, vector<unsigned> > tId2Ids;
 typedef std::pair<unsigned, symbol> name2symbol;
 typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 void display_core_tree(core_tree m_core_tree);
@@ -341,8 +340,6 @@ private:
     void set(expr_ref& term) {
         arith_util arith(m_pred_manager);
         rewrite_pred(term);
-        //std::cout << " ************** after subst fml: " << mk_pp(term, term.m()) << "\n";
-        //SASSERT(arith.is_add(term.get()));
         expr_ref_vector p_coeffs(m_pred_manager), p_vars(m_pred_manager), p_const_facts(m_pred_manager), add_facts(m_pred_manager);
         if (arith.is_add(term.get()))
             add_facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
@@ -376,7 +373,6 @@ private:
             m_const = arith.mk_uminus(arith.mk_add(p_const_facts.size(), p_const_facts.c_ptr()));
         th_rewriter rw(m_pred_manager);
         rw(m_const);
-        //add_coeffs(p_vars, p_coeffs);
         for (unsigned i = 0; i < m_vars.size(); ++i)
             for (unsigned j = 0; j < p_vars.size(); ++j)
                 if (m_vars[i].get() == p_vars[j].get()){
@@ -494,8 +490,6 @@ public:
         for (unsigned i = 0; i < conjs.size(); ++i) {
             farkas_pred f_pred(m_vars);
             f_pred.put(expr_ref(conjs.get(i), m_imp_manager));
-            //std::cout << mk_pp(conjs.get(i), m_imp_manager) << "\n";
-            //f_pred.display();
             m_lhs.add(f_pred);
         }
         m_rhs.put(rhs_term);
@@ -700,7 +694,6 @@ public:
         solver.assert_expr(m_extras);
         solver.display(std::cout);
         if (solver.check() == l_true){
-            //model_ref modref;
             solver.get_model(m_modref);
             for (unsigned i = 0; i < m_rel_templates.size(); i++){
                 expr_ref instance(m_rel_manager);
@@ -717,7 +710,6 @@ public:
         std::cout << "constrain_template begin ...\n";
         reset();
         display();
-        //bool instance_found = true;
         if (!fml.m().is_true(fml))
             m_acc = fml.m().mk_and(fml, m_acc);
         expr_ref_vector args_coll(m_rel_manager);

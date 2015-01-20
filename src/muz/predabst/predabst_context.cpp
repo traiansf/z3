@@ -107,7 +107,6 @@ namespace datalog {
             m_ast_trail(m),
             m_template(m)
             {
-                // m_fparams.m_relevancy_lvl = 0;
                 m_fparams.m_mbqi = false;
                 m_fparams.m_soft_timeout = 1000;
             }
@@ -116,43 +115,6 @@ namespace datalog {
             for (func_decl2vars_preds::iterator it = m_func_decl2vars_preds.begin(),
                      end = m_func_decl2vars_preds.end(); it != end; ++it)
                 dealloc(it->m_value.second);
-        }
-
-        lbool query_old(expr* query) {
-            m_ctx.ensure_opened();
-            rule_set& rules = m_ctx.get_rules();
-            rm.mk_query(query, rules);
-            ptr_vector<rule> to_delete;
-            try {
-                // collect predicates and delete corresponding rules
-                for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) collect_predicates(rules, i, to_delete);
-                for (unsigned i = 0; !m_cancel && i < to_delete.size(); ++i) rules.del_rule(to_delete[i]);
-
-                for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) collect_templates_extra(rules, i);
-                for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) collect_templates(rules, i);
-                //rules.display(std::cout);
-                m_template.init_template_instantiate();
-                initialize_abs_templates(rules);
-                // for each rule: ground body and instantiate predicates for applications
-                for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) instantiate_rule(rules, i);
-                // initial abstract inference
-                for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) initialize_abs(rules, i);
-                // process worklist
-                while (!m_cancel && !m_node_worklist.empty()) {
-                    TRACE("dl", print_inference_state(tout););
-                    unsigned current_id = *m_node_worklist.begin();
-                    m_node_worklist.remove(current_id);
-                    inference_step(rules, current_id);
-                }
-            }
-            catch (reached_query& exc) {
-                print_proof_prolog(std::cout, exc.m_node);
-                m_template.display();
-                refine_t(rules, exc);
-                return l_true;
-            }
-            if (m_cancel) return l_undef;
-            return l_false;
         }
 
         lbool query(expr* query) {
@@ -167,7 +129,6 @@ namespace datalog {
             for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) collect_templates_extra(rules, i);
             for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) collect_templates(rules, i);
             m_template.init_template_instantiate();
-            //rules.display(std::cout);
             return abstract_check_refine(rules, 0);
         }
 
@@ -225,7 +186,8 @@ namespace datalog {
                             if (cube[i]) conj.push_back(preds[i]);
                         disj.push_back(m.mk_and(conj.size(), conj.c_ptr()));
                     }
-                } else {
+                }
+                else {
                     disj.push_back(m.mk_true());
                 }
                 func_interp* fi = alloc(func_interp, m, it_decl->m_key->get_arity());
@@ -267,7 +229,6 @@ namespace datalog {
 
         void initialize_abs(rule_set const& rules, unsigned r_id) {
             rule* r = rules.get_rule(r_id);
-            //r->display(m_ctx, std::cout); //Theo's
             cube_t cube;
             if (r->get_uninterpreted_tail_size() == 0 && cart_pred_abst_rule(r_id, cube)){
                 check_node_property(rules, add_node(r->get_decl(), cube, r_id));
@@ -277,8 +238,6 @@ namespace datalog {
 
         void instantiate_rule(rule_set const& rules, unsigned r_id) {
             rule* r = rules.get_rule(r_id);
-            //std::cout << "Rule " << r_id << "\n";
-            //r->display(m_ctx, std::cout);
             // prepare grounding substitution
             ptr_vector<sort> free_sorts;
             r->get_vars(m, free_sorts);
@@ -297,13 +256,11 @@ namespace datalog {
             // store instantiation for body applications
             for (unsigned i = 0; i < usz; ++i) {
                 preds.push_back(expr_ref_vector(m));
-                //std::cout << "instantiate_rule body : preds for " << mk_pp(r->get_tail(i), m) << "\n";
                 app_inst_preds(r->get_tail(i), rule_subst, preds[i]);
             }
             // store instantiation for non-query head
             if (!rules.is_output_predicate(r->get_decl())) {
                 expr_ref_vector heads(m);
-                //std::cout << "instantiate_rule head : preds for " << mk_pp(r->get_head(), m) << "\n";
                 app_inst_preds(r->get_head(), rule_subst, heads);
                 for (unsigned i = 0; i < heads.size(); ++i) heads[i] = m.mk_not(heads[i].get());
                 preds.push_back(heads);
@@ -363,14 +320,10 @@ namespace datalog {
                 expr_ref_vector* preds = alloc(expr_ref_vector, m);
                 m_func_decl2vars_preds.insert(appl->get_decl(), std::make_pair(appl->get_args(), preds));
                 m_ast_trail.push_back(appl->get_decl());
-                //std::cout << "app_inst_preds: preds def not given... defining them " << mk_pp(appl, m) << "\n";
-                //display_expr_ref_vector(*preds);
                 return;
             }
-            //std::cout << "app_inst_preds: preds def found " << mk_pp(appl, m) << "\n";
             expr* const* vars = e->get_data().get_value().first;
             expr_ref_vector& preds = *e->get_data().get_value().second;
-            //display_expr_ref_vector(*e->get_data().get_value().second);
             // ground appl arguments
             expr_ref subst_tmp(m);
             m_var_subst(appl, subst.size(), subst.c_ptr(), subst_tmp);
@@ -417,9 +370,6 @@ namespace datalog {
                 scoped_push _push2(m_solver);
                 m_solver.assert_expr(head_preds[i]);
                 cube[i] = (m_solver.check() == l_false);
-                //std::cout << "cart_pred_abst_rule: considered cube " << mk_pp(head_preds[i], m) << "\n";
-                //if (cube[i] == 1)
-                //std::cout << "cart_pred_abst_rule: used cube " << mk_pp(head_preds[i], m) << "\n";
             }
             return true;
         }
@@ -455,7 +405,6 @@ namespace datalog {
             // no fixpoint reached hence create new node
             m_node_worklist.insert(added_id);
             m_node2info.push_back(node_info(sym, cube, r_id, nodes));
-            //print_node_info(added_id, sym, cube, r_id, nodes);
             return added_id;
         }
 
@@ -486,8 +435,6 @@ namespace datalog {
                 }
             }
             catch (reached_query& exc) {
-                //print_proof_prolog(std::cout, exc.m_node);
-                //m_template.display();
                 mk_trace(exc.m_node);
                 if (refine_t(rules, exc)){
                     //clean up before next ACR
@@ -537,7 +484,6 @@ namespace datalog {
 
             arith_util arith(m);
             func_decl* suffix_decl = m.mk_func_decl(suffix, new_arity, head_decl->get_domain(), head_decl->get_range());
-            //expr_ref body(r->get_tail(0), m);
 
             if (m_template.get_names().contains(suffix)){
                 std::cout << "Multiple templates found for : " << suffix.str() << "\n";
@@ -592,7 +538,6 @@ namespace datalog {
             }
             catch (core_to_throw& from_throw)
                 {
-                    //from_throw.display();
                     if (refine_unreachable(from_throw, node_id, rules)) return true;
                     return false;
                 }
@@ -618,7 +563,6 @@ namespace datalog {
         }
 
         bool refine_t_wf(unsigned node_id, rule_set& rules){
-            //node_info const& node = m_node2info[node_id];
             smt_params new_param;
             smt::kernel solver(m, new_param);
             vector<name2symbol> names;
@@ -635,7 +579,6 @@ namespace datalog {
             for (unsigned i = 0; i < fresh_subst_size; ++i) head_args.push_back(m.mk_fresh_const("s", free_sorts.get(i)));
             mk_core_tree_WF(r->get_head()->get_decl()->get_name(), head_args, node_id, rules, clauses, to_wf, to_refine_cand_info);
             to_refine_cand_info.insert(r->get_head()->get_decl()->get_name(), head_args);
-            //to_refine_cand_info.display();
 
             expr_ref bound_sol(m), decrease_sol(m);
             vector<refine_pred_info> interpolants;
@@ -652,8 +595,6 @@ namespace datalog {
             mk_leaf(head_args, node_id, rules, cs);
 
             expr_ref_vector cs_vars(get_all_pred_vars(cs));
-            //display_expr_ref_vector(cs_vars);
-            //display_expr_ref_vector(head_args);
 
             app_ref_vector q_vars(m);
             for (unsigned j = 0; j < cs_vars.size(); j++)
@@ -680,20 +621,15 @@ namespace datalog {
             temp_subst2.reverse();
             scoped_push _push1(m_solver);
             m_solver.assert_expr(instance.m_body);
-            //std::cout << "instance.m_body: " << mk_pp(instance.m_body, m) << "\n";
             if (m_solver.check() == l_false) return false;
             expr_ref_vector& preds = *e->get_data().get_value().second;
-            //std::cout << "preds.size() : " << preds.size() << "\n";
             cube.resize(preds.size());
             for (unsigned i = 0; i < preds.size(); ++i) {
-                //std::cout << "before pred " << i << " : " << mk_pp(preds[i].get(), m) << "\n";
                 expr_ref subst_pred(m);
                 m_var_subst(preds[i].get(), temp_subst2.size(), temp_subst2.c_ptr(), subst_pred);
-                //std::cout << "after pred " << i << " : " << mk_pp(subst_pred, m) << "\n";
                 scoped_push _push2(m_solver);
                 m_solver.assert_expr(subst_pred);
                 cube[i] = (m_solver.check() == l_true);
-                //std::cout << "cube[i] : " << cube[i] << "\n";
             }
             return true;
         }
@@ -718,7 +654,6 @@ namespace datalog {
                           unsigned count, vector<name2symbol>& names_map, core_tree& core){
             node_info const& node = m_node2info[n_id];
             rule* r = rules.get_rule(node.m_parent_rule);
-            //r->display(m_ctx, std::cout);
             expr_ref_vector rule_subst(m);
             get_subst_vect(r, hargs, rule_subst);
             unsigned univ_iter = hargs.size() + 1, usz = r->get_uninterpreted_tail_size(), tsz = r->get_tail_size();
@@ -726,13 +661,9 @@ namespace datalog {
                 expr_ref as(m);
                 m_var_subst(r->get_tail(i), rule_subst.size(), rule_subst.c_ptr(), as);
                 solver.assert_expr(as);
-                //solver.display(std::cout);
-                //std::cout << "mk_core_tree: to solver okay " << mk_pp(as, m) << "\n";
                 if (solver.check() == l_false) {
-                    //std::cout << "mk_core_tree: critical as " << mk_pp(as, m) << "\n";
                     throw(core_to_throw(root_id, hname, n_id, node.m_parent_nodes, univ_iter, names_map, core));
                 }
-                //std::cout << "mk_core_tree: univ_iter " << univ_iter << "\n";
                 univ_iter++;
             }
             vector<std::pair<std::pair<unsigned, expr_ref_vector>, unsigned> > todo;
@@ -859,7 +790,6 @@ namespace datalog {
             refine_cand_info allrels_info(m);
             expr_ref_vector last_vars(m);
             mk_core_clauses(from_throw.root_id, expr_ref_vector(m), from_throw.last_name, from_throw.core, rules, last_vars, clauses, allrels_info);
-            //allrels_info.display();
             expr_ref_vector body(m);
             try{
                 last_clause_body(last_vars, from_throw.pos, from_throw.last_node_tid, from_throw.last_node_ids, rules);
@@ -906,7 +836,6 @@ namespace datalog {
         void last_clause_body(expr_ref_vector hvars, unsigned crit_pos, unsigned tid, vector<unsigned> ids, rule_set rules){
             node_info const& node = m_node2info[tid];
             rule* r = rules.get_rule(node.m_parent_rule);
-            //r->display(m_ctx, std::cout);
             expr_ref_vector rule_subst(m), body(m);
             get_subst_vect(r, hvars, rule_subst);
             unsigned usz = r->get_uninterpreted_tail_size(), tsz = r->get_tail_size(), curr_pos = hvars.size()+1;
@@ -949,7 +878,6 @@ namespace datalog {
         void mk_leaf(expr_ref_vector hargs, unsigned n_id, rule_set rules, expr_ref& cs){
             node_info const& node = m_node2info[n_id];
             rule* r = rules.get_rule(node.m_parent_rule);
-            //r->display(m_ctx, std::cout);
             ptr_vector<sort> free_sorts;
             r->get_vars(m, free_sorts);
             expr_ref_vector rule_subst(m);
@@ -985,7 +913,6 @@ namespace datalog {
             if (!e) return;
             expr* const* vars = e->get_data().get_value().first;
             expr_ref_vector preds_set = *(e->get_data().get_value().second);
-            //display_expr_ref_vector(preds_set);
             expr_ref to_rank(m.mk_true(), m);
             for (unsigned i = 0; i < cube.size(); i++) {
                 std::cout << "check_well_founded: considered cube " << mk_pp(preds_set[i].get(), m) << "\n";
@@ -1156,12 +1083,6 @@ namespace datalog {
     model_ref predabst::get_model() {
         return m_imp->get_model();
     }
-    /*
-      proof_ref predabst::get_proof() {
-      std::cout << "predabst get proof" << std::endl;
-      throw default_exception("predabst get proof");
-      }
-    */
 };
 
 template<class T>

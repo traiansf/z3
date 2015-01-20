@@ -426,7 +426,7 @@ namespace datalog {
 
     unsigned add_node(func_decl* sym, cube_t& cube, unsigned r_id, node_vector const& nodes = node_vector()) {
       unsigned added_id = m_node2info.size();
-      func_decl2node_set::obj_map_entry * sym_nodes_entry =	m_func_decl2max_reach_node_set.find_core(sym);
+      func_decl2node_set::obj_map_entry * sym_nodes_entry = m_func_decl2max_reach_node_set.find_core(sym);
       // first fixpoint check combined with maximality maintainance
       if (sym_nodes_entry) {
             // nodes exist at this sym

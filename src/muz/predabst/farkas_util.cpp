@@ -119,9 +119,9 @@ expr_ref neg_formula(expr_ref fml){
                 new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas[i].get(), m)));
             }
             expr_ref ee1(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-//			std::cout << "out2neg: " << mk_pp(ee1, m) << "\n";
+//          std::cout << "out2neg: " << mk_pp(ee1, m) << "\n";
             return ee1;
-//			return expr_ref(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
+//          return expr_ref(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
         }
         else if (m.is_or(fml)){
             sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
@@ -129,7 +129,7 @@ expr_ref neg_formula(expr_ref fml){
                 new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas[i].get(), m)));
             }
             expr_ref ee2(m.mk_and(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-//			std::cout << "out2neg: " << mk_pp(ee2, m) << "\n";
+//          std::cout << "out2neg: " << mk_pp(ee2, m) << "\n";
             return ee2;
 
             //return expr_ref(m.mk_and(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
@@ -138,18 +138,18 @@ expr_ref neg_formula(expr_ref fml){
             expr_ref ee3(to_app(fml)->get_arg(0), m);
             expr_ref ee5(non_neg_formula(ee3));
 
-//			std::cout << "out2neg: " << mk_pp(ee5, m) << "\n";
+//          std::cout << "out2neg: " << mk_pp(ee5, m) << "\n";
             return ee5;
 
             //return expr_ref(to_app(fml)->get_arg(0), m);
         }
         else {
             expr_ref ee4(neg_expr(fml), m);
-//			std::cout << "out2neg: " << mk_pp(ee4, m) << "\n";
+//          std::cout << "out2neg: " << mk_pp(ee4, m) << "\n";
             return ee4;
 
 
-//			return neg_expr(fml);
+//          return neg_expr(fml);
         }
     }
 

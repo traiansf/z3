@@ -41,8 +41,8 @@ namespace datalog {
         virtual void collect_statistics(statistics& st) const;
         virtual void display_certificate(std::ostream& out) const;        
         virtual expr_ref get_answer();
-	virtual model_ref get_model();
-	//	virtual proof_ref get_proof();
+    virtual model_ref get_model();
+    //	virtual proof_ref get_proof();
 
     };
 };

@@ -192,7 +192,7 @@ void neg_and_2dnf(expr_ref& fml, expr_ref& fml2){
             smt_params new_param;
             smt::kernel solver(fml.m(), new_param);
             expr_ref conj(fml.m().mk_and(dnf_struct[i].size(), dnf_struct[i].c_ptr()), fml.m());
-            
+
             solver.assert_expr(conj);
             if (solver.check() == l_true)
                 disjs.push_back(conj);
@@ -221,7 +221,7 @@ bool exists_valid(expr_ref& fml, expr_ref_vector& vars, app_ref_vector& q_vars, 
     for (unsigned i = 0; i < disjs.size(); ++i) {
         expr_ref each_disj(disjs.get(i), fml.m());
          app_ref_vector q_vars_disj(q_vars);
-        qe_lite ql1(fml.m());  
+        qe_lite ql1(fml.m());
         ql1(q_vars_disj, each_disj);
         farkas_imp f_imp(vars);
         f_imp.set(expr_ref(each_disj, fml.m()), expr_ref(fml.m().mk_false(), fml.m()));
@@ -258,7 +258,7 @@ bool well_founded(expr_ref_vector vsws, expr_ref& LHS, expr_ref& sol_bound, expr
     ast_manager& m = LHS.get_manager();
     arith_util arith(m);
     if (m.is_true(LHS) || !m.is_and(LHS) || to_app(LHS)->get_num_args() <= 1 || (vsws.size() % 2) != 0) return false;
-    
+
     expr_ref_vector vs(m), ws(m);
     bool hasv = false, hasvp = false;
     expr_ref_vector LHS_vars(get_all_pred_vars(LHS));
@@ -272,7 +272,7 @@ bool well_founded(expr_ref_vector vsws, expr_ref& LHS, expr_ref& sol_bound, expr
             ws.push_back(vsws.get(i));
             if (!hasvp && LHS_vars.contains(vsws.get(i))) hasvp = true;
         }
-            
+
     }
 
     if (!hasv || !hasvp) return false;
@@ -313,8 +313,8 @@ bool well_founded(expr_ref_vector vsws, expr_ref& LHS, expr_ref& sol_bound, expr
             solver.get_model(modref);
             if (modref.get()->eval(bound.get(), sol_bound) && modref.get()->eval(decrease.get(), sol_decrease)) {
                 return true;
-            }			
-            return false; // when does it happen?		
+            }
+            return false; // when does it happen?
         }
         return false; //unsat param
     }
@@ -457,7 +457,7 @@ void display_core_tree(core_tree m_core_tree){
 void display_core_clause(ast_manager& m, core_clauses clauses) {
     core_clauses::iterator st = clauses.begin(), end = clauses.end();
     for (; st != end; st++){
-        std::cout << "clause --> " << st->first << " ["; 
+        std::cout << "clause --> " << st->first << " [";
         for (unsigned i = 0; i < st->second.first.size(); i++)
             std::cout << mk_pp(st->second.first.get(i), m) << " ";
         std::cout << "] : " << mk_pp(st->second.second.first, m) << " [";
@@ -550,7 +550,7 @@ bool interpolate(expr_ref_vector vars, expr_ref fmlA, expr_ref fmlB, expr_ref& f
         if (!vars.contains(all_varsA.get(j))){
             q_varsA.push_back(to_app(all_varsA.get(j)));
         }
-    }   
+    }
 
     ql(q_varsA, fmlA);
     //std::cout << "solve_clauses2: fmlA after " << mk_pp(fmlA, m) << "\n";
@@ -592,10 +592,10 @@ bool interpolate(expr_ref_vector vars, expr_ref fmlA, expr_ref fmlB, expr_ref& f
                 //std::cout << "Interpolant sol: " << mk_pp(fmlQ_sol, m) << "\n";
                 return true;
             }
-            // when does it happen?		
+            // when does it happen?
         }
     }
-    return false; 
+    return false;
 }
 
 bool solve_clauses(core_clauses clauses, ast_manager& m, vector<refine_pred_info>& interpolants){
@@ -629,7 +629,7 @@ bool solve_clauses2(core_clauses clauses, ast_manager& m, vector<refine_pred_inf
     core_clauses::iterator st = clauses.begin(), end = clauses.end();
     end--;
     for (int i = clauses.size() - 1; i >= 1; i--){
-       
+
         //std::cout << "Interpolation step :" << clauses.size() - i << "\n";
         expr_ref fmlA(m.mk_true(), m);
         expr_ref fmlB(m.mk_true(), m);

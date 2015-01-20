@@ -1,7 +1,7 @@
 /*++
 Copyright (c) 2013 Microsoft Corporation
 
-Module Name: 
+Module Name:
 
     farkas_util.h
 
@@ -14,7 +14,7 @@ Author:
     Tewodros A. Beyene (t-tewbe) 2014-10-22.
 
 Revision History:
-        
+
 --*/
 #include "th_rewriter.h"
 #include "smt2parser.h"
@@ -68,7 +68,7 @@ struct core_to_throw{
     vector<name2symbol> name_map;
     core_tree core;
 
-    core_to_throw(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, vector<unsigned> in_last_node_ids, unsigned in_pos, 
+    core_to_throw(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, vector<unsigned> in_last_node_ids, unsigned in_pos,
         vector<name2symbol> in_name_map, core_tree in_core){
         root_id = in_root_id;
         last_name = in_last_name;
@@ -114,7 +114,7 @@ struct refine_pred_info{
     bool has_var(expr_ref arg){
         return pred_vars.contains(arg);
     }
-    
+
 };
 
 struct refine_cand_info{
@@ -249,7 +249,7 @@ public:
 
     void put(expr_ref term){
         arith_util arith(term.m());
-        for (unsigned i = 0; i < m_vars.size(); ++i) 
+        for (unsigned i = 0; i < m_vars.size(); ++i)
             m_coeffs.push_back(arith.mk_numeral(rational(0), true));
         if (term.m().is_true(term)){
             m_op = 1;
@@ -400,7 +400,7 @@ class farkas_conj{
 
 
 public:
-    farkas_conj(expr_ref_vector vars) : 
+    farkas_conj(expr_ref_vector vars) :
         m_vars(vars), m_param_pred_count(0), m_conj_manager(vars.get_manager()){
     }
 
@@ -513,7 +513,7 @@ public:
             for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
                 if (modref.get()->eval(m_lambdas.get(j), solution, true))
                     m_solutions.push_back(solution);
-                else 
+                else
                     return false;
             }
             return true;
@@ -564,7 +564,7 @@ private:
                 m_constraints = m_imp_manager.mk_and(m_constraints, arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
         }
 
-        if (m_lhs.get_param_pred_count() == 1 && m_lhs.get_ops(0) != 0) 
+        if (m_lhs.get_param_pred_count() == 1 && m_lhs.get_ops(0) != 0)
             m_constraints = m_imp_manager.mk_and(m_constraints, m_imp_manager.mk_eq(m_lambdas.get(0), arith.mk_numeral(rational(1), true)));
 
         if (m_mk_lambda_kinds) set_lambda_kinds();
@@ -592,7 +592,7 @@ private:
             for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
                 if (i < m_lhs.get_param_pred_count())
                     m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m_imp_manager), bilin, m_lhs.get_ops(i)));
-                else 
+                else
                     m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m_imp_manager), lin, m_lhs.get_ops(i)));
             }
         }
@@ -634,14 +634,14 @@ struct rel_template{
     expr_ref m_body;
 
     rel_template(app* head, expr_ref body) : m_head(head), m_body(body) {
-    
+
     }
 };
 
 class rel_template_suit {
 
     ast_manager& m_rel_manager;
-    
+
     vector<rel_template> m_rel_templates;
     vector<rel_template> m_rel_templates_orig;
     vector<rel_template> m_rel_template_instances;
@@ -684,7 +684,7 @@ public:
         m_names.push_back(head_name);
         m_temp_subst.append(temp_subst);
     }
-    
+
     void process_template_sk(rel_template aa){
         m_rel_templates_orig.push_back(aa);
     }
@@ -719,11 +719,11 @@ public:
         display();
         //bool instance_found = true;
         if (!fml.m().is_true(fml))
-            m_acc = fml.m().mk_and(fml, m_acc); 
+            m_acc = fml.m().mk_and(fml, m_acc);
         expr_ref_vector args_coll(m_rel_manager);
         expr_ref c1(subst_template_body(m_acc, m_rel_templates, args_coll), m_rel_manager);
         args_coll.append(m_temp_subst);
-        
+
         expr_ref constraint_st(m_rel_manager.mk_true(), m_rel_manager);
         vector<lambda_kind> all_lambda_kinds;
         if (mk_exists_forall_farkas(c1, args_coll, constraint_st, true, all_lambda_kinds)){
@@ -812,7 +812,7 @@ public:
             std::cout << "instance " << i << " : " << m_rel_template_instances[i].m_head->get_decl()->get_name() << " / " << m_rel_template_instances[i].m_head->get_decl()->get_arity() << "\n";
             std::cout << "instance body : " << mk_pp(m_rel_template_instances[i].m_body, m_rel_manager) << "\n";
             std::cout << "instance head : " << mk_pp(m_rel_template_instances[i].m_head, m_rel_manager) << "\n";
-            
+
             expr_ref_vector inst_body_terms(m_rel_manager);
             get_conj_terms(m_rel_template_instances[i].m_body, inst_body_terms);
             std::cout << "inst_body_terms: " << inst_body_terms.size() << "\n";

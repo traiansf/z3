@@ -42,7 +42,6 @@ namespace datalog {
         virtual void display_certificate(std::ostream& out) const;
         virtual expr_ref get_answer();
         virtual model_ref get_model();
-
     };
 };
 

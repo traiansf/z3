@@ -41,7 +41,7 @@ struct core_clause {
     core_clause(ast_manager m) : cl_vars(m), cl_body_as(m), cl_body_qs(m){}
 
     core_clause(unsigned in_cl_name, expr_ref_vector in_cl_vars, expr_ref in_cl_body_as, expr_ref_vector in_cl_body_qs):
-        cl_name(in_cl_name), cl_vars(in_cl_vars), cl_body_as(in_cl_body_as), cl_body_qs(in_cl_body_qs){
+    cl_name(in_cl_name), cl_vars(in_cl_vars), cl_body_as(in_cl_body_as), cl_body_qs(in_cl_body_qs){
     }
 
     void display(){
@@ -69,7 +69,7 @@ struct core_to_throw{
     core_tree core;
 
     core_to_throw(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, vector<unsigned> in_last_node_ids, unsigned in_pos,
-        vector<name2symbol> in_name_map, core_tree in_core){
+                  vector<name2symbol> in_name_map, core_tree in_core){
         root_id = in_root_id;
         last_name = in_last_name;
         last_node_tid = in_last_node_tid;
@@ -181,7 +181,7 @@ struct lambda_kind {
     int m_upper_bound;
 
     lambda_kind(expr_ref in_lambda, lambda_kind_sort in_kind, unsigned in_op) :
-        m_lambda(in_lambda), m_kind(in_kind), m_op(in_op),
+    m_lambda(in_lambda), m_kind(in_kind), m_op(in_op),
         m_lower_bound(0),
         m_upper_bound(0){
     }
@@ -380,10 +380,10 @@ private:
         for (unsigned i = 0; i < m_vars.size(); ++i)
             for (unsigned j = 0; j < p_vars.size(); ++j)
                 if (m_vars[i].get() == p_vars[j].get()){
-            m_coeffs.set(i, p_coeffs[j].get());
-            p_vars.erase(j);
-            p_coeffs.erase(j);
-            break;
+                    m_coeffs.set(i, p_coeffs[j].get());
+                    p_vars.erase(j);
+                    p_coeffs.erase(j);
+                    break;
                 }
     }
 
@@ -672,7 +672,7 @@ public:
         m_var_subst(m_rel_manager, false),
         m_extra_subst(m_rel_manager),
         m_temp_subst(m_rel_manager){
-    }
+        }
 
     void process_template_extra(expr_ref_vector& t_params, expr_ref extras){
         m_params.append(t_params);

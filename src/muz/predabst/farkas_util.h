@@ -54,9 +54,9 @@ struct core_clause {
 };
 
 
-//typedef std::pair<unsigned, vector<unsigned>> tId2Ids;
+//typedef std::pair<unsigned, vector<unsigned> > tId2Ids;
 typedef std::pair<unsigned, symbol> name2symbol;
-typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned>>, vector<unsigned>>> core_tree;
+typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 void display_core_tree(core_tree m_core_tree);
 
 struct core_to_throw{
@@ -91,8 +91,8 @@ struct core_to_throw{
 	}
 };
 
-typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector>>> core_clauses;
-typedef vector<std::pair<symbol, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector>>>> core_clauses2;
+typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
+typedef vector<std::pair<symbol, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;
 
 void display_core_clause(ast_manager& m, core_clauses clauses);
 void display_core_clause2(ast_manager& m, core_clauses2 clauses);
@@ -119,7 +119,7 @@ struct refine_pred_info{
 
 struct refine_cand_info{
 
-	typedef vector<std::pair<symbol, vector<expr_ref_vector>>> refine_cand_rels_info;
+	typedef vector<std::pair<symbol, vector<expr_ref_vector> > > refine_cand_rels_info;
 
 	refine_cand_rels_info m_allrels_info;
 	ast_manager& m;

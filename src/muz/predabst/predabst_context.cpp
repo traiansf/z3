@@ -780,7 +780,7 @@ namespace datalog {
 		unsigned usz = r->get_uninterpreted_tail_size(), tsz = r->get_tail_size();
 		mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz), cs);
 		m_var_subst(cs, rule_subst.size(), rule_subst.c_ptr(), cs);
-		vector<std::pair<unsigned,expr_ref_vector>> todo;
+		vector<std::pair<unsigned,expr_ref_vector> > todo;
 		expr_ref_vector cl_bs(m);
 		unsigned name_count = 0;
 		for (unsigned i = 0; i < usz; i++) {
@@ -826,7 +826,7 @@ namespace datalog {
 		unsigned usz = r->get_uninterpreted_tail_size(), tsz = r->get_tail_size();
 		mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz), cs);
 		m_var_subst(cs, rule_subst.size(), rule_subst.c_ptr(), cs);
-		vector<std::pair<symbol, std::pair<expr_ref_vector, unsigned>>> todo;
+		vector<std::pair<symbol, std::pair<expr_ref_vector, unsigned> > > todo;
 		expr_ref_vector cl_bs(m);
 		for (unsigned i = 0; i < usz; i++) {
 			expr_ref qs_i(m);
@@ -922,7 +922,8 @@ namespace datalog {
 		for (unsigned i = 0; i < usz; i++) {
 			expr_ref qs_i(m), inst_body(m);
 			m_var_subst(r->get_tail(i), rule_subst.size(), rule_subst.c_ptr(), qs_i);
-			if (m_template.get_instance(to_app(qs_i), inst_body, expr_ref_vector(m))){
+			expr_ref_vector tmp = expr_ref_vector(m);
+			if (m_template.get_instance(to_app(qs_i), inst_body, tmp)){
 				expr_ref_vector inst_body_terms(m);
 				get_conj_terms(inst_body, inst_body_terms);
 				for (unsigned j = 0; j < inst_body_terms.size(); j++){

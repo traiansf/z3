@@ -32,31 +32,6 @@ Revision History:
 #include <map>
 #include "qe_lite.h"
 
-struct core_clause {
-    unsigned cl_name;
-    expr_ref_vector cl_vars;
-    expr_ref cl_body_as;
-    expr_ref_vector cl_body_qs;
-
-    core_clause(ast_manager m) : cl_vars(m), cl_body_as(m), cl_body_qs(m) {}
-
-    core_clause(unsigned in_cl_name, expr_ref_vector in_cl_vars, expr_ref in_cl_body_as, expr_ref_vector in_cl_body_qs) :
-        cl_name(in_cl_name), cl_vars(in_cl_vars), cl_body_as(in_cl_body_as), cl_body_qs(in_cl_body_qs) {
-    }
-
-    void display() {
-        std::cout << "cl_name: " << cl_name << ", cl_vars: [";
-        for (unsigned i = 0; i < cl_vars.size(); i++) {
-            std::cout << " " << mk_pp(cl_vars.get(i), cl_body_as.m());
-        }
-        std::cout << "], cl_body_as : " << mk_pp(cl_body_as.get(), cl_body_as.m()) << ", cl_body_qs : [";
-        for (unsigned i = 0; i < cl_body_qs.size(); i++) {
-            std::cout << " " << mk_pp(cl_body_qs.get(i), cl_body_as.m());
-        }
-        std::cout << "]\n";
-    }
-};
-
 typedef std::pair<unsigned, symbol> name2symbol;
 typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 void display_core_tree(core_tree m_core_tree);

@@ -105,7 +105,7 @@ void display_core_clause2(ast_manager& m, core_clauses2 clauses);
 
 void display_expr_ref_vector(expr_ref_vector& vect);
 
-struct refine_pred_info{
+struct refine_pred_info {
     expr_ref pred;
     expr_ref_vector pred_vars;
 
@@ -124,7 +124,7 @@ struct refine_pred_info{
     }
 };
 
-struct refine_cand_info{
+struct refine_cand_info {
 
     typedef vector<std::pair<symbol, vector<expr_ref_vector> > > refine_cand_rels_info;
 
@@ -178,7 +178,7 @@ static void push_front_0(expr_ref_vector& v, expr_ref e) {
 
 typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
 
-typedef enum { reach, wf, temp } acr_error_kind;
+typedef enum { reach, wf } acr_error_kind;
 
 struct lambda_kind {
     expr_ref m_lambda;
@@ -237,7 +237,7 @@ void get_conj_terms(expr_ref conj, expr_ref_vector& terms);
 
 void print_node_info(unsigned added_id, func_decl* sym, vector<bool> cube, unsigned r_id, vector<unsigned> parent_nodes);
 
-class farkas_pred{
+class farkas_pred {
     expr_ref_vector m_vars;
     expr_ref_vector m_coeffs;
     unsigned m_op;
@@ -415,7 +415,7 @@ private:
     }
 };
 
-class farkas_conj{
+class farkas_conj {
     expr_ref_vector m_vars;
     vector<expr_ref_vector> m_set_coeffs;
     vector<unsigned> m_set_op;
@@ -665,7 +665,7 @@ void mk_conj(expr_ref_vector terms, expr_ref& conj);
 
 void mk_conj(expr_ref term1, expr_ref term2, expr_ref& conj);
 
-struct rel_template{
+struct rel_template {
     app* m_head;
     expr_ref m_body;
 
@@ -707,7 +707,7 @@ public:
         m_var_subst(m_rel_manager, false),
         m_extra_subst(m_rel_manager),
         m_temp_subst(m_rel_manager) {
-        }
+    }
 
     void process_template_extra(expr_ref_vector& t_params, expr_ref extras) {
         m_params.append(t_params);

@@ -52,10 +52,8 @@ struct lambda_kind {
     }
 };
 
-static expr_ref_vector vars_difference(expr_ref_vector source, expr_ref_vector to_remove);
 static bool mk_exists_forall_farkas(expr_ref& fml, expr_ref_vector vars, expr_ref& constraint_st, bool mk_lambda_kinds, vector<lambda_kind>& all_lambda_kinds);
 static void mk_bilin_lambda_constraint(vector<lambda_kind> lambda_kinds, int max_lambda, expr_ref& cons);
-static void mk_binder(expr_ref_vector vars, expr_ref_vector args, expr_ref& cs);
 static bool replace_pred(expr_ref_vector args, expr_ref_vector vars, expr_ref& pred);
 static bool interpolate(expr_ref_vector vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
 
@@ -681,18 +679,6 @@ static void neg_and_2dnf(expr_ref& fml, expr_ref& fml2) {
     fml2 = expr_ref(fml.m().mk_or(disjs.size(), disjs.c_ptr()), fml.m());
 }
 
-static void mk_binder(expr_ref_vector vars, expr_ref_vector args, expr_ref& cs) {
-    SASSERT(vars.size() == args.size());
-    for (unsigned i = 0; i < vars.size(); i++) {
-        if (vars.m().is_true(cs)) {
-            cs = vars.m().mk_eq(vars.get(i), args.get(i));
-        }
-        else {
-            cs = vars.m().mk_and(cs, vars.m().mk_eq(vars.get(i), args.get(i)));
-        }
-    }
-}
-
 static bool exists_valid(expr_ref& fml, expr_ref_vector& vars, app_ref_vector& q_vars, expr_ref& constraint_st) {
     ast_manager& m = fml.m();
     expr_ref norm_fml(fml.m());
@@ -869,34 +855,6 @@ static void mk_bilin_lambda_constraint(vector<lambda_kind> lambda_kinds, int max
     }
 }
 
-static void mk_bound_pairs(vector<lambda_kind>& lambda_kinds, int lin_max_lambda, int bilin_max_lambda) {
-    for (unsigned i = 0; i < lambda_kinds.size(); i++) {
-        if (lambda_kinds[i].m_kind == bilin_sing) {
-            lambda_kinds[i].m_lower_bound = -1;
-            lambda_kinds[i].m_upper_bound = 1;
-        }
-        else {
-            int min_lambda;
-            if (lambda_kinds[i].m_kind == bilin) {
-                min_lambda = -1 * bilin_max_lambda;
-                lambda_kinds[i].m_upper_bound = bilin_max_lambda;
-            }
-            else {
-                min_lambda = -1 * lin_max_lambda;
-                lambda_kinds[i].m_upper_bound = lin_max_lambda;
-            }
-
-            if (lambda_kinds[i].m_op == 0) {
-                lambda_kinds[i].m_lower_bound = min_lambda;
-            }
-            else {
-                lambda_kinds[i].m_lower_bound = 0;
-            }
-
-        }
-    }
-}
-
 expr_ref_vector get_all_pred_vars(expr_ref& fml) {
     ast_manager& m = fml.get_manager();
     arith_util a(m);
@@ -986,16 +944,6 @@ static void display_expr_ref_vector(expr_ref_vector& vect) {
         std::cout << mk_pp(vect.get(i), vect.m()) << " ";
     }
     std::cout << "]\n";
-}
-
-static expr_ref_vector vars_difference(expr_ref_vector source, expr_ref_vector to_remove) {
-    expr_ref_vector diff(source.get_manager());
-    for (unsigned i = 0; i < source.size(); i++) {
-        if (!to_remove.contains(source[i].get())) {
-            diff.push_back(source[i].get());
-        }
-    }
-    return diff;
 }
 
 expr_ref rel_template_suit::subst_template_body(expr_ref fml, vector<rel_template> rel_templates, expr_ref_vector& args_coll) {

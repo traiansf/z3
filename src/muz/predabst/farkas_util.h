@@ -93,8 +93,6 @@ void well_founded_cs(expr_ref_vector vsws, expr_ref& bound, expr_ref& decrease);
 
 expr_ref_vector get_all_pred_vars(expr_ref& fml);
 
-bool solve_clauses(core_clauses clauses, ast_manager& m, vector<refine_pred_info>& interpolants);
-
 bool solve_clauses2(core_clauses clauses, ast_manager& m, vector<refine_pred_info>& interpolants);
 
 void mk_conj(expr_ref_vector terms, expr_ref& conj);

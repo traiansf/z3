@@ -16,14 +16,27 @@ Author:
 Revision History:
 
 --*/
-
 #include "farkas_util.h"
+#include "th_rewriter.h"
+#include "smt2parser.h"
+#include "arith_decl_plugin.h"
+#include "reg_decl_plugins.h"
+#include "arith_rewriter.h"
+#include "ast_pp.h"
+#include "smt_kernel.h"
+#include "smt_params.h"
+#include "model2expr.h"
+#include "model_smt2_pp.h"
+#include "ast_counter.h"
+#include "qe_lite.h"
 
 void display_core_tree(core_tree m_core_tree);
 void display_core_clause(ast_manager& m, core_clauses clauses);
 void display_core_clause2(ast_manager& m, core_clauses2 clauses);
 void display_expr_ref_vector(expr_ref_vector& vect);
 void print_node_info(unsigned added_id, func_decl* sym, vector<bool> cube, unsigned r_id, vector<unsigned> parent_nodes);
+
+typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
 
 struct lambda_kind {
     expr_ref m_lambda;

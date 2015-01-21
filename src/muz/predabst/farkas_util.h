@@ -16,21 +16,12 @@ Author:
 Revision History:
 
 --*/
-#include "th_rewriter.h"
-#include "smt2parser.h"
-#include "arith_decl_plugin.h"
-#include "reg_decl_plugins.h"
-#include "arith_rewriter.h"
-#include "ast_pp.h"
-#include "smt_kernel.h"
-#include "smt_params.h"
+#ifndef _FARKAS_UTIL_H_
+#define _FARKAS_UTIL_H_
+
 #include "model.h"
-#include "model2expr.h"
-#include "model_smt2_pp.h"
-#include "ast_counter.h"
 #include "var_subst.h"
 #include <map>
-#include "qe_lite.h"
 
 typedef std::pair<unsigned, symbol> name2symbol;
 typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
@@ -91,10 +82,6 @@ struct refine_cand_info {
 
     void display();
 };
-
-typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
-
-typedef enum { reach, wf } acr_error_kind;
 
 void get_interpolant_pred(expr_ref_vector args, expr_ref_vector vars, vector<refine_pred_info> interpolants, expr_ref_vector& in_pred);
 
@@ -226,3 +213,5 @@ public:
         m_rel_template_instances.reset();
     }
 };
+
+#endif /* _FARKAS_UTIL_H_ */

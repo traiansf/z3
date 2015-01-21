@@ -48,4 +48,4 @@ namespace datalog {
 template<class T>
 inline std::ostream& operator<<(std::ostream&, const vector<T>&);
 
-#endif
+#endif /* _PREDABST_CONTEXT_H_ */

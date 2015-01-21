@@ -16,7 +16,6 @@ Author:
 Revision History:
 
 --*/
-
 #include "farkas_util.h"
 #include "predabst_context.h"
 #include "dl_context.h"
@@ -243,6 +242,8 @@ namespace datalog {
     private:
 
         static const unsigned NON_NODE = UINT_MAX;
+
+        typedef enum { reach, wf } acr_error_kind;
 
         struct reached_query {
             unsigned m_node;

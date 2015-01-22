@@ -159,7 +159,7 @@ namespace datalog {
 
         void display_certificate(std::ostream& out) const {
             // TBD hmm?
-            std::cout << "inside display_certificate" << std::endl;
+            STRACE("predabst", tout << "inside display_certificate\n";);
             expr_ref ans = get_answer();
             out << mk_pp(ans, m) << "\n";
         }
@@ -312,7 +312,7 @@ namespace datalog {
             func_decl* suffix_decl = m.mk_func_decl(suffix, new_arity, head_decl->get_domain(), head_decl->get_range());
 
             if (m_template.get_names().contains(suffix)) {
-                std::cout << "Multiple templates found for : " << suffix.str() << "\n";
+                STRACE("predabst", tout << "Multiple templates found for : " << suffix.str() << "\n";);
                 throw suffix;
             }
             else {
@@ -340,9 +340,9 @@ namespace datalog {
         }
 
         lbool abstract_check_refine(rule_set& rules, unsigned acr_count) {
-            std::cout << "=====================================+++++++++++++++++++ \n";
-            std::cout << "ACR step : " << acr_count << "\n";
-            std::cout << "=====================================+++++++++++++++++++ \n";
+            STRACE("predabst", tout << "=====================================+++++++++++++++++++\n";);
+            STRACE("predabst", tout << "ACR step : " << acr_count << "\n";);
+            STRACE("predabst", tout << "=====================================+++++++++++++++++++\n";);
             try {
                 // for each rule: ground body and instantiate predicates for applications
                 for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
@@ -373,13 +373,13 @@ namespace datalog {
                     acr_count++;
                     return abstract_check_refine(rules, acr_count);
                 }
-                std::cout << "UNSAT***!\n";
+                STRACE("predabst", tout << "UNSAT***!\n";);
                 return l_true;
             }
             if (m_cancel) {
                 return l_undef;
             }
-            std::cout << "SAT***!\n";
+            STRACE("predabst", tout << "SAT***!\n";);
             return l_false;
         }
 
@@ -611,10 +611,10 @@ namespace datalog {
             expr_ref_vector preds_set = *(e->get_data().get_value().second);
             expr_ref to_rank(m.mk_true(), m);
             for (unsigned i = 0; i < cube.size(); i++) {
-                std::cout << "check_well_founded: considered cube " << mk_pp(preds_set[i].get(), m) << "\n";
+                STRACE("predabst", tout << "check_well_founded: considered cube " << mk_pp(preds_set[i].get(), m) << "\n";);
                 if (cube[i]) {
                     mk_conj(to_rank, expr_ref(preds_set[i].get(), m), to_rank);
-                    std::cout << "check_well_founded: used cube " << mk_pp(preds_set[i].get(), m) << "\n";
+                    STRACE("predabst", tout << "check_well_founded: used cube " << mk_pp(preds_set[i].get(), m) << "\n";);
                 }
             }
             expr_ref_vector subst_vars(m);
@@ -627,16 +627,16 @@ namespace datalog {
             subst_vars.reverse();
             expr_ref bound(m), decrease(m);
             if (well_founded(subst_vars, to_rank, bound, decrease)) {
-                std::cout << "===================================== \n";
-                std::cout << "Formula is well-founded! \n";
-                std::cout << "===================================== \n";
-                std::cout << "bound: predabst " << mk_pp(bound, m) << "\n";
-                std::cout << "decrease: in predabst " << mk_pp(decrease, m) << "\n";
+                STRACE("predabst", tout << "=====================================\n";);
+                STRACE("predabst", tout << "Formula is well-founded!\n";);
+                STRACE("predabst", tout << "=====================================\n";);
+                STRACE("predabst", tout << "bound: predabst " << mk_pp(bound, m) << "\n";);
+                STRACE("predabst", tout << "decrease: in predabst " << mk_pp(decrease, m) << "\n";);
             }
             else {
-                std::cout << "===================================== \n";
-                std::cout << "Formula is not well-founded! \n";
-                std::cout << "===================================== \n";
+                STRACE("predabst", tout << "=====================================\n";);
+                STRACE("predabst", tout << "Formula is not well-founded!\n";);
+                STRACE("predabst", tout << "=====================================\n";);
                 throw reached_query(r_id, wf);
             }
         }
@@ -714,10 +714,10 @@ namespace datalog {
             mk_leaf(expr_ref_vector(m), node_id, rules, cs);
             expr_ref imp(m.mk_not(cs), m);
             if (m_template.constrain_template(imp)) {
-                std::cout << "reach***: template refinement successful!\n";
+                STRACE("predabst", tout << "reach***: template refinement successful!\n";);
                 return true;
             }
-            std::cout << "reach***: template refinement NOT possible\n";
+            STRACE("predabst", tout << "reach***: template refinement NOT possible\n";);
             return false;
         }
 
@@ -748,12 +748,12 @@ namespace datalog {
                 interpolants.push_back(refine_pred_info(bound_sol, get_all_pred_vars(bound_sol)));
                 interpolants.push_back(refine_pred_info(decrease_sol, get_all_pred_vars(decrease_sol)));
                 for (unsigned i = 0; i < interpolants.size(); i++) {
-                    interpolants.get(i).display();
+                    STRACE("predabst", interpolants.get(i).display(tout););
                 }
                 if (refine_preds(to_refine_cand_info, interpolants)) {
                     return true;
                 }
-                std::cout << "no new preds!\n";
+                STRACE("predabst", tout << "no new preds!\n";);
                 return false;
             }
             expr_ref bound_cs(m), decrease_cs(m), cs(m.mk_true(), m);
@@ -773,10 +773,10 @@ namespace datalog {
             well_founded_cs(head_args, bound_cs, decrease_cs);
             expr_ref to_solve(m.mk_or(m.mk_not(cs), m.mk_and(bound_cs, decrease_cs)), m);
             if (m_template.constrain_template(to_solve)) {
-                std::cout << "wf***: template refinement successful!\n";
+                STRACE("predabst", tout << "wf***: template refinement successful!\n";);
                 return true;
             }
-            std::cout << "wf***: template refinement NOT possible\n";
+            STRACE("predabst", tout << "wf***: template refinement NOT possible\n";);
             return false;
         }
 
@@ -801,7 +801,7 @@ namespace datalog {
                 if (refine_preds(allrels_info, interpolants)) {
                     return true;
                 }
-                std::cout << "no new preds!\n";
+                STRACE("predabst", tout << "no new preds!\n";);
                 return false;
             }
             return false;
@@ -1055,16 +1055,16 @@ namespace datalog {
         void mk_trace(unsigned n_id) {
             node_set todo_nodes;
             todo_nodes.insert(n_id);
-            std::cout << "Error trace: \n";
+            STRACE("predabst", tout << "Error trace:\n";);
             while (!todo_nodes.empty()) {
                 unsigned curr_id = *todo_nodes.begin();
                 todo_nodes.remove(curr_id);
                 node_info const& node = m_node2info[curr_id];
-                std::cout << "(" << curr_id << ", " << node.m_func_decl->get_name().str() << ", " << node.m_parent_rule << ", [";
+                STRACE("predabst", tout << "(" << curr_id << ", " << node.m_func_decl->get_name().str() << ", " << node.m_parent_rule << ", [";);
                 for (unsigned i = 0; i < node.m_parent_nodes.size(); i++) {
-                    std::cout << node.m_parent_nodes.get(i) << " ";
+                    STRACE("predabst", tout << node.m_parent_nodes.get(i) << " ";);
                 }
-                std::cout << "]) \n";
+                STRACE("predabst", tout << "])\n";);
                 for (unsigned i = 0; i < node.m_parent_nodes.size(); ++i) {
                     todo_nodes.insert(node.m_parent_nodes[i]);
                 }

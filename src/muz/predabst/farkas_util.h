@@ -46,7 +46,7 @@ struct core_to_throw {
         core = in_core;
     }
 
-    void display();
+    void display(std::ostream& out);
 };
 
 typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
@@ -62,7 +62,7 @@ struct refine_pred_info {
         return pred_vars.contains(arg);
     }
 
-    void display();
+    void display(std::ostream& out);
 };
 
 struct refine_cand_info {
@@ -80,7 +80,7 @@ struct refine_cand_info {
         return m_allrels_info;
     }
 
-    void display();
+    void display(std::ostream& out);
 };
 
 void get_interpolant_pred(expr_ref_vector args, expr_ref_vector vars, vector<refine_pred_info> interpolants, expr_ref_vector& in_pred);
@@ -185,8 +185,6 @@ public:
         return m_params;
     }
 
-    void display();
-
     expr_ref_vector get_temp_subst() {
         return m_temp_subst;
     }
@@ -210,6 +208,8 @@ public:
     void reset() {
         m_rel_template_instances.reset();
     }
+
+    void display(std::ostream& out);
 };
 
 #endif /* _FARKAS_UTIL_H_ */

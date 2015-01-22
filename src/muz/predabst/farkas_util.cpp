@@ -30,12 +30,6 @@ Revision History:
 #include "ast_counter.h"
 #include "qe_lite.h"
 
-static void display_core_tree(core_tree m_core_tree);
-static void display_core_clause(ast_manager& m, core_clauses clauses);
-static void display_core_clause2(ast_manager& m, core_clauses2 clauses);
-static void display_expr_ref_vector(expr_ref_vector& vect);
-static void print_node_info(unsigned added_id, func_decl* sym, vector<bool> cube, unsigned r_id, vector<unsigned> parent_nodes);
-
 typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
 
 struct lambda_kind {
@@ -178,37 +172,37 @@ public:
         return m_has_params;
     }
 
-    void display() {
+    void display(std::ostream& out) {
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             if (i == 0) {
-                std::cout << mk_pp(m_coeffs[i].get(), m_pred_manager) << " * " << mk_pp(m_vars[i].get(), m_pred_manager);
+                out << mk_pp(m_coeffs[i].get(), m_pred_manager) << " * " << mk_pp(m_vars[i].get(), m_pred_manager);
             }
             else {
-                std::cout << " + " << mk_pp(m_coeffs[i].get(), m_pred_manager) << " * " << mk_pp(m_vars[i].get(), m_pred_manager);
+                out << " + " << mk_pp(m_coeffs[i].get(), m_pred_manager) << " * " << mk_pp(m_vars[i].get(), m_pred_manager);
             }
         }
         switch (m_op) {
         case 0:
-            std::cout << " = ";
+            out << " = ";
             break;
         case 1:
-            std::cout << " =< ";
+            out << " =< ";
             break;
         case 2:
-            std::cout << " >= ";
+            out << " >= ";
             break;
         case 3:
-            std::cout << " < ";
+            out << " < ";
             break;
         case 4:
-            std::cout << " > ";
+            out << " > ";
             break;
         default:
-            std::cout << " Unknown relation! ";
+            out << " Unknown relation! ";
             break;
         }
-        std::cout << mk_pp(m_const.get(), m_pred_manager) << "\n";
-        std::cout << "Params? : " << (m_has_params ? "TRUE" : "FALSE") << "\n";
+        out << mk_pp(m_const.get(), m_pred_manager) << "\n";
+        out << "Params? : " << (m_has_params ? "TRUE" : "FALSE") << "\n";
     }
 
 private:
@@ -233,8 +227,8 @@ private:
             term = arith.mk_sub(arith.mk_sub(e2, e1), arith.mk_numeral(rational(-1), true));
         }
         else {
-            std::cout << "after subst fml: " << mk_pp(term, term.m()) << "\n";
-            std::cout << "Unable to recognize predicate \n";
+            STRACE("predabst", tout << "after subst fml: " << mk_pp(term, term.m()) << "\n";);
+            STRACE("predabst", tout << "Unable to recognize predicate \n";);
             throw(term);
         }
         th_rewriter rw(term.m());
@@ -363,16 +357,16 @@ public:
         return m_param_pred_count;
     }
 
-    void display() {
+    void display(std::ostream& out) {
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            std::cout << mk_pp(m_vars[i].get(), m_conj_manager) << "   ";
+            out << mk_pp(m_vars[i].get(), m_conj_manager) << "   ";
         }
-        std::cout << "\n";
+        out << "\n";
         for (unsigned i = 0; i < m_set_coeffs[0].size(); ++i) {
             for (unsigned j = 0; j < m_vars.size(); ++j) {
-                std::cout << mk_pp(m_set_coeffs[j][i].get(), m_conj_manager) << "   ";
+                out << mk_pp(m_set_coeffs[j][i].get(), m_conj_manager) << "   ";
             }
-            std::cout << m_set_op[i] << "   " << mk_pp(m_set_const[i].get(), m_conj_manager) << "\n";
+            out << m_set_op[i] << "   " << mk_pp(m_set_const[i].get(), m_conj_manager) << "\n";
         }
     }
 };
@@ -447,18 +441,18 @@ public:
         return m_lambda_kinds;
     }
 
-    void display() {
+    void display(std::ostream& out) {
         ast_manager m = m_vars.get_manager();
-        std::cout << "LHS: \n";
-        m_lhs.display();
-        std::cout << "RHS: \n";
-        m_rhs.display();
-        std::cout << "Constraint: \n" << mk_pp(m_constraints.get(), m) << "\n";
+        out << "LHS: \n";
+        m_lhs.display(out);
+        out << "RHS: \n";
+        m_rhs.display(out);
+        out << "Constraint: \n" << mk_pp(m_constraints.get(), m) << "\n";
         if (m_solutions.size() > 0) {
-            std::cout << "Solutions: \n";
+            out << "Solutions: \n";
         }
         for (unsigned i = 0; i < m_solutions.size(); ++i) {
-            std::cout << mk_pp(m_lambdas[i].get(), m) << " --> " << mk_pp(m_solutions[i].get(), m) << "\n";
+            out << mk_pp(m_lambdas[i].get(), m) << " --> " << mk_pp(m_solutions[i].get(), m) << "\n";
         }
     }
 
@@ -774,8 +768,8 @@ bool well_founded(expr_ref_vector vsws, expr_ref& LHS, expr_ref& sol_bound, expr
     expr_ref decrease(arith.mk_lt(sum_psws, sum_psvs), m);
     expr_ref to_solve(m.mk_or(m.mk_not(LHS), m.mk_and(bound, decrease)), m);
 
-    std::cout << "bound: " << mk_pp(bound, m) << "\n";
-    std::cout << "decrease: " << mk_pp(decrease, m) << "\n";
+    STRACE("predabst", tout << "bound: " << mk_pp(bound, m) << "\n";);
+    STRACE("predabst", tout << "decrease: " << mk_pp(decrease, m) << "\n";);
     expr_ref constraint_st(m.mk_true(), m);
     if (exists_valid(to_solve, vsws, q_vars, constraint_st)) {
         smt_params new_param;
@@ -825,8 +819,8 @@ void well_founded_cs(expr_ref_vector vsws, expr_ref& bound, expr_ref& decrease) 
     bound = arith.mk_ge(sum_psvs, delta0);
     decrease = arith.mk_lt(sum_psws, sum_psvs);
 
-    std::cout << "bound: " << mk_pp(bound, m) << "\n";
-    std::cout << "decrease: " << mk_pp(decrease, m) << "\n";
+    STRACE("predabst", tout << "bound: " << mk_pp(bound, m) << "\n";);
+    STRACE("predabst", tout << "decrease: " << mk_pp(decrease, m) << "\n";);
 }
 
 static void mk_bilin_lambda_constraint(vector<lambda_kind> lambda_kinds, int max_lambda, expr_ref& cons) {
@@ -894,56 +888,55 @@ expr_ref_vector get_all_pred_vars(expr_ref& fml) {
     return vars;
 }
 
-static void display_core_tree(core_tree m_core_tree) {
+static void display_core_tree(std::ostream& out, core_tree m_core_tree) {
     for (unsigned i = 0; i < m_core_tree.size(); i++) {
-        std::cout << "core_hname: " << m_core_tree.find(i)->first << ", core_id: " << m_core_tree.find(i)->second.first.first << ", core_ids: [";
+        out << "core_hname: " << m_core_tree.find(i)->first << ", core_id: " << m_core_tree.find(i)->second.first.first << ", core_ids: [";
         for (unsigned j = 0; j < m_core_tree.find(i)->second.first.second.size(); j++) {
-            std::cout << " " << m_core_tree.find(i)->second.first.second.get(j);
+            out << " " << m_core_tree.find(i)->second.first.second.get(j);
         }
-        std::cout << "], core_body_names: [";
+        out << "], core_body_names: [";
         for (unsigned j = 0; j < m_core_tree.find(i)->second.second.size(); j++) {
-            std::cout << " " << m_core_tree.find(i)->second.second.get(j);
+            out << " " << m_core_tree.find(i)->second.second.get(j);
         }
-        std::cout << "]\n";
+        out << "]\n";
     }
-
 }
 
-static void display_core_clause(ast_manager& m, core_clauses clauses) {
+static void display_core_clause(std::ostream& out, ast_manager& m, core_clauses clauses) {
     core_clauses::iterator st = clauses.begin(), end = clauses.end();
     for (; st != end; st++) {
-        std::cout << "clause --> " << st->first << " [";
+        out << "clause --> " << st->first << " [";
         for (unsigned i = 0; i < st->second.first.size(); i++) {
-            std::cout << mk_pp(st->second.first.get(i), m) << " ";
+            out << mk_pp(st->second.first.get(i), m) << " ";
         }
-        std::cout << "] : " << mk_pp(st->second.second.first, m) << " [";
+        out << "] : " << mk_pp(st->second.second.first, m) << " [";
         for (unsigned i = 0; i < st->second.second.second.size(); i++) {
-            std::cout << mk_pp(st->second.second.second.get(i), m) << " ";
+            out << mk_pp(st->second.second.second.get(i), m) << " ";
         }
-        std::cout << "]\n";
+        out << "]\n";
     }
 }
 
-static void display_core_clause2(ast_manager& m, core_clauses2 clauses) {
+static void display_core_clause2(std::ostream& out, ast_manager& m, core_clauses2 clauses) {
     for (unsigned j = 0; j < clauses.size(); j++) {
-        std::cout << "clause --> " << clauses.get(j).first.str() << " [";
+        out << "clause --> " << clauses.get(j).first.str() << " [";
         for (unsigned i = 0; i < clauses.get(j).second.first.size(); i++) {
-            std::cout << mk_pp(clauses.get(j).second.first.get(i), m) << " ";
+            out << mk_pp(clauses.get(j).second.first.get(i), m) << " ";
         }
-        std::cout << "] : " << mk_pp(clauses.get(j).second.second.first, m) << " [";
+        out << "] : " << mk_pp(clauses.get(j).second.second.first, m) << " [";
         for (unsigned i = 0; i < clauses.get(j).second.second.second.size(); i++) {
-            std::cout << mk_pp(clauses.get(j).second.second.second.get(i), m) << " ";
+            out << mk_pp(clauses.get(j).second.second.second.get(i), m) << " ";
         }
-        std::cout << "]\n";
+        out << "]\n";
     }
 }
 
-static void display_expr_ref_vector(expr_ref_vector& vect) {
-    std::cout << "expr vect --> [";
+static void display_expr_ref_vector(std::ostream& out, expr_ref_vector& vect) {
+    out << "expr vect --> [";
     for (unsigned i = 0; i < vect.size(); i++) {
-        std::cout << mk_pp(vect.get(i), vect.m()) << " ";
+        out << mk_pp(vect.get(i), vect.m()) << " ";
     }
-    std::cout << "]\n";
+    out << "]\n";
 }
 
 expr_ref rel_template_suit::subst_template_body(expr_ref fml, vector<rel_template> rel_templates, expr_ref_vector& args_coll) {
@@ -1150,8 +1143,8 @@ static bool replace_pred(expr_ref_vector args, expr_ref_vector vars, expr_ref& p
         }
     }
     else {
-        std::cout << "after subst fml: " << mk_pp(pred, pred.m()) << "\n";
-        std::cout << "Unable to recognize predicate \n";
+        STRACE("predabst", tout << "after subst fml: " << mk_pp(pred, pred.m()) << "\n";);
+        STRACE("predabst", tout << "Unable to recognize predicate \n";);
         return false;
     }
     return true;
@@ -1181,29 +1174,29 @@ void mk_conj(expr_ref term1, expr_ref term2, expr_ref& conj) {
     }
 }
 
-static void print_node_info(unsigned added_id, func_decl* sym, vector<bool> cube, unsigned r_id, vector<unsigned> parent_nodes) {
-    std::cout << "Node added: (" << added_id << ", " << sym->get_name().str() << ", " << r_id << ", [";
+static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym, vector<bool> cube, unsigned r_id, vector<unsigned> parent_nodes) {
+    out << "Node added: (" << added_id << ", " << sym->get_name().str() << ", " << r_id << ", [";
     for (unsigned i = 0; i < parent_nodes.size(); i++) {
-        std::cout << parent_nodes.get(i) << " ";
+        out << parent_nodes.get(i) << " ";
     }
-    std::cout << "]) " << ", [";
+    out << "]) " << ", [";
     for (unsigned i = 0; i < cube.size(); i++) {
-        std::cout << cube.get(i) << " ";
+        out << cube.get(i) << " ";
     }
-    std::cout << "]) \n";
+    out << "]) \n";
 }
 
 void rel_template_suit::init_template_instantiate() {
-    std::cout << "init_template_instantiate\n";
+    STRACE("predabst", tout << "init_template_instantiate\n";);
     if (m_rel_templates.size() == 0) {
         return;
     }
-    display();
-    std::cout << "m_extras  : " << mk_pp(m_extras, m_rel_manager) << "\n";
+    STRACE("predabst", display(tout););
+    STRACE("predabst", tout << "m_extras  : " << mk_pp(m_extras, m_rel_manager) << "\n";);
     smt_params new_param;
     smt::kernel solver(m_rel_manager, new_param);
     solver.assert_expr(m_extras);
-    solver.display(std::cout);
+    STRACE("predabst", solver.display(tout););
     if (solver.check() == l_true) {
         solver.get_model(m_modref);
         for (unsigned i = 0; i < m_rel_templates.size(); i++) {
@@ -1240,9 +1233,9 @@ bool rel_template_suit::constrain_template(expr_ref fml) {
     if (m_rel_templates.size() == 0) {
         return false;
     }
-    std::cout << "constrain_template begin ...\n";
+    STRACE("predabst", tout << "constrain_template begin ...\n";);
     reset();
-    display();
+    STRACE("predabst", display(tout););
     if (!fml.m().is_true(fml)) {
         m_acc = fml.m().mk_and(fml, m_acc);
     }
@@ -1268,7 +1261,7 @@ bool rel_template_suit::constrain_template(expr_ref fml) {
             for (unsigned i = 0; i < m_rel_templates.size(); i++) {
                 expr_ref instance(m_rel_manager);
                 if (modref.get()->eval(m_rel_templates[i].m_body, instance)) {
-                    std::cout << "instance  : " << mk_pp(instance, m_rel_manager) << "\n";
+                    STRACE("predabst", tout << "instance  : " << mk_pp(instance, m_rel_manager) << "\n";);
                     m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
 
                 }
@@ -1296,68 +1289,68 @@ void refine_cand_info::insert(symbol sym, expr_ref_vector args) {
     m_allrels_info.push_back(std::make_pair(sym, new_args));
 }
 
-void rel_template_suit::display() {
-    std::cout << "templates: " << m_rel_templates.size() << "\n";
+void rel_template_suit::display(std::ostream& out) {
+    out << "templates: " << m_rel_templates.size() << "\n";
     for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-        std::cout << "template " << i << " : " << m_rel_templates[i].m_head->get_decl()->get_name() << " / " << m_rel_templates[i].m_head->get_decl()->get_arity() << "\n";
-        std::cout << "template body : " << mk_pp(m_rel_templates[i].m_body, m_rel_manager) << "\n";
-        std::cout << "template head : " << mk_pp(m_rel_templates[i].m_head, m_rel_manager) << "\n";
+        out << "template " << i << " : " << m_rel_templates[i].m_head->get_decl()->get_name() << " / " << m_rel_templates[i].m_head->get_decl()->get_arity() << "\n";
+        out << "template body : " << mk_pp(m_rel_templates[i].m_body, m_rel_manager) << "\n";
+        out << "template head : " << mk_pp(m_rel_templates[i].m_head, m_rel_manager) << "\n";
     }
-    std::cout << "instances: " << m_rel_template_instances.size() << "\n";
+    out << "instances: " << m_rel_template_instances.size() << "\n";
     for (unsigned i = 0; i < m_rel_template_instances.size(); i++) {
-        std::cout << "instance " << i << " : " << m_rel_template_instances[i].m_head->get_decl()->get_name() << " / " << m_rel_template_instances[i].m_head->get_decl()->get_arity() << "\n";
-        std::cout << "instance body : " << mk_pp(m_rel_template_instances[i].m_body, m_rel_manager) << "\n";
-        std::cout << "instance head : " << mk_pp(m_rel_template_instances[i].m_head, m_rel_manager) << "\n";
+        out << "instance " << i << " : " << m_rel_template_instances[i].m_head->get_decl()->get_name() << " / " << m_rel_template_instances[i].m_head->get_decl()->get_arity() << "\n";
+        out << "instance body : " << mk_pp(m_rel_template_instances[i].m_body, m_rel_manager) << "\n";
+        out << "instance head : " << mk_pp(m_rel_template_instances[i].m_head, m_rel_manager) << "\n";
 
         expr_ref_vector inst_body_terms(m_rel_manager);
         get_conj_terms(m_rel_template_instances[i].m_body, inst_body_terms);
-        std::cout << "inst_body_terms: " << inst_body_terms.size() << "\n";
+        out << "inst_body_terms: " << inst_body_terms.size() << "\n";
         for (unsigned j = 0; j < inst_body_terms.size(); j++) {
-            std::cout << "inst_body_terms : " << mk_pp(inst_body_terms.get(j), m_rel_manager) << "\n";
+            out << "inst_body_terms : " << mk_pp(inst_body_terms.get(j), m_rel_manager) << "\n";
         }
     }
 
-    std::cout << "orig templates: " << m_rel_templates_orig.size() << "\n";
+    out << "orig templates: " << m_rel_templates_orig.size() << "\n";
     for (unsigned i = 0; i < m_rel_templates_orig.size(); i++) {
-        std::cout << "orig template " << i << " : " << m_rel_templates_orig[i].m_head->get_decl()->get_name() << " / " << m_rel_templates_orig[i].m_head->get_decl()->get_arity() << "\n";
-        std::cout << "orig template body : " << mk_pp(m_rel_templates_orig[i].m_body, m_rel_manager) << "\n";
-        std::cout << "orig template head : " << mk_pp(m_rel_templates_orig[i].m_head, m_rel_manager) << "\n";
+        out << "orig template " << i << " : " << m_rel_templates_orig[i].m_head->get_decl()->get_name() << " / " << m_rel_templates_orig[i].m_head->get_decl()->get_arity() << "\n";
+        out << "orig template body : " << mk_pp(m_rel_templates_orig[i].m_body, m_rel_manager) << "\n";
+        out << "orig template head : " << mk_pp(m_rel_templates_orig[i].m_head, m_rel_manager) << "\n";
     }
 }
 
-void core_to_throw::display() {
-    std::cout << "root_id: " << root_id << ", last_name: " << last_name << ", last_id: " << last_node_tid << ", last_ids: [";
+void core_to_throw::display(std::ostream& out) {
+    out << "root_id: " << root_id << ", last_name: " << last_name << ", last_id: " << last_node_tid << ", last_ids: [";
     for (unsigned i = 0; i < last_node_ids.size(); i++) {
-        std::cout << " " << last_node_ids.get(i);
+        out << " " << last_node_ids.get(i);
     }
-    std::cout << "], critical pos: " << pos << "\n";
-    std::cout << "name_map: [";
+    out << "], critical pos: " << pos << "\n";
+    out << "name_map: [";
     for (unsigned i = 0; i < name_map.size(); i++) {
-        std::cout << " " << name_map.get(i).first << "-" << name_map.get(i).second.str();
+        out << " " << name_map.get(i).first << "-" << name_map.get(i).second.str();
     }
-    std::cout << "]\n";
-    std::cout << "core size: " << core.size() << "\n";
-    display_core_tree(core);
+    out << "]\n";
+    out << "core size: " << core.size() << "\n";
+    display_core_tree(out, core);
 }
 
-void refine_pred_info::display() {
-    std::cout << "pred: " << mk_pp(pred.get(), pred.m()) << ", pred_vars: [";
+void refine_pred_info::display(std::ostream& out) {
+    out << "pred: " << mk_pp(pred.get(), pred.m()) << ", pred_vars: [";
     for (unsigned i = 0; i < pred_vars.size(); i++) {
-        std::cout << " " << mk_pp(pred_vars.get(i), pred.m());
+        out << " " << mk_pp(pred_vars.get(i), pred.m());
     }
-    std::cout << "]\n";
+    out << "]\n";
 }
 
-void refine_cand_info::display() {
+void refine_cand_info::display(std::ostream& out) {
     for (unsigned i = 0; i < m_allrels_info.size(); i++) {
-        std::cout << "refine_cand_info: " << i << ": " << m_allrels_info.get(i).first.str() << " -[ ";
+        out << "refine_cand_info: " << i << ": " << m_allrels_info.get(i).first.str() << " -[ ";
         for (unsigned j = 0; j < m_allrels_info.get(i).second.size(); j++) {
-            std::cout << "usage " << j << " -[ ";
+            out << "usage " << j << " -[ ";
             for (unsigned k = 0; k < m_allrels_info.get(i).second.get(j).size(); k++) {
-                std::cout << mk_pp(m_allrels_info.get(i).second.get(j).get(k), m) << " ";
+                out << mk_pp(m_allrels_info.get(i).second.get(j).get(k), m) << " ";
             }
-            std::cout << " ] ";
+            out << " ] ";
         }
-        std::cout << " ] \n";
+        out << " ] \n";
     }
 }

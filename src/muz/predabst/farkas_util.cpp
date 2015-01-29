@@ -18,16 +18,11 @@ Revision History:
 --*/
 #include "farkas_util.h"
 #include "th_rewriter.h"
-#include "smt2parser.h"
 #include "arith_decl_plugin.h"
 #include "reg_decl_plugins.h"
-#include "arith_rewriter.h"
 #include "ast_pp.h"
 #include "smt_kernel.h"
 #include "smt_params.h"
-#include "model2expr.h"
-#include "model_smt2_pp.h"
-#include "ast_counter.h"
 #include "qe_lite.h"
 
 typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;

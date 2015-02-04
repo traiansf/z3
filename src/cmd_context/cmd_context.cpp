@@ -793,7 +793,7 @@ func_decl * cmd_context::find_func_decl(symbol const & s) const {
     func_decls fs;
     if (m_func_decls.find(s, fs)) {
         if (fs.more_than_one())
-            throw cmd_exception("ambiguous function declaration reference, provide full signature to disumbiguate (<symbol> (<sort>*) <sort>) ", s);
+            throw cmd_exception("ambiguous function declaration reference, provide full signature to disambiguate (<symbol> (<sort>*) <sort>) ", s);
         return fs.first();
     }
     throw cmd_exception("invalid function declaration reference, unknown function ", s);
@@ -954,7 +954,7 @@ void cmd_context::mk_app(symbol const & s, unsigned num_args, expr * const * arg
 
     if (num_args == 0 && range == 0) {
         if (fs.more_than_one())
-            throw cmd_exception("ambiguous constant reference, more than one constant with the same sort, use a qualified expression (as <symbol> <sort>) to disumbiguate ", s);
+            throw cmd_exception("ambiguous constant reference, more than one constant with the same sort, use a qualified expression (as <symbol> <sort>) to disambiguate ", s);
         func_decl * f = fs.first();
         if (f == 0)
             throw cmd_exception("unknown constant ", s);

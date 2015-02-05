@@ -933,28 +933,27 @@ namespace datalog {
             refine_cand_info allrels_info(m);
             core_clauses clauses = mk_core_clauses(core_info, rules, allrels_info);
             vector<refine_pred_info> interpolants = solve_clauses2(clauses, m);
-            if (interpolants.size() > 0) {
-                STRACE("predabst", tout << "Found " << interpolants.size() << " interpolants\n";);
-                return refine_preds(allrels_info, interpolants);
-            }
-            return false;
+            return refine_preds(allrels_info, interpolants);
         }
 
         bool refine_preds(refine_cand_info const& allrels_info, vector<refine_pred_info> const& interpolants) {
+            STRACE("predabst", tout << "Found " << interpolants.size() << " interpolants\n";);
             unsigned new_preds_added = 0;
-            for (unsigned i = 0; i < allrels_info.get_info().size(); i++) {
-                for (unsigned j = 0; j < m_ast_trail.size(); j++) {
-                    func_decl *fd = to_func_decl(m_ast_trail.get(j));
-                    if (allrels_info.get_info().get(i).first == fd) {
-                        vars_preds vp;
-                        bool found = m_func_decl2vars_preds.find(fd, vp);
-                        CASSERT("predabst", found);
-                        expr_ref_vector vars(m, fd->get_arity(), vp.first);
-                        vector<expr_ref_vector> rel_info = allrels_info.get_info().get(i).second;
-                        for (unsigned k = 0; k < rel_info.size(); k++) {
-                            new_preds_added += get_interpolant_pred(rel_info.get(k), vars, interpolants, *vp.second);
+            if (interpolants.size() > 0) {
+                for (unsigned i = 0; i < allrels_info.get_info().size(); i++) {
+                    for (unsigned j = 0; j < m_ast_trail.size(); j++) {
+                        func_decl *fd = to_func_decl(m_ast_trail.get(j));
+                        if (allrels_info.get_info().get(i).first == fd) {
+                            vars_preds vp;
+                            bool found = m_func_decl2vars_preds.find(fd, vp);
+                            CASSERT("predabst", found);
+                            expr_ref_vector vars(m, fd->get_arity(), vp.first);
+                            vector<expr_ref_vector> rel_info = allrels_info.get_info().get(i).second;
+                            for (unsigned k = 0; k < rel_info.size(); k++) {
+                                new_preds_added += get_interpolant_pred(rel_info.get(k), vars, interpolants, *vp.second);
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
             }
@@ -1076,7 +1075,7 @@ namespace datalog {
             mk_core_clauses_internal(core_info.root_id, expr_ref_vector(m), core_info.last_name, core_info.core, rules, last_vars, clauses, allrels_info);
             expr_ref_vector body = last_clause_body(last_vars, core_info.pos, core_info.last_node_tid, rules);
             expr_ref cs = mk_conj(body);
-            STRACE("predabst", tout << "refine_unreachable: adding final clause " << core_info.last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
+            STRACE("predabst", tout << "mk_core_clauses: adding final clause " << core_info.last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
             clauses.insert(std::make_pair(core_info.last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
             return clauses;
         }

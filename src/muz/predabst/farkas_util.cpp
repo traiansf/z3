@@ -711,21 +711,7 @@ expr_ref_vector get_all_pred_vars(expr_ref const& fml) {
     return vars;
 }
 
-void display_core_tree(std::ostream& out, core_tree const& m_core_tree) {
-    for (unsigned i = 0; i < m_core_tree.size(); i++) {
-        out << "core_hname: " << m_core_tree.find(i)->first << ", core_id: " << m_core_tree.find(i)->second.first.first << ", core_ids: [";
-        for (unsigned j = 0; j < m_core_tree.find(i)->second.first.second.size(); j++) {
-            out << " " << m_core_tree.find(i)->second.first.second.get(j);
-        }
-        out << "], core_body_names: [";
-        for (unsigned j = 0; j < m_core_tree.find(i)->second.second.size(); j++) {
-            out << " " << m_core_tree.find(i)->second.second.get(j);
-        }
-        out << "]\n";
-    }
-}
-
-static void display_core_clause(std::ostream& out, ast_manager& m, core_clauses const& clauses) {
+static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses const& clauses) {
     core_clauses::const_iterator st = clauses.begin();
     core_clauses::const_iterator end = clauses.end();
     for (; st != end; st++) {
@@ -741,7 +727,7 @@ static void display_core_clause(std::ostream& out, ast_manager& m, core_clauses 
     }
 }
 
-static void display_core_clause2(std::ostream& out, ast_manager& m, core_clauses2 const& clauses) {
+static void display_core_clauses2(std::ostream& out, ast_manager& m, core_clauses2 const& clauses) {
     for (unsigned j = 0; j < clauses.size(); j++) {
         out << "clause --> " << clauses.get(j).first->get_name() << " [";
         for (unsigned i = 0; i < clauses.get(j).second.first.size(); i++) {

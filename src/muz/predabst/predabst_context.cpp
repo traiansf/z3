@@ -53,6 +53,7 @@ namespace datalog {
         typedef obj_map<func_decl, uint_set> func_decl2rule_set;
         typedef obj_map<func_decl, node_set> func_decl2node_set;
         typedef std::pair<unsigned, func_decl*> name2symbol;
+        typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 
         struct rule_info {
             expr_ref                m_body;
@@ -1284,6 +1285,20 @@ namespace datalog {
                 for (unsigned i = 0; i < node.m_parent_nodes.size(); ++i) {
                     todo_nodes.insert(node.m_parent_nodes[i]);
                 }
+            }
+        }
+
+        void print_core_tree(std::ostream& out, core_tree const& core) {
+            for (unsigned i = 0; i < core.size(); i++) {
+                out << "core_hname: " << core.find(i)->first << ", core_id: " << core.find(i)->second.first.first << ", core_ids: [";
+                for (unsigned j = 0; j < core.find(i)->second.first.second.size(); j++) {
+                    out << " " << core.find(i)->second.first.second.get(j);
+                }
+                out << "], core_body_names: [";
+                for (unsigned j = 0; j < core.find(i)->second.second.size(); j++) {
+                    out << " " << core.find(i)->second.second.get(j);
+                }
+                out << "]\n";
             }
         }
 

@@ -23,7 +23,6 @@ Revision History:
 #include "var_subst.h"
 #include <map>
 
-typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
 typedef vector<std::pair<func_decl*, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;
 
@@ -64,8 +63,6 @@ void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decre
 expr_ref_vector get_all_pred_vars(expr_ref const& fml);
 
 vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager& m);
-
-void display_core_tree(std::ostream& out, core_tree const& m_core_tree);
 
 struct rel_template {
     app* m_head;

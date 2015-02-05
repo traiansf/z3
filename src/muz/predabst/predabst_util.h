@@ -31,6 +31,8 @@ expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2);
 
 expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* e);
 
+expr_ref_vector get_all_vars(expr_ref const& fml);
+
 expr_ref neg_and_2dnf(expr_ref const& fml);
 
 #endif /* _PREDABST_UTIL_H */

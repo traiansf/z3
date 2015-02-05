@@ -952,15 +952,15 @@ namespace datalog {
             vector<refine_pred_info> interpolants;
 
             if (well_founded(head_args, to_wf, bound_sol, decrease_sol)) {
-                interpolants.push_back(refine_pred_info(bound_sol, get_all_pred_vars(bound_sol)));
-                interpolants.push_back(refine_pred_info(decrease_sol, get_all_pred_vars(decrease_sol)));
+                interpolants.push_back(refine_pred_info(bound_sol, get_all_vars(bound_sol)));
+                interpolants.push_back(refine_pred_info(decrease_sol, get_all_vars(decrease_sol)));
                 for (unsigned i = 0; i < interpolants.size(); i++) {
                     STRACE("predabst", interpolants.get(i).display(tout););
                 }
                 return refine_preds(to_refine_cand_info, interpolants);
             }
             expr_ref cs = mk_leaf(head_args, node_id, rules);
-            expr_ref_vector cs_vars(get_all_pred_vars(cs));
+            expr_ref_vector cs_vars(get_all_vars(cs));
 
             app_ref_vector q_vars(m);
             for (unsigned j = 0; j < cs_vars.size(); j++) {

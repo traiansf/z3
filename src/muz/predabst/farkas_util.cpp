@@ -546,7 +546,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& LHS, expr_ref sol
 
     expr_ref_vector vs(m), ws(m);
     bool hasv = false, hasvp = false;
-    expr_ref_vector LHS_vars(get_all_pred_vars(LHS));
+    expr_ref_vector LHS_vars(get_all_vars(LHS));
     for (unsigned i = 0; i < vsws.size(); i++) {
         if (i < (vsws.size() / 2)) {
             vs.push_back(vsws.get(i));
@@ -672,45 +672,6 @@ static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kin
     return cons;
 }
 
-expr_ref_vector get_all_pred_vars(expr_ref const& fml) {
-    ast_manager& m = fml.get_manager();
-    arith_util a(m);
-    expr_ref_vector m_todo(m);
-    expr_ref_vector vars(m);
-    m_todo.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-    while (!m_todo.empty()) {
-        expr* e = m_todo.back();
-        m_todo.pop_back();
-        switch (e->get_kind()) {
-        case AST_VAR:
-            if (!vars.contains(e)) {
-                vars.push_back(e);
-            }
-            break;
-        case AST_APP:
-            if (to_app(e)->get_num_args() == 0) {
-                if (!a.is_numeral(e)) {
-                    if (!vars.contains(e)) {
-                        vars.push_back(e);
-                    }
-                }
-                break;
-            }
-            m_todo.append(to_app(e)->get_num_args(), to_app(e)->get_args());
-            break;
-        case AST_FUNC_DECL:
-            if (!vars.contains(e)) {
-                vars.push_back(e);
-            }
-            break;
-        default:
-            UNREACHABLE();
-            break;
-        }
-    }
-    return vars;
-}
-
 static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses const& clauses) {
     core_clauses::const_iterator st = clauses.begin();
     core_clauses::const_iterator end = clauses.end();
@@ -801,7 +762,7 @@ static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fml
 
     app_ref_vector q_varsA(m);
     qe_lite ql(fmlA.m());
-    expr_ref_vector all_varsA(get_all_pred_vars(fmlA));
+    expr_ref_vector all_varsA(get_all_vars(fmlA));
     for (unsigned j = 0; j < all_varsA.size(); j++) {
         if (!vars.contains(all_varsA.get(j))) {
             q_varsA.push_back(to_app(all_varsA.get(j)));
@@ -810,7 +771,7 @@ static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fml
 
     ql(q_varsA, fmlA);
     app_ref_vector q_varsB(fmlB.m());
-    expr_ref_vector all_varsB(get_all_pred_vars(fmlB));
+    expr_ref_vector all_varsB(get_all_vars(fmlB));
     for (unsigned j = 0; j < all_varsB.size(); j++) {
         if (!vars.contains(all_varsB.get(j))) {
             q_varsB.push_back(to_app(all_varsB.get(j)));
@@ -872,7 +833,7 @@ vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager&
 
         expr_ref fmlQ_sol(m);
         if (interpolate(vars, fmlA, fmlB, fmlQ_sol)) {
-            interpolants.push_back(refine_pred_info(fmlQ_sol, get_all_pred_vars(fmlQ_sol)));
+            interpolants.push_back(refine_pred_info(fmlQ_sol, get_all_vars(fmlQ_sol)));
         }
     }
 

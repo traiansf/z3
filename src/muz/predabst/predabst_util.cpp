@@ -138,6 +138,45 @@ expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, exp
     }
 }
 
+expr_ref_vector get_all_vars(expr_ref const& fml) {
+    ast_manager& m = fml.m();
+    arith_util a(m);
+    expr_ref_vector vars(m);
+    expr_ref_vector todo(m);
+    todo.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
+    while (!todo.empty()) {
+        expr* e = todo.back();
+        todo.pop_back();
+        switch (e->get_kind()) {
+        case AST_VAR:
+            if (!vars.contains(e)) {
+                vars.push_back(e);
+            }
+            break;
+        case AST_APP:
+            if (to_app(e)->get_num_args() == 0) {
+                if (!a.is_numeral(e)) {
+                    if (!vars.contains(e)) {
+                        vars.push_back(e);
+                    }
+                }
+                break;
+            }
+            todo.append(to_app(e)->get_num_args(), to_app(e)->get_args());
+            break;
+        case AST_FUNC_DECL:
+            if (!vars.contains(e)) {
+                vars.push_back(e);
+            }
+            break;
+        default:
+            UNREACHABLE();
+            break;
+        }
+    }
+    return vars;
+}
+
 static vector<expr_ref_vector> cnf_to_dnf_struct(vector<vector<expr_ref_vector> > const& cnf_sets) {
     CASSERT("predabst", cnf_sets.size() >= 2);
     vector<expr_ref_vector> result(cnf_sets.get(0));

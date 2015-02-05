@@ -27,13 +27,15 @@ typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_r
 typedef vector<std::pair<func_decl*, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;
 
 struct refine_pred_info {
-    expr_ref pred;
-    expr_ref_vector pred_vars;
+    expr_ref        m_pred;
+    expr_ref_vector m_pred_vars;
 
-    refine_pred_info(expr_ref in_pred, expr_ref_vector in_pred_vars) : pred_vars(in_pred_vars), pred(in_pred) {}
+    refine_pred_info(expr_ref const& pred, expr_ref_vector const& pred_vars) :
+        m_pred(pred),
+        m_pred_vars(pred_vars) {}
 
-    bool has_var(expr_ref arg) const {
-        return pred_vars.contains(arg);
+    bool has_var(expr_ref const& arg) const {
+        return m_pred_vars.contains(arg);
     }
 
     void display(std::ostream& out) const;

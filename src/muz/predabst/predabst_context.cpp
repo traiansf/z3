@@ -1015,8 +1015,8 @@ namespace datalog {
         unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_preds) {
             unsigned new_preds_added = 0;
             for (unsigned i = 0; i < interpolants.size(); i++) {
-                if (is_args_pred(args, interpolants.get(i).pred_vars)) {
-                    expr_ref const& in_pred = interpolants.get(i).pred;
+                if (is_args_pred(args, interpolants.get(i).m_pred_vars)) {
+                    expr_ref const& in_pred = interpolants.get(i).m_pred;
                     expr_ref in_pred2(replace_pred(args, vars, in_pred), m);
                     if (!in_preds.contains(in_pred2)) {
                         in_preds.push_back(in_pred2);

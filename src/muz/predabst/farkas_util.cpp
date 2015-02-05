@@ -1010,9 +1010,9 @@ void rel_template_suit::display(std::ostream& out) const {
 }
 
 void refine_pred_info::display(std::ostream& out) const {
-    out << "pred: " << mk_pp(pred.get(), pred.m()) << ", pred_vars: [";
-    for (unsigned i = 0; i < pred_vars.size(); i++) {
-        out << " " << mk_pp(pred_vars.get(i), pred.m());
+    out << "pred: " << mk_pp(m_pred.get(), m_pred.m()) << ", pred_vars: [";
+    for (unsigned i = 0; i < m_pred_vars.size(); i++) {
+        out << " " << mk_pp(m_pred_vars.get(i), m_pred.m());
     }
     out << "]\n";
 }

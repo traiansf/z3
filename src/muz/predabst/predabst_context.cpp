@@ -36,12 +36,6 @@ namespace datalog {
             unsigned m_num_subsumed;
         };
 
-        struct rule_info {
-            expr_ref                m_body;
-            vector<expr_ref_vector> m_preds;
-            rule_info(expr_ref& body) : m_body(body) {}
-        };
-
         class scoped_push {
             smt::kernel& s;
         public:
@@ -49,28 +43,21 @@ namespace datalog {
             ~scoped_push() { s.pop(1); }
         };
 
-        context&               m_ctx;         // main context where (fixedpoint) constraints are stored.
-        ast_manager&           m;             // manager for ASTs. It is used for managing expressions
-        rule_manager&          rm;            // context with utilities for fixedpoint rules.
-        smt_params             m_fparams;     // parameters specific to smt solving
-        smt::kernel            m_solver;      // basic SMT solver class
-        var_subst              m_var_subst;   // substitution object. It gets updated and reset.
-        volatile bool          m_cancel;      // Boolean flag to track external cancelation.
-        stats                  m_stats;       // statistics information specific to the CLP module.
-
-        typedef std::pair<expr* const*, expr_ref_vector*> vars_preds;
-        typedef obj_map<func_decl, vars_preds> func_decl2vars_preds;
-        func_decl2vars_preds m_func_decl2vars_preds;
-
-        vector<rule_info> m_rule2info;
-
-        typedef obj_map<func_decl, uint_set> func_decl2uints;
-        func_decl2uints m_func_decl_body2rules;
-
-        ast_ref_vector  m_ast_trail;
-
         typedef vector<bool> cube_t;
         typedef vector<unsigned> node_vector;
+        typedef uint_set node_set;
+        //typedef uint_set rule_set; // rule_set has another meaning; use node_id_set/rule_id_set?
+        typedef std::pair<expr* const*, expr_ref_vector*> vars_preds;
+        typedef obj_map<func_decl, vars_preds> func_decl2vars_preds;
+        typedef obj_map<func_decl, uint_set> func_decl2rule_set;
+        typedef obj_map<func_decl, node_set> func_decl2node_set;
+
+        struct rule_info {
+            expr_ref                m_body;
+            vector<expr_ref_vector> m_preds;
+            rule_info(expr_ref const& body) : m_body(body) {}
+        };
+
         struct node_info {
             func_decl*  m_func_decl;
             cube_t      m_cube;
@@ -84,13 +71,25 @@ namespace datalog {
                 m_parent_nodes(n)
             {}
         };
-        typedef uint_set node_set;
-        typedef obj_map<func_decl, node_set> func_decl2node_set;
 
-        vector<node_info>  m_node2info;
-        func_decl2node_set m_func_decl2max_reach_node_set;
-        node_set           m_node_worklist;
-        rel_template_suit  m_template;
+        context&               m_ctx;         // main context where (fixedpoint) constraints are stored.
+        ast_manager&           m;             // manager for ASTs. It is used for managing expressions
+        rule_manager&          rm;            // context with utilities for fixedpoint rules.
+        smt_params             m_fparams;     // parameters specific to smt solving
+        smt::kernel            m_solver;      // basic SMT solver class
+        var_subst              m_var_subst;   // substitution object. It gets updated and reset.
+        volatile bool          m_cancel;      // Boolean flag to track external cancelation.
+        stats                  m_stats;       // statistics information specific to the predabst module.
+
+        rel_template_suit      m_template;
+        func_decl_ref_vector   m_func_decls;
+        func_decl2vars_preds   m_func_decl2vars_preds;
+
+        func_decl2rule_set     m_func_decl2rules;
+        func_decl2node_set     m_func_decl2max_reach_node_set;
+        vector<rule_info>      m_rule2info;
+        vector<node_info>      m_node2info;
+        node_set               m_node_worklist;
 
     public:
         imp(context& ctx) :
@@ -100,7 +99,7 @@ namespace datalog {
             m_solver(m, m_fparams),
             m_var_subst(m, false),
             m_cancel(false),
-            m_ast_trail(m),
+            m_func_decls(m),
             m_template(m) {
 
             m_fparams.m_mbqi = false;
@@ -222,8 +221,8 @@ namespace datalog {
             }
             func_decl_set false_func_decls;
             // unreachable body predicates are false
-            for (func_decl2uints::iterator it = m_func_decl_body2rules.begin(),
-                end = m_func_decl_body2rules.end(); it != end; ++it) {
+            for (func_decl2rule_set::iterator it = m_func_decl2rules.begin(),
+                end = m_func_decl2rules.end(); it != end; ++it) {
                 if (!m_func_decl2max_reach_node_set.contains(it->m_key)) {
                     false_func_decls.insert(it->m_key);
                 }
@@ -351,7 +350,7 @@ namespace datalog {
                 head_decl->get_arity(),
                 head_decl->get_domain(),
                 head_decl->get_range());
-            if (m_ast_trail.contains(suffix_decl)) {
+            if (m_func_decls.contains(suffix_decl)) {
                 STRACE("predabst", tout << "Error: found multiple predicate lists for " << suffix << "\n";);
                 throw default_exception("found multiple predicate lists for " + suffix.str());
             }
@@ -361,8 +360,8 @@ namespace datalog {
                 throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
             }
 
-            // Add SUFFIX to m_ast_trail.
-            m_ast_trail.push_back(suffix_decl);
+            // Add SUFFIX to m_func_decls.
+            m_func_decls.push_back(suffix_decl);
 
             // Add SUFFIX -> p1..pN to m_func_decl2vars_preds.
             expr_ref_vector* preds = alloc(expr_ref_vector, m);
@@ -467,11 +466,11 @@ namespace datalog {
                 STRACE("predabst", tout << "ACR step : " << acr_count << "\n";);
                 STRACE("predabst", tout << "=====================================\n";);
 
-                m_rule2info.reset();
-                m_node_worklist.reset();
-                m_node2info.reset();
+                m_func_decl2rules.reset();
                 m_func_decl2max_reach_node_set.reset();
-                m_func_decl_body2rules.reset();
+                m_rule2info.reset();
+                m_node2info.reset();
+                m_node_worklist.reset();
 
                 // for each rule: ground body and instantiate predicates for applications
                 for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
@@ -545,7 +544,7 @@ namespace datalog {
             }
         }
 
-        // Sets up m_rule2info and m_func_decl_body2rules for this iteration of
+        // Sets up m_rule2info and m_func_decl2rules for this iteration of
         // the abstract_check_refine loop, and adds (via app_inst_preds) additional
         // entries to m_func_decl2vars_preds.
         void instantiate_rule(rule_set const& rules, unsigned r_id) {
@@ -593,7 +592,7 @@ namespace datalog {
             // map body func_decls to rule
             for (unsigned i = 0; i < usz; ++i) {
                 STRACE("predabst", tout << "  associating " << mk_pp(r->get_decl(i), m) << " -> rule #" << r_id << "\n";);
-                m_func_decl_body2rules.insert_if_not_there2(r->get_decl(i), uint_set())->get_data().m_value.insert(r_id);
+                m_func_decl2rules.insert_if_not_there2(r->get_decl(i), uint_set())->get_data().m_value.insert(r_id);
             }
         }
 
@@ -606,7 +605,7 @@ namespace datalog {
                 STRACE("predabst", tout << "No predicate list found for " << mk_pp(appl->get_decl(), m) << ": inserting an empty list\n";);
                 expr_ref_vector* preds = alloc(expr_ref_vector, m);
                 m_func_decl2vars_preds.insert(appl->get_decl(), std::make_pair(appl->get_args(), preds));
-                m_ast_trail.push_back(appl->get_decl());
+                m_func_decls.push_back(appl->get_decl());
                 return expr_ref_vector(m);
             }
             expr* const* vars = vp.first;
@@ -651,7 +650,7 @@ namespace datalog {
         void inference_step(rule_set const& rules, unsigned current_id) {
             STRACE("predabst", tout << "Performing inference from node " << current_id << "\n";);
             func_decl* current_func_decl = m_node2info[current_id].m_func_decl;
-            func_decl2uints::obj_map_entry* e_current_rules = m_func_decl_body2rules.find_core(current_func_decl);
+            func_decl2rule_set::obj_map_entry* e_current_rules = m_func_decl2rules.find_core(current_func_decl);
             if (!e_current_rules) {
                 return;
             }
@@ -664,7 +663,7 @@ namespace datalog {
                 uint_set current_poss;
                 rule* r = rules.get_rule(*r_id);
                 for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                    if (r->get_decl(i) == current_func_decl) { // XXX we could precompute this set and store it in m_func_decl_body2rules
+                    if (r->get_decl(i) == current_func_decl) { // XXX we could precompute this set and store it in m_func_decl2rules
                         current_poss.insert(i);
                     }
                 }
@@ -950,8 +949,8 @@ namespace datalog {
             unsigned new_preds_added = 0;
             if (interpolants.size() > 0) {
                 for (unsigned i = 0; i < allrels_info.get_info().size(); i++) {
-                    for (unsigned j = 0; j < m_ast_trail.size(); j++) {
-                        func_decl *fd = to_func_decl(m_ast_trail.get(j));
+                    for (unsigned j = 0; j < m_func_decls.size(); j++) {
+                        func_decl *fd = to_func_decl(m_func_decls.get(j));
                         if (allrels_info.get_info().get(i).first == fd) {
                             vars_preds vp;
                             bool found = m_func_decl2vars_preds.find(fd, vp);
@@ -1311,8 +1310,8 @@ namespace datalog {
                 }
             }
             out << "rule dependency" << std::endl;
-            for (func_decl2uints::iterator it = m_func_decl_body2rules.begin(),
-                     end = m_func_decl_body2rules.end(); it != end; ++it) {
+            for (func_decl2rule_set::iterator it = m_func_decl2rules.begin(),
+                     end = m_func_decl2rules.end(); it != end; ++it) {
                 out << it->m_key->get_name() << ": "
                     << it->m_value << std::endl;
             }

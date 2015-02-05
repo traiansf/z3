@@ -230,7 +230,7 @@ private:
         }
         else {
             STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(term, term.m()) << "\n";);
-            SASSERT(false);
+            UNREACHABLE();
         }
         th_rewriter rw(term.m());
         rw(term);
@@ -250,7 +250,7 @@ private:
             expr_ref_vector mul_facts(m_pred_manager), var_mul_facts(m_pred_manager), const_mul_facts(m_pred_manager);
             expr_ref mul_term(add_facts[i].get(), m_pred_manager);
             get_all_terms(mul_term, m_vars, var_mul_facts, const_mul_facts, m_has_params);
-            SASSERT(var_mul_facts.size() <= 1);
+            CASSERT("predabst", var_mul_facts.size() <= 1);
             if (var_mul_facts.size() == 0) {
                 p_const_facts.push_back(add_facts[i].get());
             }
@@ -461,7 +461,7 @@ private:
 
     void set_constraint() {
         arith_util arith(m_imp_manager);
-        SASSERT(m_lhs.get_param_pred_count() > 0);
+        CASSERT("predabst", m_lhs.get_param_pred_count() > 0);
 
         for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
             m_lambdas.push_back(expr_ref(m_imp_manager.mk_fresh_const("t", arith.mk_int()), m_imp_manager));
@@ -516,7 +516,7 @@ private:
 static bool exists_valid(expr_ref const& formula, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref const& constraint_st);
 
 static vector<expr_ref_vector> cnf_to_dnf_struct(vector<vector<expr_ref_vector> > const& cnf_sets) {
-    SASSERT(cnf_sets.size() >= 2);
+    CASSERT("predabst", cnf_sets.size() >= 2);
     vector<expr_ref_vector> result(cnf_sets.get(0));
     for (unsigned k = 1; k < cnf_sets.size(); ++k) {
         vector<expr_ref_vector> sub_result;
@@ -679,7 +679,7 @@ static expr_ref neg_and_2dnf(expr_ref const& fml) {
 static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref& constraint_st) {
     ast_manager& m = fml.m();
     expr_ref norm_fml = neg_and_2dnf(fml);
-    SASSERT(fml.m().is_or(norm_fml));
+    CASSERT("predabst", fml.m().is_or(norm_fml));
     expr_ref_vector disjs(fml.m());
     disjs.append(to_app(norm_fml)->get_num_args(), to_app(norm_fml)->get_args());
     for (unsigned i = 0; i < disjs.size(); ++i) {
@@ -699,7 +699,7 @@ static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_r
 
 static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref& constraint_st, bool mk_lambda_kinds, vector<lambda_kind>& all_lambda_kinds) {
     expr_ref norm_fml = neg_and_2dnf(fml);
-    SASSERT(fml.m().is_or(norm_fml));
+    CASSERT("predabst", fml.m().is_or(norm_fml));
     expr_ref_vector disjs(fml.m());
     disjs.append(to_app(norm_fml)->get_num_args(), to_app(norm_fml)->get_args());
     for (unsigned i = 0; i < disjs.size(); ++i) {
@@ -1097,7 +1097,7 @@ unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const
 
 static expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* pred, ast_manager& m) {
     arith_util arith(m);
-    SASSERT(is_app(pred));
+    CASSERT("predabst", is_app(pred));
     expr* e1;
     expr* e2;
     if (m.is_eq(pred, e1, e2)) {
@@ -1149,7 +1149,7 @@ static expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& va
     }
     else {
         STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(pred, m) << "\n";);
-        SASSERT(false);
+        UNREACHABLE();
         return nullptr;
     }
 }

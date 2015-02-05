@@ -508,7 +508,7 @@ namespace datalog {
                     if (mk_core_tree(rules, node_id, core_info)) {
                         // The result didn't hold up without abstraction.  We
                         // need to refine the predicates and retry.
-                        if (!refine_unreachable(core_info, node_id, rules)) {
+                        if (!refine_unreachable(core_info, rules)) {
                             STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
                             return l_undef;
                         }
@@ -929,22 +929,9 @@ namespace datalog {
             return result;
         }
 
-        bool refine_unreachable(core_tree_info const& core_info, unsigned node_id, rule_set const& rules) {
-            expr_ref_vector last_vars(m);
-            core_clauses clauses;
+        bool refine_unreachable(core_tree_info const& core_info, rule_set const& rules) {
             refine_cand_info allrels_info(m);
-            mk_core_clauses(core_info.root_id, expr_ref_vector(m), core_info.last_name, core_info.core, rules, last_vars, clauses, allrels_info);
-            expr_ref_vector body(m);
-            try {
-                last_clause_body(last_vars, core_info.pos, core_info.last_node_tid, rules);
-            }
-            catch (expr_ref_vector& th_body) {
-                body.append(th_body);
-            }
-            expr_ref cs = mk_conj(body);
-            STRACE("predabst", tout << "refine_unreachable: adding final clause " << core_info.last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
-            clauses.insert(std::make_pair(core_info.last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
-
+            core_clauses clauses = mk_core_clauses(core_info, rules, allrels_info);
             vector<refine_pred_info> interpolants = solve_clauses2(clauses, m);
             if (interpolants.size() > 0) {
                 STRACE("predabst", tout << "Found " << interpolants.size() << " interpolants\n";);
@@ -1083,11 +1070,22 @@ namespace datalog {
             }
         }
 
+        core_clauses mk_core_clauses(core_tree_info const& core_info, rule_set const& rules, refine_cand_info &allrels_info) {
+            expr_ref_vector last_vars(m);
+            core_clauses clauses;
+            mk_core_clauses_internal(core_info.root_id, expr_ref_vector(m), core_info.last_name, core_info.core, rules, last_vars, clauses, allrels_info);
+            expr_ref_vector body = last_clause_body(last_vars, core_info.pos, core_info.last_node_tid, rules);
+            expr_ref cs = mk_conj(body);
+            STRACE("predabst", tout << "refine_unreachable: adding final clause " << core_info.last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
+            clauses.insert(std::make_pair(core_info.last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
+            return clauses;
+        }
+
         // The last parameter builds up information that will ultimately be passed to refine_preds.
-        void mk_core_clauses(unsigned hname, expr_ref_vector hargs, unsigned last_name, core_tree const& core,
+        void mk_core_clauses_internal(unsigned hname, expr_ref_vector hargs, unsigned last_name, core_tree const& core,
                              rule_set const& rules,
                              expr_ref_vector& last_vars, core_clauses& clauses, refine_cand_info& refine_cand_info_set) {
-            STRACE("predabst", tout << "mk_core_clauses: " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << last_name << "\n";);
+            STRACE("predabst", tout << "mk_core_clauses_internal: " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << last_name << "\n";);
             core_tree::const_iterator it = core.find(hname);
             node_info const& node = m_node2info[it->second.first.first];
             rule* r = rules.get_rule(node.m_parent_rule);
@@ -1110,7 +1108,7 @@ namespace datalog {
                     refine_cand_info_set.insert(a->get_decl(), qargs);
                 }
                 if (m_template.get_orig_template(a, orig_temp_body)) {
-                    STRACE("predabst", tout << "mk_core_clauses: found template for query symbol " << a->get_decl()->get_name() << "\n";);
+                    STRACE("predabst", tout << "mk_core_clauses_internal: found template for query symbol " << a->get_decl()->get_name() << "\n";);
                     expr_ref_vector temp_subst(m_template.get_params());
                     temp_subst.append(rule_subst);
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst);
@@ -1118,7 +1116,7 @@ namespace datalog {
                     cs = mk_conj(cs, inst_body);
                 }
                 else {
-                    STRACE("predabst", tout << "mk_core_clauses: no template for query symbol " << a->get_decl()->get_name() << "\n";);
+                    STRACE("predabst", tout << "mk_core_clauses_internal: no template for query symbol " << a->get_decl()->get_name() << "\n";);
                     cl_bs.push_back(qs_i);
                     if (core.find(names.get(name_count)) != core.end()) {
                         todo.push_back(std::make_pair(names.get(name_count), qargs));
@@ -1130,17 +1128,16 @@ namespace datalog {
                 }
             }
             if (hargs.size() > 0 || !m.is_true(cs)) {
-                STRACE("predabst", tout << "mk_core_clauses: adding clause " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << mk_pp(cs, m) << "; "; print_expr_ref_vector(tout, cl_bs););
+                STRACE("predabst", tout << "mk_core_clauses_internal: adding clause " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << mk_pp(cs, m) << "; "; print_expr_ref_vector(tout, cl_bs););
                 clauses.insert(std::make_pair(hname, std::make_pair(hargs, std::make_pair(cs, cl_bs))));
             }
 
             for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_clauses(todo.get(i).first, todo.get(i).second, last_name, core, rules, last_vars, clauses, refine_cand_info_set);
+                mk_core_clauses_internal(todo.get(i).first, todo.get(i).second, last_name, core, rules, last_vars, clauses, refine_cand_info_set);
             }
         }
 
-        // side-effect free: either returns, or throws an expr_ref_vector (body) which is caught by the caller.
-        void last_clause_body(expr_ref_vector const& hvars, unsigned crit_pos, unsigned tid, rule_set const& rules) {
+        expr_ref_vector last_clause_body(expr_ref_vector const& hvars, unsigned crit_pos, unsigned tid, rule_set const& rules) {
             node_info const& node = m_node2info[tid];
             rule* r = rules.get_rule(node.m_parent_rule);
             expr_ref_vector rule_subst = get_subst_vect(r, hvars);
@@ -1154,7 +1151,7 @@ namespace datalog {
                     body.push_back(as);
                 }
                 if (curr_pos == crit_pos) {
-                    throw body;
+                    return body;
                 }
                 curr_pos++;
             }
@@ -1167,12 +1164,14 @@ namespace datalog {
                     for (unsigned j = 0; j < inst_body_terms.size(); j++) {
                         body.push_back(inst_body_terms.get(j));
                         if (curr_pos == crit_pos) {
-                            throw body;
+                            return body;
                         }
                         curr_pos++;
                     }
                 }
             }
+            body.reset(); // >>> is this necessary, or will it always be empty at this point?
+            return body;
         }
 
         expr_ref mk_leaf(expr_ref_vector hargs, unsigned n_id, rule_set const& rules) {

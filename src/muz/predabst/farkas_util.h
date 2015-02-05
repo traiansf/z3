@@ -25,28 +25,6 @@ Revision History:
 
 typedef std::pair<unsigned, func_decl*> name2symbol;
 typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
-
-struct core_to_throw {
-    unsigned root_id;
-    unsigned last_name;
-    unsigned last_node_tid;
-    unsigned pos;
-    vector<name2symbol> name_map;
-    core_tree core;
-
-    core_to_throw(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, unsigned in_pos,
-                  vector<name2symbol> in_name_map, core_tree in_core) {
-        root_id = in_root_id;
-        last_name = in_last_name;
-        last_node_tid = in_last_node_tid;
-        pos = in_pos;
-        name_map = in_name_map;
-        core = in_core;
-    }
-
-    void display(std::ostream& out) const;
-};
-
 typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
 typedef vector<std::pair<func_decl*, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;
 
@@ -95,6 +73,8 @@ vector<refine_pred_info> solve_clauses2(core_clauses const& clauses, ast_manager
 expr_ref mk_conj(expr_ref_vector const& terms);
 
 expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2);
+
+void display_core_tree(std::ostream& out, core_tree const& m_core_tree);
 
 struct rel_template {
     app* m_head;

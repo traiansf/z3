@@ -148,7 +148,7 @@ namespace datalog {
 
             STRACE("predabst", tout << "After extracting predicates and templates:\n"; rules.display(tout););
             m_template.init_template_instantiate();
-            return abstract_check_refine(rules, 0);
+            return abstract_check_refine(rules);
         }
 
         void cancel() {
@@ -261,6 +261,38 @@ namespace datalog {
             unsigned m_node;
             acr_error_kind m_kind;
             reached_query(unsigned node, acr_error_kind kind) : m_node(node), m_kind(kind) {}
+        };
+
+        struct core_tree_info {
+            unsigned root_id;
+            unsigned last_name;
+            unsigned last_node_tid;
+            unsigned pos;
+            vector<name2symbol> name_map;
+            core_tree core;
+
+            core_tree_info() {}
+
+            core_tree_info(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, unsigned in_pos,
+                vector<name2symbol> in_name_map, core_tree in_core) {
+                root_id = in_root_id;
+                last_name = in_last_name;
+                last_node_tid = in_last_node_tid;
+                pos = in_pos;
+                name_map = in_name_map;
+                core = in_core;
+            }
+
+            void display(std::ostream& out) const {
+                out << "root_id: " << root_id << ", last_name: " << last_name << ", last_id: " << last_node_tid << ", critical pos: " << pos << "\n";
+                out << "name_map: [";
+                for (unsigned i = 0; i < name_map.size(); i++) {
+                    out << " " << name_map.get(i).first << "-" << name_map.get(i).second->get_name();
+                }
+                out << "]\n";
+                out << "core size: " << core.size() << "\n";
+                display_core_tree(out, core);
+            }
         };
 
         // Apply a substitution vector to an expression, returning the result.
@@ -420,64 +452,97 @@ namespace datalog {
             m_template.process_template_extra(extra_subst, extras);
         }
 
-        lbool abstract_check_refine(rule_set const& rules, unsigned acr_count) {
-            // The only things that change on subsequent calls to
-            // abstract_check_refine are the predicate lists
+        lbool abstract_check_refine(rule_set const& rules) {
+            // The only things that change on subsequent iterations of this loop are
+            // the predicate lists
             // (m_func_decl2vars_preds) and m_template.  The latter can have an
             // effect on the execution of the algorithm via the initial nodes
             // set up by initialize_abs_templates.
-            STRACE("predabst", tout << "=====================================+++++++++++++++++++\n";);
-            STRACE("predabst", tout << "ACR step : " << acr_count << "\n";);
-            STRACE("predabst", tout << "=====================================+++++++++++++++++++\n";);
-            try {
+            for (unsigned acr_count = 0;; ++acr_count) {
+                STRACE("predabst", tout << "=====================================\n";);
+                STRACE("predabst", tout << "ACR step : " << acr_count << "\n";);
+                STRACE("predabst", tout << "=====================================\n";);
+
+                m_rule2info.reset();
+                m_node_worklist.reset();
+                m_node2info.reset();
+                m_func_decl2max_reach_node_set.reset();
+                m_func_decl_body2rules.reset();
+
                 // for each rule: ground body and instantiate predicates for applications
                 for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
                     instantiate_rule(rules, i);
                 }
-                // initial abstract inference
-                initialize_abs_templates(rules);
-                for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
-                    rule* r = rules.get_rule(i);
-                    if (r->get_uninterpreted_tail_size() == 0) {
-                        initialize_abs(rules, i);
+
+                try {
+                    // initial abstract inference
+                    initialize_abs_templates(rules);
+                    for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
+                        rule* r = rules.get_rule(i);
+                        if (r->get_uninterpreted_tail_size() == 0) {
+                            initialize_abs(rules, i);
+                        }
+                    }
+                    // process worklist
+                    while (!m_cancel && !m_node_worklist.empty()) {
+                        TRACE("predabst", print_inference_state(tout););
+                        unsigned current_id = *m_node_worklist.begin();
+                        m_node_worklist.remove(current_id);
+                        inference_step(rules, current_id);
+                    }
+                    if (m_cancel) {
+                        STRACE("predabst", tout << "Cancelled: result is UNKNOWN\n";);
+                        return l_undef;
+                    }
+
+                    // We managed to find a solution.
+                    STRACE("predabst", tout << "Worklist empty: result is SAT\n";);
+                    return l_false;
+                }
+                catch (reached_query& exc) {
+                    // Our attempt to find a solution failed.
+                    unsigned node_id = exc.m_node;
+                    STRACE("predabst", print_trace(tout, node_id););
+
+                    core_tree_info core_info;
+                    if (mk_core_tree(rules, node_id, core_info)) {
+                        // The result didn't hold up without abstraction.  We
+                        // need to refine the predicates and retry.
+                        if (!refine_unreachable(core_info, node_id, rules)) {
+                            STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
+                            return l_undef;
+                        }
+
+                        STRACE("predabst", tout << "Predicate refinement successful: retrying\n";);
+                    }
+                    else {
+                        // The result held up even without abstraction.  Unless
+                        // we can refine the templates, we have a proof of
+                        // unsatisfiability.
+                        bool result;
+                        if (exc.m_kind == reach) {
+                            STRACE("predabst", tout << "Refining templates (reachable)\n";);
+                            result = refine_t_reach(node_id, rules);
+                        }
+                        else {
+                            CASSERT("predabst", exc.m_kind == wf);
+                            STRACE("predabst", tout << "Refining templates (WF)\n";);
+                            result = refine_t_wf(node_id, rules);
+                        }
+
+                        if (!result) {
+                            STRACE("predabst", tout << "Template refinement unsuccessful: result is UNSAT\n";);
+                            return l_true;
+                        }
+
+                        STRACE("predabst", tout << "Template refinement successful: retrying\n";);
                     }
                 }
-                STRACE("predabst", tout << "Current state of the rules:\n"; rules.display(tout););
-                // process worklist
-                while (!m_cancel && !m_node_worklist.empty()) {
-                    TRACE("predabst", print_inference_state(tout););
-                    unsigned current_id = *m_node_worklist.begin();
-                    m_node_worklist.remove(current_id);
-                    inference_step(rules, current_id);
-                }
-                STRACE("predabst", tout << "Worklist empty (or cancelled)\n";);
             }
-            catch (reached_query& exc) {
-                STRACE("predabst", print_trace(tout, exc.m_node););
-                if (refine_t(rules, exc)) {
-                    STRACE("predabst", tout << "Template refinement successful\n";);
-                    //clean up before next ACR
-                    m_rule2info.reset();
-                    m_node_worklist.reset();
-                    m_node2info.reset();
-                    m_func_decl2max_reach_node_set.reset();
-                    m_func_decl_body2rules.reset();
-                    acr_count++;
-                    return abstract_check_refine(rules, acr_count);
-                }
-                STRACE("predabst", tout << "refine_t_reach: Template refinement not successful\n";);
-                STRACE("predabst", tout << "UNSAT***!\n";);
-                return l_true;
-            }
-            if (m_cancel) {
-                return l_undef;
-            }
-            STRACE("predabst", tout << "SAT***!\n";);
-            return l_false;
         }
 
         // Sets up m_rule2info and m_func_decl_body2rules for this iteration of
-        // abstract_check_refine, and adds (via app_inst_preds) additional
+        // the abstract_check_refine loop, and adds (via app_inst_preds) additional
         // entries to m_func_decl2vars_preds.
         void instantiate_rule(rule_set const& rules, unsigned r_id) {
             rule* r = rules.get_rule(r_id);
@@ -814,37 +879,7 @@ namespace datalog {
             return true;
         }
 
-        // Returns true if refinement was possible, in which case we try abstract_check_refine one more time.
-        // Returns false if refinement was not possible, in which case we return UNSAT.
-        bool refine_t(rule_set const& rules, reached_query reached_error) {
-            unsigned node_id = reached_error.m_node;
-            try {
-                smt_params new_param;
-                smt::kernel solver(m, new_param);
-                vector<name2symbol> names;
-                core_tree core;
-                mk_core_tree(0, expr_ref_vector(m), node_id, 0, rules, solver, 0, names, core);
-            }
-            catch (core_to_throw& from_throw) {
-                STRACE("predabst", tout << "Refining templates (unreachable)\n";);
-                return refine_unreachable(from_throw, node_id, rules);
-            }
-
-            if (reached_error.m_kind == reach) {
-                STRACE("predabst", tout << "Refining templates (reachable)\n";);
-                return refine_t_reach(node_id, rules);
-            }
-            else {
-                STRACE("predabst", tout << "Refining templates (WF)\n";);
-                return refine_t_wf(node_id, rules);
-            }
-        }
-
         bool refine_t_reach(unsigned node_id, rule_set const& rules) {
-            // If we reach here (i.e. if mk_core_tree didn't throw a
-            // core_to_throw exception), then even without abstraction, the
-            // least fixed point is "too large", and we are done (unless it's
-            // possible to refine the templates?).
             expr_ref cs = mk_leaf(expr_ref_vector(m), node_id, rules);
             expr_ref imp(m.mk_not(cs), m);
             bool result = m_template.constrain_template(imp);
@@ -894,21 +929,21 @@ namespace datalog {
             return result;
         }
 
-        bool refine_unreachable(core_to_throw const& from_throw, unsigned node_id, rule_set const& rules) {
+        bool refine_unreachable(core_tree_info const& core_info, unsigned node_id, rule_set const& rules) {
             expr_ref_vector last_vars(m);
             core_clauses clauses;
             refine_cand_info allrels_info(m);
-            mk_core_clauses(from_throw.root_id, expr_ref_vector(m), from_throw.last_name, from_throw.core, rules, last_vars, clauses, allrels_info);
+            mk_core_clauses(core_info.root_id, expr_ref_vector(m), core_info.last_name, core_info.core, rules, last_vars, clauses, allrels_info);
             expr_ref_vector body(m);
             try {
-                last_clause_body(last_vars, from_throw.pos, from_throw.last_node_tid, rules);
+                last_clause_body(last_vars, core_info.pos, core_info.last_node_tid, rules);
             }
             catch (expr_ref_vector& th_body) {
                 body.append(th_body);
             }
             expr_ref cs = mk_conj(body);
-            STRACE("predabst", tout << "refine_unreachable: adding final clause " << from_throw.last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
-            clauses.insert(std::make_pair(from_throw.last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
+            STRACE("predabst", tout << "refine_unreachable: adding final clause " << core_info.last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
+            clauses.insert(std::make_pair(core_info.last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
 
             vector<refine_pred_info> interpolants = solve_clauses2(clauses, m);
             if (interpolants.size() > 0) {
@@ -940,13 +975,26 @@ namespace datalog {
             return (new_preds_added > 0);
         }
 
-        // The outermost (non-recursive) call either returns, in which case we
-        // ignore the output parameters, or it raises an exception.
+        bool mk_core_tree(rule_set const& rules, unsigned node_id, core_tree_info &core_info) {
+            try {
+                smt_params new_param;
+                smt::kernel solver(m, new_param);
+                vector<name2symbol> names;
+                core_tree core;
+                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, rules, solver, 0, names, core);
+                return false;
+            }
+            catch (core_tree_info &core_info2) {
+                core_info = core_info2;
+                return true;
+            }
+        }
+
         // Note: root_id is always passed as zero, and never modified or used (except to give to the exception...)
         // Note: all args but the first three should arguably be class members.
-        void mk_core_tree(unsigned hname, expr_ref_vector const& hargs, unsigned n_id, unsigned root_id, rule_set const& rules, smt::kernel& solver,
-                          unsigned count, vector<name2symbol>& names_map, core_tree& core) {
-            STRACE("predabst", tout << "mk_core_tree: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
+        void mk_core_tree_internal(unsigned hname, expr_ref_vector const& hargs, unsigned n_id, unsigned root_id, rule_set const& rules, smt::kernel& solver,
+                                   unsigned count, vector<name2symbol>& names_map, core_tree& core) {
+            STRACE("predabst", tout << "mk_core_tree_internal: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
             node_info const& node = m_node2info[n_id];
             rule* r = rules.get_rule(node.m_parent_rule);
             expr_ref_vector rule_subst = get_subst_vect(r, hargs);
@@ -957,7 +1005,7 @@ namespace datalog {
                 expr_ref as = apply_subst(r->get_tail(i), rule_subst);
                 solver.assert_expr(as);
                 if (solver.check() == l_false) {
-                    throw core_to_throw(root_id, hname, n_id, univ_iter, names_map, core);
+                    throw core_tree_info(root_id, hname, n_id, univ_iter, names_map, core);
                 }
                 univ_iter++;
             }
@@ -969,7 +1017,7 @@ namespace datalog {
                 expr_ref_vector qargs(m, a->get_decl()->get_arity(), a->get_args());
                 expr_ref orig_temp_body(m);
                 if (m_template.get_orig_template(a, orig_temp_body)) {
-                    STRACE("predabst", tout << "mk_core_tree: found template for query symbol " << a->get_decl()->get_name() << "\n";);
+                    STRACE("predabst", tout << "mk_core_tree_internal: found template for query symbol " << a->get_decl()->get_name() << "\n";);
                     qargs.append(m_template.get_params());
                     qargs.reverse();
                     orig_temp_body = apply_subst(orig_temp_body, qargs);
@@ -977,22 +1025,22 @@ namespace datalog {
                     for (unsigned j = 0; j < inst_body_terms.size(); j++) {
                         solver.assert_expr(inst_body_terms.get(j));
                         if (solver.check() == l_false) {
-                            throw core_to_throw(root_id, hname, n_id, univ_iter, names_map, core);
+                            throw core_tree_info(root_id, hname, n_id, univ_iter, names_map, core);
                         }
                         univ_iter++;
                     }
                 }
                 else {
-                    STRACE("predabst", tout << "mk_core_tree: no template for query symbol " << a->get_decl()->get_name() << "\n";);
+                    STRACE("predabst", tout << "mk_core_tree_internal: no template for query symbol " << a->get_decl()->get_name() << "\n";);
                     count++;
                     names.push_back(count);
                     names_map.insert(std::make_pair(count, a->get_decl())); // maps name id to query symbol decl
-                    todo.push_back(std::make_pair(std::make_pair(count, qargs), node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree
+                    todo.push_back(std::make_pair(std::make_pair(count, qargs), node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
                 }
             }
             core.insert(std::make_pair(hname, std::make_pair(std::make_pair(n_id, node.m_parent_nodes), names)));
             for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_tree(todo.get(i).first.first, todo.get(i).first.second, todo.get(i).second, root_id, rules, solver, count, names_map, core);
+                mk_core_tree_internal(todo.get(i).first.first, todo.get(i).first.second, todo.get(i).second, root_id, rules, solver, count, names_map, core);
             }
         }
 

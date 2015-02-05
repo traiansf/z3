@@ -890,7 +890,7 @@ expr_ref_vector get_all_pred_vars(expr_ref const& fml) {
     return vars;
 }
 
-static void display_core_tree(std::ostream& out, core_tree const& m_core_tree) {
+void display_core_tree(std::ostream& out, core_tree const& m_core_tree) {
     for (unsigned i = 0; i < m_core_tree.size(); i++) {
         out << "core_hname: " << m_core_tree.find(i)->first << ", core_id: " << m_core_tree.find(i)->second.first.first << ", core_ids: [";
         for (unsigned j = 0; j < m_core_tree.find(i)->second.first.second.size(); j++) {
@@ -1318,17 +1318,6 @@ void rel_template_suit::display(std::ostream& out) const {
         out << "orig template body : " << mk_pp(m_rel_templates_orig[i].m_body, m_rel_manager) << "\n";
         out << "orig template head : " << mk_pp(m_rel_templates_orig[i].m_head, m_rel_manager) << "\n";
     }
-}
-
-void core_to_throw::display(std::ostream& out) const {
-    out << "root_id: " << root_id << ", last_name: " << last_name << ", last_id: " << last_node_tid << ", critical pos: " << pos << "\n";
-    out << "name_map: [";
-    for (unsigned i = 0; i < name_map.size(); i++) {
-        out << " " << name_map.get(i).first << "-" << name_map.get(i).second->get_name();
-    }
-    out << "]\n";
-    out << "core size: " << core.size() << "\n";
-    display_core_tree(out, core);
 }
 
 void refine_pred_info::display(std::ostream& out) const {

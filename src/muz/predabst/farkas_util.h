@@ -51,8 +51,9 @@ struct rel_template {
     app* m_head;
     expr_ref m_body;
 
-    rel_template(app* head, expr_ref body) : m_head(head), m_body(body) {
-    }
+    rel_template(app* head, expr_ref const& body) :
+        m_head(head),
+        m_body(body) {}
 };
 
 class rel_template_suit {
@@ -81,7 +82,8 @@ class rel_template_suit {
 
 public:
 
-    rel_template_suit(ast_manager& m) : m_rel_manager(m),
+    rel_template_suit(ast_manager& m) :
+        m_rel_manager(m),
         m_extras(m_rel_manager),
         m_extra_sol(m_rel_manager),
         m_acc(expr_ref(m_rel_manager.mk_true(), m_rel_manager)),
@@ -109,19 +111,19 @@ public:
     void init_template_instantiate();
     bool constrain_template(expr_ref const& fml);
 
-    vector<rel_template> get_template_instances() {
-        return m_rel_template_instances;
-    }
-
-    vector<rel_template> get_templates() {
+    vector<rel_template> const& get_templates() {
         return m_rel_templates;
     }
 
-    bool get_orig_template(app* in_head, expr_ref& body);
-
-    vector<rel_template> get_orig_templates() {
+    vector<rel_template> const& get_orig_templates() {
         return m_rel_templates_orig;
     }
+
+    vector<rel_template> const& get_template_instances() {
+        return m_rel_template_instances;
+    }
+
+    bool get_orig_template(app* in_head, expr_ref& body);
 
     bool get_instance(app* head, expr_ref& body, expr_ref_vector& vars);
 
@@ -129,15 +131,15 @@ public:
         return m_params.size();
     }
 
-    expr_ref_vector get_params() {
+    expr_ref_vector const& get_params() {
         return m_params;
     }
 
-    expr_ref_vector get_temp_subst() {
+    expr_ref_vector const& get_temp_subst() {
         return m_temp_subst;
     }
 
-    vector<func_decl*> get_names() {
+    vector<func_decl*> const& get_names() {
         return m_names;
     }
 

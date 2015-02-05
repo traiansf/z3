@@ -23,34 +23,32 @@ Revision History:
 #include "var_subst.h"
 #include <map>
 
-typedef std::pair<unsigned, symbol> name2symbol;
+typedef std::pair<unsigned, func_decl*> name2symbol;
 typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 
 struct core_to_throw {
     unsigned root_id;
     unsigned last_name;
     unsigned last_node_tid;
-    vector<unsigned> last_node_ids;
     unsigned pos;
     vector<name2symbol> name_map;
     core_tree core;
 
-    core_to_throw(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, vector<unsigned> in_last_node_ids, unsigned in_pos,
+    core_to_throw(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, unsigned in_pos,
                   vector<name2symbol> in_name_map, core_tree in_core) {
         root_id = in_root_id;
         last_name = in_last_name;
         last_node_tid = in_last_node_tid;
-        last_node_ids = in_last_node_ids;
         pos = in_pos;
         name_map = in_name_map;
         core = in_core;
     }
 
-    void display(std::ostream& out);
+    void display(std::ostream& out) const;
 };
 
 typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
-typedef vector<std::pair<symbol, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;
+typedef vector<std::pair<func_decl*, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;
 
 struct refine_pred_info {
     expr_ref pred;
@@ -58,46 +56,45 @@ struct refine_pred_info {
 
     refine_pred_info(expr_ref in_pred, expr_ref_vector in_pred_vars) : pred_vars(in_pred_vars), pred(in_pred) {}
 
-    bool has_var(expr_ref arg) {
+    bool has_var(expr_ref arg) const {
         return pred_vars.contains(arg);
     }
 
-    void display(std::ostream& out);
+    void display(std::ostream& out) const;
 };
 
 struct refine_cand_info {
-
-    typedef vector<std::pair<symbol, vector<expr_ref_vector> > > refine_cand_rels_info;
+    typedef vector<std::pair<func_decl*, vector<expr_ref_vector> > > refine_cand_rels_info;
 
     refine_cand_rels_info m_allrels_info;
     ast_manager& m;
 
     refine_cand_info(ast_manager& in_m) : m(in_m) {}
 
-    void insert(symbol sym, expr_ref_vector args);
+    void insert(func_decl* sym, expr_ref_vector const& args);
 
-    refine_cand_rels_info get_info() {
+    refine_cand_rels_info const& get_info() const {
         return m_allrels_info;
     }
 
-    void display(std::ostream& out);
+    void display(std::ostream& out) const;
 };
 
-void get_interpolant_pred(expr_ref_vector args, expr_ref_vector vars, vector<refine_pred_info> interpolants, expr_ref_vector& in_pred);
+unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_pred);
 
-void get_conj_terms(expr_ref conj, expr_ref_vector& terms);
+expr_ref_vector get_conj_terms(expr_ref const& conj);
 
-bool well_founded(expr_ref_vector vars, expr_ref& LHS, expr_ref& bound, expr_ref& decrease);
+bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref bound, expr_ref decrease);
 
-void well_founded_cs(expr_ref_vector vsws, expr_ref& bound, expr_ref& decrease);
+void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decrease);
 
-expr_ref_vector get_all_pred_vars(expr_ref& fml);
+expr_ref_vector get_all_pred_vars(expr_ref const& fml);
 
-bool solve_clauses2(core_clauses clauses, ast_manager& m, vector<refine_pred_info>& interpolants);
+vector<refine_pred_info> solve_clauses2(core_clauses const& clauses, ast_manager& m);
 
-void mk_conj(expr_ref_vector terms, expr_ref& conj);
+expr_ref mk_conj(expr_ref_vector const& terms);
 
-void mk_conj(expr_ref term1, expr_ref term2, expr_ref& conj);
+expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2);
 
 struct rel_template {
     app* m_head;
@@ -120,10 +117,10 @@ class rel_template_suit {
     expr_ref m_extra_sol;
     expr_ref m_acc;
 
-    vector<symbol> m_names;
+    vector<func_decl*> m_names;
 
-    expr_ref subst_template_body(expr_ref fml, vector<rel_template> rel_templates);
-    expr_ref subst_template_body(expr_ref fml, vector<rel_template> rel_templates, expr_ref_vector& args);
+    expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates);
+    expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args);
 
     var_subst m_var_subst;
     expr_ref_vector m_extra_subst;
@@ -143,23 +140,23 @@ public:
         m_temp_subst(m_rel_manager) {
     }
 
-    void process_template_extra(expr_ref_vector& t_params, expr_ref extras) {
+    void process_template_extra(expr_ref_vector& t_params, expr_ref const& extras) {
         m_params.append(t_params);
         m_extras = extras;
     }
 
-    void process_template(symbol head_name, rel_template aa, expr_ref_vector temp_subst) {
+    void process_template(func_decl* head_name, rel_template const& aa, expr_ref_vector const& temp_subst) {
         m_rel_templates.push_back(aa);
         m_names.push_back(head_name);
         m_temp_subst.append(temp_subst);
     }
 
-    void process_template_sk(rel_template aa) {
+    void process_template_sk(rel_template const& aa) {
         m_rel_templates_orig.push_back(aa);
     }
 
     void init_template_instantiate();
-    bool constrain_template(expr_ref fml);
+    bool constrain_template(expr_ref const& fml);
 
     vector<rel_template> get_template_instances() {
         return m_rel_template_instances;
@@ -189,8 +186,8 @@ public:
         return m_temp_subst;
     }
 
-    vector<symbol> get_names() {
-        return  m_names;
+    vector<func_decl*> get_names() {
+        return m_names;
     }
 
     ast_manager& get_rel_manager() {
@@ -209,7 +206,7 @@ public:
         m_rel_template_instances.reset();
     }
 
-    void display(std::ostream& out);
+    void display(std::ostream& out) const;
 };
 
 #endif /* _FARKAS_UTIL_H_ */

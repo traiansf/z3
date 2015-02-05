@@ -53,7 +53,8 @@ static void push_front(vector<T>& v, T e) {
     v.reverse();
 }
 
-static void push_front_0(expr_ref_vector& v, expr_ref e) {
+template<class T, class TManager>
+static void push_front(ref_vector<T, TManager>& v, obj_ref<T, TManager> e) {
     v.reverse();
     v.push_back(e);
     v.reverse();
@@ -96,20 +97,20 @@ static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, exp
     }
 }
 
-static void get_conj_terms(expr_ref const& conj, expr_ref_vector& terms) {
-    if (conj.m().is_and(conj)) {
+static void get_conj_terms(expr* conj, ast_manager &m, expr_ref_vector& terms) {
+    if (m.is_and(conj)) {
         for (unsigned i = 0; i < to_app(conj)->get_num_args(); i++) {
-            get_conj_terms(expr_ref(to_app(conj)->get_arg(i), conj.m()), terms);
+            get_conj_terms(to_app(conj)->get_arg(i), m, terms);
         }
     }
     else {
-        terms.push_back(conj);
+        terms.push_back(expr_ref(conj, m));
     }
 }
 
 expr_ref_vector get_conj_terms(expr_ref const& conj) {
     expr_ref_vector terms(conj.m());
-    get_conj_terms(conj, terms);
+    get_conj_terms(conj, conj.m(), terms);
     return terms;
 }
 
@@ -322,7 +323,7 @@ public:
         else {
             if (f_pred.has_params()) {
                 for (unsigned i = 0; i < m_vars.size(); ++i) {
-                    push_front_0(m_set_coeffs[i], f_pred.get_coeffs(i));
+                    push_front(m_set_coeffs[i], f_pred.get_coeffs(i));
                 }
                 push_front(m_set_op, f_pred.get_op());
                 push_front(m_set_const, f_pred.get_const());
@@ -1039,7 +1040,7 @@ static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fml
     return false;
 }
 
-vector<refine_pred_info> solve_clauses2(core_clauses const& clauses, ast_manager& m) {
+vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager& m) {
     vector<refine_pred_info> interpolants;
         
     core_clauses::const_iterator end = clauses.end();

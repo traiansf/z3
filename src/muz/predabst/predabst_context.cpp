@@ -54,8 +54,11 @@ namespace datalog {
 
         struct rule_info {
             expr_ref                m_body;
-            vector<expr_ref_vector> m_preds;
-            rule_info(expr_ref const& body) : m_body(body) {}
+            expr_ref_vector         m_head_preds;
+            vector<expr_ref_vector> m_body_preds;
+            rule_info(expr_ref const& body) :
+                m_body(body),
+                m_head_preds(body.m()) {}
         };
 
         struct node_info {
@@ -68,8 +71,7 @@ namespace datalog {
                 m_func_decl(f),
                 m_cube(c),
                 m_parent_rule(r),
-                m_parent_nodes(n)
-            {}
+                m_parent_nodes(n) {}
         };
 
         context&               m_ctx;         // main context where (fixedpoint) constraints are stored.
@@ -567,24 +569,24 @@ namespace datalog {
 
             // store ground body and instantiations
             rule_info info(conj);
-            vector<expr_ref_vector>& preds = info.m_preds;
-
-            // store instantiation for body applications
-            for (unsigned i = 0; i < usz; ++i) {
-                expr_ref_vector tails = app_inst_preds(r->get_tail(i), rule_subst);
-                STRACE("predabst", tout << "  tails[" << i << "]: "; print_expr_ref_vector(tout, tails););
-                preds.push_back(tails);
-            }
+            expr_ref_vector& head_preds = info.m_head_preds;
+            vector<expr_ref_vector>& body_preds_vector = info.m_body_preds;
 
             // store instantiation for non-query head
-            // Note that cart_pred_abst_rule relies on the fact that this is added last!
             if (!rules.is_output_predicate(r->get_decl())) {
                 expr_ref_vector heads = app_inst_preds(r->get_head(), rule_subst);
                 for (unsigned i = 0; i < heads.size(); ++i) {
                     heads[i] = m.mk_not(heads[i].get());
                 }
                 STRACE("predabst", tout << "  heads: "; print_expr_ref_vector(tout, heads););
-                preds.push_back(heads);
+                head_preds.swap(heads);
+            }
+
+            // store instantiation for body applications
+            for (unsigned i = 0; i < usz; ++i) {
+                expr_ref_vector tails = app_inst_preds(r->get_tail(i), rule_subst);
+                STRACE("predabst", tout << "  tails[" << i << "]: "; print_expr_ref_vector(tout, tails););
+                body_preds_vector.push_back(tails);
             }
 
             m_rule2info.push_back(info);
@@ -745,21 +747,20 @@ namespace datalog {
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         bool cart_pred_abst_rule(unsigned r_id, cube_t& cube, node_vector const& nodes = node_vector()) {
             STRACE("predabst", tout << "Applying rule " << r_id; if (nodes.size()) tout << " to nodes " << nodes; tout << "\n";);
-            // get instantiated predicates
-            vector<expr_ref_vector> const& preds_vector = m_rule2info[r_id].m_preds;
-            CASSERT("predabst", preds_vector.size() == nodes.size() || preds_vector.size() == nodes.size() + 1);
             scoped_push _push1(m_solver);
             m_solver.assert_expr(m_rule2info[r_id].m_body);
+            // get instantiated predicates
+            vector<expr_ref_vector> const& body_preds_vector = m_rule2info[r_id].m_body_preds;
+            CASSERT("predabst", body_preds_vector.size() == nodes.size());
             // load abstract states for nodes
             for (unsigned pos = 0; pos < nodes.size(); ++pos) {
                 cube_t& pos_cube = m_node2info[nodes[pos]].m_cube;
-                expr_ref_vector const& body_preds = preds_vector[pos];
+                expr_ref_vector const& body_preds = body_preds_vector[pos];
                 for (unsigned i = 0; i < body_preds.size(); ++i) {
                     if (pos_cube[i]) {
                         m_solver.assert_expr(body_preds[i]);
                     }
                 }
-
             }
             if (m_solver.check() == l_false) {
                 // unsat body
@@ -767,7 +768,7 @@ namespace datalog {
                 return false;
             }
             // collect abstract cube
-            expr_ref_vector const& head_preds = preds_vector.back();
+            expr_ref_vector const& head_preds = m_rule2info[r_id].m_head_preds;
             cube.resize(head_preds.size());
             for (unsigned i = 0; i < head_preds.size(); ++i) {
                 scoped_push _push2(m_solver);
@@ -874,7 +875,7 @@ namespace datalog {
 
         // Returns whether c1 implies c2, or in other words, whether the set
         // represented by c1 is a (non-strict) subset of that represented by c2.
-        bool cube_leq(cube_t const& c1, cube_t const& c2) const {
+        static bool cube_leq(cube_t const& c1, cube_t const& c2) {
             CASSERT("predabst", c1.size() == c2.size());
             unsigned size = c1.size();
             for (unsigned i = 0; i < size; ++i) {
@@ -889,11 +890,17 @@ namespace datalog {
             return true;
         }
 
+        bool refine_unreachable(core_tree_info const& core_info, rule_set const& rules) {
+            refine_cand_info allrels_info(m);
+            core_clauses clauses = mk_core_clauses(core_info, rules, allrels_info);
+            vector<refine_pred_info> interpolants = solve_clauses(clauses, m);
+            return refine_preds(allrels_info, interpolants);
+        }
+
         bool refine_t_reach(unsigned node_id, rule_set const& rules) {
             expr_ref cs = mk_leaf(expr_ref_vector(m), node_id, rules);
             expr_ref imp(m.mk_not(cs), m);
-            bool result = m_template.constrain_template(imp);
-            return result;
+            return m_template.constrain_template(imp);
         }
 
         bool refine_t_wf(unsigned node_id, rule_set const& rules) {
@@ -933,15 +940,7 @@ namespace datalog {
             expr_ref decrease_cs(m);
             well_founded_cs(head_args, bound_cs, decrease_cs);
             expr_ref to_solve(m.mk_or(m.mk_not(cs), m.mk_and(bound_cs, decrease_cs)), m);
-            bool result = m_template.constrain_template(to_solve);
-            return result;
-        }
-
-        bool refine_unreachable(core_tree_info const& core_info, rule_set const& rules) {
-            refine_cand_info allrels_info(m);
-            core_clauses clauses = mk_core_clauses(core_info, rules, allrels_info);
-            vector<refine_pred_info> interpolants = solve_clauses2(clauses, m);
-            return refine_preds(allrels_info, interpolants);
+            return m_template.constrain_template(to_solve);
         }
 
         bool refine_preds(refine_cand_info const& allrels_info, vector<refine_pred_info> const& interpolants) {
@@ -1303,10 +1302,12 @@ namespace datalog {
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {
                 out << "inst " << r_id << ": "
                     << mk_pp(m_rule2info[r_id].m_body, m) << std::endl;
-                vector<expr_ref_vector> const& preds_vector = m_rule2info[r_id].m_preds;
-                for (unsigned i = 0; i < preds_vector.size(); ++i) {
-                    out << "  #" << i << "(" << preds_vector[i].size() << "): ";
-                    print_expr_ref_vector(out, preds_vector[i]);
+                out << "  head: ";
+                print_expr_ref_vector(out, m_rule2info[r_id].m_head_preds);
+                vector<expr_ref_vector> const& body_preds_vector = m_rule2info[r_id].m_body_preds;
+                for (unsigned i = 0; i < body_preds_vector.size(); ++i) {
+                    out << "  body #" << i << ": ";
+                    print_expr_ref_vector(out, body_preds_vector[i]);
                 }
             }
             out << "rule dependency" << std::endl;

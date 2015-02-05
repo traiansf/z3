@@ -58,10 +58,6 @@ struct refine_cand_info {
     void display(std::ostream& out) const;
 };
 
-unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_pred);
-
-expr_ref_vector get_conj_terms(expr_ref const& conj);
-
 bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref bound, expr_ref decrease);
 
 void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decrease);
@@ -69,12 +65,6 @@ void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decre
 expr_ref_vector get_all_pred_vars(expr_ref const& fml);
 
 vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager& m);
-
-expr_ref mk_disj(expr_ref_vector const& terms);
-
-expr_ref mk_conj(expr_ref_vector const& terms);
-
-expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2);
 
 void display_core_tree(std::ostream& out, core_tree const& m_core_tree);
 

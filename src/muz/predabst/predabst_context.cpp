@@ -16,6 +16,7 @@ Author:
 Revision History:
 
 --*/
+#include "predabst_util.h"
 #include "farkas_util.h"
 #include "predabst_context.h"
 #include "dl_context.h"
@@ -941,6 +942,30 @@ namespace datalog {
             well_founded_cs(head_args, bound_cs, decrease_cs);
             expr_ref to_solve(m.mk_or(m.mk_not(cs), m.mk_and(bound_cs, decrease_cs)), m);
             return m_template.constrain_template(to_solve);
+        }
+
+        static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& pred_vars) {
+            for (unsigned j = 0; j < pred_vars.size(); j++) {
+                if (!args.contains(pred_vars.get(j))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        static unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_preds) {
+            unsigned new_preds_added = 0;
+            for (unsigned i = 0; i < interpolants.size(); i++) {
+                if (is_args_pred(args, interpolants.get(i).pred_vars)) {
+                    expr_ref const& in_pred = interpolants.get(i).pred;
+                    expr_ref in_pred2(replace_pred(args, vars, in_pred), in_pred.m());
+                    if (!in_preds.contains(in_pred2)) {
+                        in_preds.push_back(in_pred2);
+                        ++new_preds_added;
+                    }
+                }
+            }
+            return new_preds_added;
         }
 
         bool refine_preds(refine_cand_info const& allrels_info, vector<refine_pred_info> const& interpolants) {

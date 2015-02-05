@@ -16,6 +16,7 @@ Author:
 Revision History:
 
 --*/
+#include "predabst_util.h"
 #include "farkas_util.h"
 #include "th_rewriter.h"
 #include "arith_decl_plugin.h"
@@ -43,7 +44,6 @@ struct lambda_kind {
 
 static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref& constraint_st, bool mk_lambda_kinds, vector<lambda_kind>& all_lambda_kinds);
 static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m);
-static expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* pred, ast_manager& m);
 static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
 
 template<class T>
@@ -95,23 +95,6 @@ static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, exp
             get_all_terms(expr_ref(facts[i].get(), term.m()), vars, var_facts, const_facts, has_params);
         }
     }
-}
-
-static void get_conj_terms(expr* conj, ast_manager &m, expr_ref_vector& terms) {
-    if (m.is_and(conj)) {
-        for (unsigned i = 0; i < to_app(conj)->get_num_args(); i++) {
-            get_conj_terms(to_app(conj)->get_arg(i), m, terms);
-        }
-    }
-    else {
-        terms.push_back(expr_ref(conj, m));
-    }
-}
-
-expr_ref_vector get_conj_terms(expr_ref const& conj) {
-    expr_ref_vector terms(conj.m());
-    get_conj_terms(conj, conj.m(), terms);
-    return terms;
 }
 
 class farkas_pred {
@@ -514,169 +497,6 @@ private:
     }
 };
 
-static bool exists_valid(expr_ref const& formula, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref const& constraint_st);
-
-static vector<expr_ref_vector> cnf_to_dnf_struct(vector<vector<expr_ref_vector> > const& cnf_sets) {
-    CASSERT("predabst", cnf_sets.size() >= 2);
-    vector<expr_ref_vector> result(cnf_sets.get(0));
-    for (unsigned k = 1; k < cnf_sets.size(); ++k) {
-        vector<expr_ref_vector> sub_result;
-        for (unsigned i = 0; i < result.size(); ++i) {
-            for (unsigned j = 0; j < cnf_sets.get(k).size(); ++j) {
-                expr_ref_vector entry(result[i]);
-                entry.append(cnf_sets.get(k)[j]);
-                sub_result.push_back(entry);
-            }
-        }
-        result = sub_result;
-    }
-
-    return result;
-}
-
-static expr_ref neg_expr(expr_ref const& fml) {
-    ast_manager& m = fml.get_manager();
-    reg_decl_plugins(m);
-    arith_util a(m);
-    expr *e1, *e2;
-
-    expr_ref new_formula(m);
-
-    if (m.is_true(fml)) {
-        new_formula = m.mk_false();
-    }
-    else if (m.is_false(fml)) {
-        new_formula = m.mk_true();
-    }
-    else if (m.is_eq(fml, e1, e2)) {
-        new_formula = m.mk_or(a.mk_lt(e1, e2), a.mk_gt(e1, e2));
-    }
-    else if (a.is_lt(fml, e1, e2)) {
-        new_formula = a.mk_ge(e1, e2);
-    }
-    else if (a.is_le(fml, e1, e2)) {
-        new_formula = a.mk_gt(e1, e2);
-    }
-    else if (a.is_gt(fml, e1, e2)) {
-        new_formula = a.mk_le(e1, e2);
-    }
-    else if (a.is_ge(fml, e1, e2)) {
-        new_formula = a.mk_lt(e1, e2);
-    }
-    else {
-        new_formula = fml;
-    }
-    return new_formula;
-}
-
-static vector<expr_ref_vector> to_dnf_struct(expr_ref const& fml) {
-    expr_ref_vector sub_formulas(fml.m());
-    if (fml.m().is_and(fml)) {
-        vector<vector<expr_ref_vector> > dnf_sub_structs;
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            dnf_sub_structs.push_back(to_dnf_struct(expr_ref(sub_formulas[i].get(), fml.m())));
-        }
-        return cnf_to_dnf_struct(dnf_sub_structs);
-    }
-    else {
-        vector<expr_ref_vector> dnf_struct;
-        if (fml.m().is_or(fml)) {
-            sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-            for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-                dnf_struct.append(to_dnf_struct(expr_ref(sub_formulas[i].get(), fml.m())));
-            }
-        }
-        else {
-            expr_ref_vector tmp(fml.m());
-            tmp.push_back(fml);
-            dnf_struct.push_back(tmp);
-        }
-        return dnf_struct;
-    }
-}
-
-static expr_ref non_neg_formula(expr_ref const& fml);
-
-static expr_ref neg_formula(expr_ref const& fml) {
-    ast_manager& m = fml.get_manager();
-    expr_ref_vector sub_formulas(m);
-    expr_ref_vector new_sub_formulas(m);
-    if (m.is_and(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas[i].get(), m)));
-        }
-        expr_ref ee1(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee1;
-    }
-    else if (m.is_or(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas[i].get(), m)));
-        }
-        expr_ref ee2(m.mk_and(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee2;
-    }
-    else if (m.is_not(fml)) {
-        expr_ref ee3(to_app(fml)->get_arg(0), m);
-        expr_ref ee5(non_neg_formula(ee3));
-        return ee5;
-    }
-    else {
-        expr_ref ee4(neg_expr(fml), m);
-        return ee4;
-    }
-}
-
-static expr_ref non_neg_formula(expr_ref const& fml) {
-    ast_manager& m = fml.get_manager();
-    expr_ref_vector sub_formulas(m);
-    expr_ref_vector new_sub_formulas(m);
-    if (m.is_and(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas[i].get(), m)));
-        }
-        expr_ref ee1(m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee1;
-    }
-    else if (m.is_or(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas[i].get(), m)));
-        }
-        expr_ref ee2(m.mk_or(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee2;
-    }
-    else if (m.is_not(fml)) {
-        expr_ref ee3(to_app(fml)->get_arg(0), m);
-        expr_ref ee5(neg_formula(ee3));
-        return ee5;
-    }
-    else {
-        return fml;
-    }
-}
-
-static expr_ref neg_and_2dnf(expr_ref const& fml) {
-    vector<expr_ref_vector> dnf_struct;
-    dnf_struct = to_dnf_struct(neg_formula(fml));
-    expr_ref_vector disjs(fml.m());
-    for (unsigned i = 0; i < dnf_struct.size(); ++i) {
-        smt_params new_param;
-        smt::kernel solver(fml.m(), new_param);
-        expr_ref conj(fml.m().mk_and(dnf_struct[i].size(), dnf_struct[i].c_ptr()), fml.m());
-
-        solver.assert_expr(conj);
-        if (solver.check() == l_true) {
-            disjs.push_back(conj);
-        }
-        solver.reset();
-    }
-    return expr_ref(fml.m().mk_or(disjs.size(), disjs.c_ptr()), fml.m());
-}
-
 static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref& constraint_st) {
     ast_manager& m = fml.m();
     expr_ref norm_fml = neg_and_2dnf(fml);
@@ -935,6 +755,7 @@ static void display_core_clause2(std::ostream& out, ast_manager& m, core_clauses
     }
 }
 
+// XXX use print_expr_ref_vector instead
 static void display_expr_ref_vector(std::ostream& out, expr_ref_vector const& vect) {
     out << "expr vect --> [";
     for (unsigned i = 0; i < vect.size(); i++) {
@@ -1070,125 +891,6 @@ vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager&
     }
 
     return interpolants;
-}
-
-static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& pred_vars) {
-    for (unsigned j = 0; j < pred_vars.size(); j++) {
-        if (!args.contains(pred_vars.get(j))) {
-            return false;
-        }
-    }
-    return true;
-}
-
-unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_preds) {
-    unsigned new_preds_added = 0;
-    for (unsigned i = 0; i < interpolants.size(); i++) {
-        if (is_args_pred(args, interpolants.get(i).pred_vars)) {
-            expr_ref const& in_pred = interpolants.get(i).pred;
-            expr_ref in_pred2(replace_pred(args, vars, in_pred, in_pred.m()), in_pred.m());
-            if (!in_preds.contains(in_pred2)) {
-                in_preds.push_back(in_pred2);
-                ++new_preds_added;
-            }
-        }
-    }
-    return new_preds_added;
-}
-
-static expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* pred, ast_manager& m) {
-    arith_util arith(m);
-    CASSERT("predabst", is_app(pred));
-    expr* e1;
-    expr* e2;
-    if (m.is_eq(pred, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        expr* ee2 = replace_pred(args, vars, e2, m);
-        return m.mk_eq(ee1, ee2);
-    }
-    else if (arith.is_le(pred, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        expr* ee2 = replace_pred(args, vars, e2, m);
-        return arith.mk_le(ee1, ee2);
-    }
-    else if (arith.is_ge(pred, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        expr* ee2 = replace_pred(args, vars, e2, m);
-        return arith.mk_ge(ee1, ee2);
-    }
-    else if (arith.is_lt(pred, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        expr* ee2 = replace_pred(args, vars, e2, m);
-        return arith.mk_lt(ee1, ee2);
-    }
-    else if (arith.is_gt(pred, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        expr* ee2 = replace_pred(args, vars, e2, m);
-        return arith.mk_gt(ee1, ee2);
-    }
-    else if (arith.is_add(pred, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        expr* ee2 = replace_pred(args, vars, e2, m);
-        return arith.mk_add(ee1, ee2);
-    }
-    else if (arith.is_mul(pred, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        expr* ee2 = replace_pred(args, vars, e2, m);
-        return arith.mk_mul(ee1, ee2);
-    }
-    else if (m.is_not(pred, e1)) {
-        expr* ee1 = replace_pred(args, vars, e1, m);
-        return m.mk_not(ee1);
-    }
-    else if (to_app(pred)->get_num_args() == 0) {
-        for (unsigned i = 0; i < args.size(); i++) {
-            if (args.get(i) == pred) {
-                return vars.get(i);
-            }
-        }
-        return pred;
-    }
-    else {
-        STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(pred, m) << "\n";);
-        UNREACHABLE();
-        return nullptr;
-    }
-}
-
-expr_ref mk_disj(expr_ref_vector const& terms) {
-    if (terms.size() == 0) {
-        return expr_ref(terms.m().mk_false(), terms.m());
-    }
-    else if (terms.size() == 1) {
-        return expr_ref(terms.get(0), terms.m());
-    }
-    else {
-        return expr_ref(terms.m().mk_or(terms.size(), terms.c_ptr()), terms.m());
-    }
-}
-
-expr_ref mk_conj(expr_ref_vector const& terms) {
-    if (terms.size() == 0) {
-        return expr_ref(terms.m().mk_true(), terms.m());
-    }
-    else if (terms.size() == 1) {
-        return expr_ref(terms.get(0), terms.m());
-    }
-    else {
-        return expr_ref(terms.m().mk_and(terms.size(), terms.c_ptr()), terms.m());
-    }
-}
-
-expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2) {
-    if (term1.m().is_true(term1)) {
-        return term2;
-    }
-    else if (term1.m().is_true(term2)) {
-        return term1;
-    }
-    else {
-        return expr_ref(term1.m().mk_and(term1, term2), term1.m());
-    }
 }
 
 static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym, vector<bool> const& cube, unsigned r_id, vector<unsigned> const& parent_nodes) {

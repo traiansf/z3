@@ -23,7 +23,6 @@ Revision History:
 #include "var_subst.h"
 #include <map>
 
-typedef std::pair<unsigned, func_decl*> name2symbol;
 typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
 typedef vector<std::pair<func_decl*, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;

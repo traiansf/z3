@@ -52,6 +52,7 @@ namespace datalog {
         typedef obj_map<func_decl, vars_preds> func_decl2vars_preds;
         typedef obj_map<func_decl, uint_set> func_decl2rule_set;
         typedef obj_map<func_decl, node_set> func_decl2node_set;
+        typedef std::pair<unsigned, func_decl*> name2symbol;
 
         struct rule_info {
             expr_ref                m_body;
@@ -67,13 +68,14 @@ namespace datalog {
             cube_t      m_cube;
             unsigned    m_parent_rule;
             node_vector m_parent_nodes;
-            node_info() {}
-            node_info(func_decl* f, cube_t const& c, unsigned r, node_vector n) :
-                m_func_decl(f),
-                m_cube(c),
-                m_parent_rule(r),
-                m_parent_nodes(n) {}
+            node_info(func_decl* func_decl, cube_t const& cube, unsigned parent_rule, node_vector const& parent_nodes) :
+                m_func_decl(func_decl),
+                m_cube(cube),
+                m_parent_rule(parent_rule),
+                m_parent_nodes(parent_nodes) {}
         };
+
+        static const unsigned NON_NODE = UINT_MAX;
 
         context&               m_ctx;         // main context where (fixedpoint) constraints are stored.
         ast_manager&           m;             // manager for ASTs. It is used for managing expressions
@@ -93,6 +95,33 @@ namespace datalog {
         vector<rule_info>      m_rule2info;
         vector<node_info>      m_node2info;
         node_set               m_node_worklist;
+
+        typedef enum { reached_query, not_wf } acr_error_kind;
+
+        struct acr_error {
+            unsigned       m_node;
+            acr_error_kind m_kind;
+            acr_error(unsigned node, acr_error_kind kind) :
+                m_node(node),
+                m_kind(kind) {}
+        };
+
+        struct core_tree_info {
+            unsigned            m_root_id;
+            unsigned            m_last_name;
+            unsigned            m_last_node_tid;
+            unsigned            m_pos;
+            vector<name2symbol> m_name_map;
+            core_tree           m_core;
+            core_tree_info() {}
+            core_tree_info(unsigned root_id, unsigned last_name, unsigned last_node_tid, unsigned pos, vector<name2symbol> const& name_map, core_tree const& core) :
+                m_root_id(root_id),
+                m_last_name(last_name),
+                m_last_node_tid(last_node_tid),
+                m_pos(pos),
+                m_name_map(name_map),
+                m_core(core) {}
+        };
 
     public:
         imp(context& ctx) :
@@ -258,48 +287,6 @@ namespace datalog {
         }
 
     private:
-
-        static const unsigned NON_NODE = UINT_MAX;
-
-        typedef enum { reach, wf } acr_error_kind;
-
-        struct reached_query {
-            unsigned m_node;
-            acr_error_kind m_kind;
-            reached_query(unsigned node, acr_error_kind kind) : m_node(node), m_kind(kind) {}
-        };
-
-        struct core_tree_info {
-            unsigned root_id;
-            unsigned last_name;
-            unsigned last_node_tid;
-            unsigned pos;
-            vector<name2symbol> name_map;
-            core_tree core;
-
-            core_tree_info() {}
-
-            core_tree_info(unsigned in_root_id, unsigned in_last_name, unsigned in_last_node_tid, unsigned in_pos,
-                vector<name2symbol> in_name_map, core_tree in_core) {
-                root_id = in_root_id;
-                last_name = in_last_name;
-                last_node_tid = in_last_node_tid;
-                pos = in_pos;
-                name_map = in_name_map;
-                core = in_core;
-            }
-
-            void display(std::ostream& out) const {
-                out << "root_id: " << root_id << ", last_name: " << last_name << ", last_id: " << last_node_tid << ", critical pos: " << pos << "\n";
-                out << "name_map: [";
-                for (unsigned i = 0; i < name_map.size(); i++) {
-                    out << " " << name_map.get(i).first << "-" << name_map.get(i).second->get_name();
-                }
-                out << "]\n";
-                out << "core size: " << core.size() << "\n";
-                display_core_tree(out, core);
-            }
-        };
 
         // Apply a substitution vector to an expression, returning the result.
         expr_ref apply_subst(expr* expr, expr_ref_vector const& subst) {
@@ -505,7 +492,7 @@ namespace datalog {
                     STRACE("predabst", tout << "Worklist empty: result is SAT\n";);
                     return l_false;
                 }
-                catch (reached_query& exc) {
+                catch (acr_error const& exc) {
                     // Our attempt to find a solution failed.
                     unsigned node_id = exc.m_node;
                     STRACE("predabst", print_trace(tout, node_id););
@@ -526,12 +513,12 @@ namespace datalog {
                         // we can refine the templates, we have a proof of
                         // unsatisfiability.
                         bool result;
-                        if (exc.m_kind == reach) {
+                        if (exc.m_kind == reached_query) {
                             STRACE("predabst", tout << "Refining templates (reachable)\n";);
                             result = refine_t_reach(node_id, rules);
                         }
                         else {
-                            CASSERT("predabst", exc.m_kind == wf);
+                            CASSERT("predabst", exc.m_kind == not_wf);
                             STRACE("predabst", tout << "Refining templates (WF)\n";);
                             result = refine_t_wf(node_id, rules);
                         }
@@ -783,7 +770,7 @@ namespace datalog {
         void check_node_property(rule_set const& rules, unsigned id) {
             if (id != NON_NODE && rules.is_output_predicate(m_node2info[id].m_func_decl)) {
                 STRACE("predabst", tout << "Reached query symbol " << m_node2info[id].m_func_decl << "\n";);
-                throw reached_query(id, reach);
+                throw acr_error(id, reached_query);
             }
             if (id != NON_NODE && is_wf_predicate(m_node2info[id].m_func_decl)) {
                 check_well_founded(id);
@@ -830,7 +817,7 @@ namespace datalog {
                 STRACE("predabst", tout << "=====================================\n";);
                 STRACE("predabst", tout << "Formula is not well-founded!\n";);
                 STRACE("predabst", tout << "=====================================\n";);
-                throw reached_query(r_id, wf);
+                throw acr_error(r_id, not_wf);
             }
         }
 
@@ -944,30 +931,6 @@ namespace datalog {
             return m_template.constrain_template(to_solve);
         }
 
-        static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& pred_vars) {
-            for (unsigned j = 0; j < pred_vars.size(); j++) {
-                if (!args.contains(pred_vars.get(j))) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        static unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_preds) {
-            unsigned new_preds_added = 0;
-            for (unsigned i = 0; i < interpolants.size(); i++) {
-                if (is_args_pred(args, interpolants.get(i).pred_vars)) {
-                    expr_ref const& in_pred = interpolants.get(i).pred;
-                    expr_ref in_pred2(replace_pred(args, vars, in_pred), in_pred.m());
-                    if (!in_preds.contains(in_pred2)) {
-                        in_preds.push_back(in_pred2);
-                        ++new_preds_added;
-                    }
-                }
-            }
-            return new_preds_added;
-        }
-
         bool refine_preds(refine_cand_info const& allrels_info, vector<refine_pred_info> const& interpolants) {
             STRACE("predabst", tout << "Found " << interpolants.size() << " interpolants\n";);
             unsigned new_preds_added = 0;
@@ -993,6 +956,30 @@ namespace datalog {
             return (new_preds_added > 0);
         }
 
+        static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& pred_vars) {
+            for (unsigned j = 0; j < pred_vars.size(); j++) {
+                if (!args.contains(pred_vars.get(j))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_preds) {
+            unsigned new_preds_added = 0;
+            for (unsigned i = 0; i < interpolants.size(); i++) {
+                if (is_args_pred(args, interpolants.get(i).pred_vars)) {
+                    expr_ref const& in_pred = interpolants.get(i).pred;
+                    expr_ref in_pred2(replace_pred(args, vars, in_pred), m);
+                    if (!in_preds.contains(in_pred2)) {
+                        in_preds.push_back(in_pred2);
+                        ++new_preds_added;
+                    }
+                }
+            }
+            return new_preds_added;
+        }
+
         bool mk_core_tree(rule_set const& rules, unsigned node_id, core_tree_info &core_info) {
             try {
                 smt_params new_param;
@@ -1002,7 +989,7 @@ namespace datalog {
                 mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, rules, solver, 0, names, core);
                 return false;
             }
-            catch (core_tree_info &core_info2) {
+            catch (core_tree_info const& core_info2) {
                 core_info = core_info2;
                 return true;
             }
@@ -1104,11 +1091,11 @@ namespace datalog {
         core_clauses mk_core_clauses(core_tree_info const& core_info, rule_set const& rules, refine_cand_info &allrels_info) {
             expr_ref_vector last_vars(m);
             core_clauses clauses;
-            mk_core_clauses_internal(core_info.root_id, expr_ref_vector(m), core_info.last_name, core_info.core, rules, last_vars, clauses, allrels_info);
-            expr_ref_vector body = last_clause_body(last_vars, core_info.pos, core_info.last_node_tid, rules);
+            mk_core_clauses_internal(core_info.m_root_id, expr_ref_vector(m), core_info.m_last_name, core_info.m_core, rules, last_vars, clauses, allrels_info);
+            expr_ref_vector body = last_clause_body(last_vars, core_info.m_pos, core_info.m_last_node_tid, rules);
             expr_ref cs = mk_conj(body);
-            STRACE("predabst", tout << "mk_core_clauses: adding final clause " << core_info.last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
-            clauses.insert(std::make_pair(core_info.last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
+            STRACE("predabst", tout << "mk_core_clauses: adding final clause " << core_info.m_last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
+            clauses.insert(std::make_pair(core_info.m_last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
             return clauses;
         }
 

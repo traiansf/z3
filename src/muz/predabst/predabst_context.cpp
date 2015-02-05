@@ -28,6 +28,52 @@ Revision History:
 
 namespace datalog {
 
+    struct refine_cand_info {
+        typedef std::pair<func_decl*, vector<expr_ref_vector> > refine_cand_rel_info;
+
+        vector<refine_cand_rel_info> m_allrels_info;
+
+        void insert(func_decl* sym, expr_ref_vector const& args);
+
+        unsigned get_size() const {
+            return m_allrels_info.size();
+        }
+
+        refine_cand_rel_info const& get_info(unsigned i) const {
+            return m_allrels_info.get(i);
+        }
+
+        void display(std::ostream& out) const;
+    };
+
+    void refine_cand_info::insert(func_decl* sym, expr_ref_vector const& args) {
+        for (unsigned i = 0; i < m_allrels_info.size(); i++) {
+            if (m_allrels_info.get(i).first == sym) {
+                m_allrels_info.get(i).second.push_back(args);
+                return;
+            }
+        }
+        vector<expr_ref_vector> new_args;
+        new_args.push_back(args);
+        m_allrels_info.push_back(std::make_pair(sym, new_args));
+    }
+
+    void refine_cand_info::display(std::ostream& out) const {
+        for (unsigned i = 0; i < m_allrels_info.size(); i++) {
+            refine_cand_rel_info const& info = m_allrels_info.get(i);
+            out << "refine_cand_info: " << i << ": " << info.first->get_name() << " -[ ";
+            for (unsigned j = 0; j < info.second.size(); j++) {
+                expr_ref_vector const& v = info.second.get(j);
+                out << "usage " << j << " -[ ";
+                for (unsigned k = 0; k < v.size(); k++) {
+                    out << mk_pp(v.get(k), v.m()) << " ";
+                }
+                out << " ] ";
+            }
+            out << " ] \n";
+        }
+    }
+
     class predabst::imp {
         struct stats {
             stats() { reset(); }
@@ -880,7 +926,7 @@ namespace datalog {
         }
 
         bool refine_unreachable(core_tree_info const& core_info, rule_set const& rules) {
-            refine_cand_info allrels_info(m);
+            refine_cand_info allrels_info;
             core_clauses clauses = mk_core_clauses(core_info, rules, allrels_info);
             vector<refine_pred_info> interpolants = solve_clauses(clauses, m);
             return refine_preds(allrels_info, interpolants);
@@ -897,7 +943,7 @@ namespace datalog {
             expr_ref_vector head_args = get_fresh_head_args(r, "s");
             core_clauses2 clauses;
             expr_ref to_wf(m.mk_true(), m);
-            refine_cand_info to_refine_cand_info(m);
+            refine_cand_info to_refine_cand_info;
             mk_core_tree_WF(r->get_decl(), head_args, node_id, rules, clauses, to_wf, to_refine_cand_info);
             to_refine_cand_info.insert(r->get_decl(), head_args);
 
@@ -936,15 +982,15 @@ namespace datalog {
             STRACE("predabst", tout << "Found " << interpolants.size() << " interpolants\n";);
             unsigned new_preds_added = 0;
             if (interpolants.size() > 0) {
-                for (unsigned i = 0; i < allrels_info.get_info().size(); i++) {
+                for (unsigned i = 0; i < allrels_info.get_size(); i++) {
                     for (unsigned j = 0; j < m_func_decls.size(); j++) {
                         func_decl *fd = to_func_decl(m_func_decls.get(j));
-                        if (allrels_info.get_info().get(i).first == fd) {
+                        if (allrels_info.get_info(i).first == fd) {
                             vars_preds vp;
                             bool found = m_func_decl2vars_preds.find(fd, vp);
                             CASSERT("predabst", found);
                             expr_ref_vector vars(m, fd->get_arity(), vp.first);
-                            vector<expr_ref_vector> rel_info = allrels_info.get_info().get(i).second;
+                            vector<expr_ref_vector> rel_info = allrels_info.get_info(i).second;
                             for (unsigned k = 0; k < rel_info.size(); k++) {
                                 new_preds_added += get_interpolant_pred(rel_info.get(k), vars, interpolants, *vp.second);
                             }

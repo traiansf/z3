@@ -981,18 +981,6 @@ bool rel_template_suit::constrain_template(expr_ref const& fml) {
     return false;
 }
 
-void refine_cand_info::insert(func_decl* sym, expr_ref_vector const& args) {
-    for (unsigned i = 0; i < m_allrels_info.size(); i++) {
-        if (m_allrels_info.get(i).first == sym) {
-            m_allrels_info.get(i).second.push_back(args);
-            return;
-        }
-    }
-    vector<expr_ref_vector> new_args;
-    new_args.push_back(args);
-    m_allrels_info.push_back(std::make_pair(sym, new_args));
-}
-
 void rel_template_suit::display(std::ostream& out) const {
     out << "templates: " << m_rel_templates.size() << "\n";
     for (unsigned i = 0; i < m_rel_templates.size(); i++) {
@@ -1027,18 +1015,4 @@ void refine_pred_info::display(std::ostream& out) const {
         out << " " << mk_pp(pred_vars.get(i), pred.m());
     }
     out << "]\n";
-}
-
-void refine_cand_info::display(std::ostream& out) const {
-    for (unsigned i = 0; i < m_allrels_info.size(); i++) {
-        out << "refine_cand_info: " << i << ": " << m_allrels_info.get(i).first->get_name() << " -[ ";
-        for (unsigned j = 0; j < m_allrels_info.get(i).second.size(); j++) {
-            out << "usage " << j << " -[ ";
-            for (unsigned k = 0; k < m_allrels_info.get(i).second.get(j).size(); k++) {
-                out << mk_pp(m_allrels_info.get(i).second.get(j).get(k), m) << " ";
-            }
-            out << " ] ";
-        }
-        out << " ] \n";
-    }
 }

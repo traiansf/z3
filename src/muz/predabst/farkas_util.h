@@ -39,23 +39,6 @@ struct refine_pred_info {
     void display(std::ostream& out) const;
 };
 
-struct refine_cand_info {
-    typedef vector<std::pair<func_decl*, vector<expr_ref_vector> > > refine_cand_rels_info;
-
-    refine_cand_rels_info m_allrels_info;
-    ast_manager& m;
-
-    refine_cand_info(ast_manager& in_m) : m(in_m) {}
-
-    void insert(func_decl* sym, expr_ref_vector const& args);
-
-    refine_cand_rels_info const& get_info() const {
-        return m_allrels_info;
-    }
-
-    void display(std::ostream& out) const;
-};
-
 bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref bound, expr_ref decrease);
 
 void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decrease);

@@ -819,28 +819,28 @@ namespace datalog {
         bool refine_t(rule_set const& rules, reached_query reached_error) {
             unsigned node_id = reached_error.m_node;
             try {
-                if (reached_error.m_kind == reach) {
-                    STRACE("predabst", tout << "Refining templates (reachable)\n";);
-                    return refine_t_reach(node_id, rules);
-                }
-                else {
-                    STRACE("predabst", tout << "Refining templates (WF)\n";);
-                    return refine_t_wf(node_id, rules);
-                }
+                smt_params new_param;
+                smt::kernel solver(m, new_param);
+                vector<name2symbol> names;
+                core_tree core;
+                mk_core_tree(0, expr_ref_vector(m), node_id, 0, rules, solver, 0, names, core);
             }
             catch (core_to_throw& from_throw) {
                 STRACE("predabst", tout << "Refining templates (unreachable)\n";);
                 return refine_unreachable(from_throw, node_id, rules);
             }
+
+            if (reached_error.m_kind == reach) {
+                STRACE("predabst", tout << "Refining templates (reachable)\n";);
+                return refine_t_reach(node_id, rules);
+            }
+            else {
+                STRACE("predabst", tout << "Refining templates (WF)\n";);
+                return refine_t_wf(node_id, rules);
+            }
         }
 
         bool refine_t_reach(unsigned node_id, rule_set const& rules) {
-            smt_params new_param;
-            smt::kernel solver(m, new_param);
-            vector<name2symbol> names;
-            core_tree core;
-            mk_core_tree(0, expr_ref_vector(m), node_id, 0, rules, solver, 0, names, core);
-            STRACE("predabst", "mk_core_tree returned; attempting template refinement\n";);
             // If we reach here (i.e. if mk_core_tree didn't throw a
             // core_to_throw exception), then even without abstraction, the
             // least fixed point is "too large", and we are done (unless it's
@@ -853,14 +853,6 @@ namespace datalog {
         }
 
         bool refine_t_wf(unsigned node_id, rule_set const& rules) {
-            smt_params new_param;
-            smt::kernel solver(m, new_param);
-            vector<name2symbol> names;
-            core_tree core;
-            mk_core_tree(0, expr_ref_vector(m), node_id, 0, rules, solver, 0, names, core);
-            STRACE("predabst", "mk_core_tree returned; attempting other stuff...\n";);
-            // XXX The above is identical to the start of refine_t_reach; factor out?
-
             rule* r = rules.get_rule(m_node2info[node_id].m_parent_rule);
             expr_ref_vector head_args = get_fresh_head_args(r, "s");
             core_clauses2 clauses;

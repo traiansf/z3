@@ -1154,6 +1154,18 @@ static expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& va
     }
 }
 
+expr_ref mk_disj(expr_ref_vector const& terms) {
+    if (terms.size() == 0) {
+        return expr_ref(terms.m().mk_false(), terms.m());
+    }
+    else if (terms.size() == 1) {
+        return expr_ref(terms.get(0), terms.m());
+    }
+    else {
+        return expr_ref(terms.m().mk_or(terms.size(), terms.c_ptr()), terms.m());
+    }
+}
+
 expr_ref mk_conj(expr_ref_vector const& terms) {
     if (terms.size() == 0) {
         return expr_ref(terms.m().mk_true(), terms.m());

@@ -70,6 +70,8 @@ expr_ref_vector get_all_pred_vars(expr_ref const& fml);
 
 vector<refine_pred_info> solve_clauses2(core_clauses const& clauses, ast_manager& m);
 
+expr_ref mk_disj(expr_ref_vector const& terms);
+
 expr_ref mk_conj(expr_ref_vector const& terms);
 
 expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2);

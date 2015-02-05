@@ -190,31 +190,35 @@ namespace datalog {
                 end_decl = m_func_decl2max_reach_node_set.end();
                 it_decl != end_decl; ++it_decl) {
                 if (it_decl->m_key->get_arity() == 0) {
-                    throw default_exception("predabst::get_model zero arity");
-                }
-                expr_ref_vector disj(m);
-                vars_preds vp;
-                if (m_func_decl2vars_preds.find(it_decl->m_key, vp)) {
-                    expr_ref_vector const& preds = *vp.second;
-                    for (node_set::iterator it_node = it_decl->m_value.begin(),
-                        end_node = it_decl->m_value.end(); it_node != end_node;
-                        ++it_node) {
-                        cube_t const& cube = m_node2info[*it_node].m_cube;
-                        expr_ref_vector conj(m);
-                        for (unsigned i = 0; i < cube.size(); ++i) {
-                            if (cube[i]) {
-                                conj.push_back(preds[i]);
-                            }
-                        }
-                        disj.push_back(m.mk_and(conj.size(), conj.c_ptr()));
-                    }
+                    md->register_decl(it_decl->m_key, m.mk_true());
                 }
                 else {
-                    disj.push_back(m.mk_true());
+                    vars_preds vp;
+                    expr_ref e(m);
+                    if (m_func_decl2vars_preds.find(it_decl->m_key, vp)) {
+                        expr_ref_vector disj(m);
+                        expr_ref_vector const& preds = *vp.second;
+                        for (node_set::iterator it_node = it_decl->m_value.begin(),
+                            end_node = it_decl->m_value.end(); it_node != end_node;
+                            ++it_node) {
+                            cube_t const& cube = m_node2info[*it_node].m_cube;
+                            expr_ref_vector conj(m);
+                            for (unsigned i = 0; i < cube.size(); ++i) {
+                                if (cube[i]) {
+                                    conj.push_back(preds[i]);
+                                }
+                            }
+                            disj.push_back(mk_conj(conj));
+                        }
+                        e = mk_disj(disj);
+                    }
+                    else {
+                        e = m.mk_true();
+                    }
+                    func_interp* fi = alloc(func_interp, m, it_decl->m_key->get_arity());
+                    fi->set_else(e);
+                    md->register_decl(it_decl->m_key, fi);
                 }
-                func_interp* fi = alloc(func_interp, m, it_decl->m_key->get_arity());
-                fi->set_else(m.mk_or(disj.size(), disj.c_ptr()));
-                md->register_decl(it_decl->m_key, fi);
             }
             func_decl_set false_func_decls;
             // unreachable body predicates are false
@@ -842,6 +846,7 @@ namespace datalog {
                     // if cube implies existing cube then nothing to add
                     if (cube_leq(cube, old_cube)) {
                         STRACE("predabst", tout << "New node is subsumed by node " << *it << "\n";);
+                        CASSERT("predabst", old_lt_nodes.size() == 0);
                         return NON_NODE;
                     }
                     // stronger old cubes will not be considered maximal
@@ -868,14 +873,20 @@ namespace datalog {
             return added_id;
         }
 
-        // return whether c1 implies c2
+        // Returns whether c1 implies c2, or in other words, whether the set
+        // represented by c1 is a (non-strict) subset of that represented by c2.
         bool cube_leq(cube_t const& c1, cube_t const& c2) const {
+            CASSERT("predabst", c1.size() == c2.size());
             unsigned size = c1.size();
             for (unsigned i = 0; i < size; ++i) {
                 if (c2[i] && !c1[i]) {
                     return false;
                 }
             }
+            // This algorithm is sufficient because cubes are not arbitrary
+            // subsets of the predicate list: if a predicate in the list is
+            // implied by the other predicates in the cube, then it must also be
+            // in the cube.
             return true;
         }
 
@@ -883,7 +894,6 @@ namespace datalog {
             expr_ref cs = mk_leaf(expr_ref_vector(m), node_id, rules);
             expr_ref imp(m.mk_not(cs), m);
             bool result = m_template.constrain_template(imp);
-            STRACE("predabst", tout << "Template refinement " << (result ? "was" : "was not") << " successful\n";);
             return result;
         }
 
@@ -925,7 +935,6 @@ namespace datalog {
             well_founded_cs(head_args, bound_cs, decrease_cs);
             expr_ref to_solve(m.mk_or(m.mk_not(cs), m.mk_and(bound_cs, decrease_cs)), m);
             bool result = m_template.constrain_template(to_solve);
-            STRACE("predabst", tout << "Template refinement " << (result ? "was" : "was not") << " successful\n";);
             return result;
         }
 

@@ -857,10 +857,12 @@ namespace datalog {
             expr_ref_vector const& preds_set = *vp.second;
             expr_ref to_rank(m.mk_true(), m);
             for (unsigned i = 0; i < cube.size(); i++) {
-                STRACE("predabst", tout << "check_well_founded: considered cube " << mk_pp(preds_set[i], m) << "\n";);
                 if (cube[i]) {
                     to_rank = mk_conj(to_rank, expr_ref(preds_set[i], m));
                     STRACE("predabst", tout << "check_well_founded: used cube " << mk_pp(preds_set[i], m) << "\n";);
+                }
+                else {
+                    STRACE("predabst", tout << "check_well_founded: did not use cube " << mk_pp(preds_set[i], m) << "\n";);
                 }
             }
             expr_ref_vector subst_vars(m);
@@ -871,19 +873,12 @@ namespace datalog {
             to_rank = apply_subst(to_rank, subst_vars); // >>> subst_vars is NOT a substitution vector!
             subst_vars.reverse(); // >>> huh?
             expr_ref bound(m), decrease(m);
-            if (well_founded(subst_vars, to_rank, bound, decrease)) {
-                STRACE("predabst", tout << "=====================================\n";);
-                STRACE("predabst", tout << "Formula is well-founded!\n";);
-                STRACE("predabst", tout << "=====================================\n";);
-                STRACE("predabst", tout << "bound: predabst " << mk_pp(bound, m) << "\n";);
-                STRACE("predabst", tout << "decrease: in predabst " << mk_pp(decrease, m) << "\n";);
-            }
-            else {
-                STRACE("predabst", tout << "=====================================\n";);
-                STRACE("predabst", tout << "Formula is not well-founded!\n";);
-                STRACE("predabst", tout << "=====================================\n";);
+            if (!well_founded(subst_vars, to_rank, bound, decrease)) {
+                STRACE("predabst", tout << "Formula is not well-founded\n";);
                 throw acr_error(r_id, not_wf);
             }
+
+            STRACE("predabst", tout << "Formula is well-founded: bound " << mk_pp(bound, m) << "; decrease " << mk_pp(decrease, m) << "\n";);
         }
 
         unsigned add_node(func_decl* sym, cube_t const& cube, unsigned r_id, node_vector const& nodes = node_vector()) {

@@ -267,6 +267,7 @@ namespace datalog {
                 it_decl = m_func_decl2max_reach_node_set.begin(),
                 end_decl = m_func_decl2max_reach_node_set.end();
                 it_decl != end_decl; ++it_decl) {
+                CASSERT("predabst", it_decl->m_value.begin() != it_decl->m_value.end());
                 if (it_decl->m_key->get_arity() == 0) {
                     md->register_decl(it_decl->m_key, m.mk_true());
                 }
@@ -665,6 +666,7 @@ namespace datalog {
                 cube_t cube;
                 if (cart_temp_pred_abst_rule(m_template.get_template_instances().get(i), m_template.get_orig_templates().get(i), cube)) {
                     add_node(m_template.get_orig_templates().get(i).m_head->get_decl(), cube, inst_r_id, node_vector());
+                    // XXX Why no check_node_property here?
                     inst_r_id++;
                 }
                 else {
@@ -706,41 +708,11 @@ namespace datalog {
                 }
                 STRACE("predabst-cprod", tout << "This node (" << current_id << ") can be used in positions " << current_poss << "\n";);
 
-                node_set current_pos_singleton;
-                current_pos_singleton.insert(current_id);
-
                 // current_id is put on each appropriate position
                 for (uint_set::iterator current_pos = current_poss.begin(), current_pos_end = current_poss.end(); current_pos != current_pos_end; ++current_pos) {
                     STRACE("predabst-cprod", tout << "Using this node in position " << *current_pos << "\n";);
-                    // create set of combinations of nodes to apply the rule
-                    vector<node_vector> nodes_set;
-                    nodes_set.push_back(node_vector()); // XXX reserve space in this vector, for efficiency?
-
-                    // grow node combinations as cartesian product with nodes at pos
-                    for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
-                        node_set& pos_nodes = (*current_pos == pos) ? current_pos_singleton : m_func_decl2max_reach_node_set[r->get_decl(pos)];
-                        STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
-                        unsigned orig_nodes_set_size = nodes_set.size();
-                        // compute cartesian product
-                        // first, store the product with first node in place
-                        node_set::iterator pos_node = pos_nodes.begin();
-                        for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
-                            STRACE("predabst-cprod", tout << "Adding " << *pos_node << " to existing set " << nodes_set[nodes_set_offset] << "\n";);
-                            nodes_set[nodes_set_offset].push_back(*pos_node);
-                        }
-                        ++pos_node;
-                        // then, product for rest nodes goes into additional vectors
-                        for (node_set::iterator pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
-                            for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
-                                STRACE("predabst-cprod", tout << "Using " << *pos_node << " instead of last element of existing set " << nodes_set[nodes_set_offset] << "\n";);
-                                node_vector tmp = nodes_set[nodes_set_offset];
-                                tmp.back() = *pos_node;
-                                nodes_set.push_back(tmp);
-                            }
-                        }
-                    }
-
-                    // apply rule on each node combination
+                    // apply rule on each possible combination of nodes
+                    vector<node_vector> nodes_set = build_cartesian_product(r, current_id, *current_pos);
                     for (vector<node_vector>::iterator nodes = nodes_set.begin(), nodes_end = nodes_set.end(); nodes != nodes_end; ++nodes) {
                         CASSERT("predabst", nodes->size() == r->get_uninterpreted_tail_size());
                         cube_t cube;
@@ -754,6 +726,41 @@ namespace datalog {
             }
             //STRACE("predabst", tout << "Finished performing inference from node " << current_id << "\n";);
         }
+
+        vector<node_vector> build_cartesian_product(rule* r, unsigned node, unsigned current_pos) {
+            vector<node_vector> nodes_set;
+            nodes_set.push_back(node_vector()); // XXX reserve space in this vector, for efficiency?
+
+            node_set current_pos_singleton;
+            current_pos_singleton.insert(node);
+
+            // grow node combinations as cartesian product with nodes at pos
+            for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
+                node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2max_reach_node_set[r->get_decl(pos)];
+                STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
+                unsigned orig_nodes_set_size = nodes_set.size();
+                // compute cartesian product
+                // first, store the product with first node in place
+                node_set::iterator pos_node = pos_nodes.begin();
+                for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
+                    STRACE("predabst-cprod", tout << "Adding " << *pos_node << " to existing set " << nodes_set[nodes_set_offset] << "\n";);
+                    nodes_set[nodes_set_offset].push_back(*pos_node);
+                }
+                ++pos_node;
+                // then, product for rest nodes goes into additional vectors
+                for (node_set::iterator pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
+                    for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
+                        STRACE("predabst-cprod", tout << "Using " << *pos_node << " instead of last element of existing set " << nodes_set[nodes_set_offset] << "\n";);
+                        node_vector tmp = nodes_set[nodes_set_offset];
+                        tmp.back() = *pos_node;
+                        nodes_set.push_back(tmp);
+                    }
+                }
+            }
+
+            return nodes_set;
+        }
+
 
         bool cart_temp_pred_abst_rule(rel_template instance, rel_template orig_temp, cube_t& cube) {
             vars_preds vp;

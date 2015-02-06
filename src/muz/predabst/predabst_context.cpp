@@ -202,27 +202,12 @@ namespace datalog {
 
             // Some of the rules are actually declarations of predicate lists,
             // templates and extra constraints on templates.  Find these, and
-            // remove them from the rule set.
-            ptr_vector<rule> to_delete;
-            for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
-                rule* r = rules.get_rule(i);
-                if (is_predicate_list(r)) {
-                    collect_predicate_list(r);
-                    to_delete.push_back(r);
-                }
-                else if (is_template(r)) {
-                    collect_template(r);
-                    to_delete.push_back(r);
-                }
-                else if (is_template_extra(r)) {
-                    collect_template_extra(r);
-                    to_delete.push_back(r);
-                }
-            }
-
-            for (unsigned i = 0; !m_cancel && i < to_delete.size(); ++i) {
-                rules.del_rule(to_delete[i]);
-            }
+            // remove them from the rule set.  Note that we must process the
+            // extra template constraints before the templates, in order that we
+            // know how many extra arguments each template has.
+            process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
+            process_special_rules(rules, is_template_extra, &imp::collect_template_extra);
+            process_special_rules(rules, is_template, &imp::collect_template);
 
             STRACE("predabst", tout << "After extracting predicates and templates:\n"; rules.display(tout););
             m_template.init_template_instantiate();
@@ -370,7 +355,22 @@ namespace datalog {
             return inst;
         }
 
-        bool is_predicate_list(rule const* r) const {
+        void process_special_rules(rule_set& rules, bool(*p)(rule const*), void (imp::*f)(rule const*)) {
+            ptr_vector<rule> to_delete;
+            for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
+                rule* r = rules.get_rule(i);
+                if (p(r)) {
+                    (this->*f)(r);
+                    to_delete.push_back(r);
+                }
+            }
+
+            for (unsigned i = 0; !m_cancel && i < to_delete.size(); ++i) {
+                rules.del_rule(to_delete[i]);
+            }
+        }
+
+        static bool is_predicate_list(rule const* r) {
             return r->get_decl()->get_name().str().substr(0, 8) == "__pred__";
         }
 
@@ -411,7 +411,39 @@ namespace datalog {
             m_func_decl2vars_preds.insert(suffix_decl, std::make_pair(r->get_head()->get_args(), preds));
         }
 
-        bool is_template(rule const* r) const {
+        static bool is_template_extra(rule const* r) {
+            return r->get_decl()->get_name() == "__temp__extra__";
+        }
+
+        void collect_template_extra(rule const* r) {
+            CASSERT("predabst", is_template_extra(r));
+            // r is a rule of the form:
+            //  ??? => __temp__extra__
+            // Treat ??? as an extra template constraint.
+            func_decl* head_decl = r->get_decl();
+            STRACE("predabst", tout << "Found extra template constraint\n";);
+
+            if (false /* XXX TBD */) {
+                STRACE("predabst", tout << "Error: found multiple extra template constraints\n";);
+                throw default_exception("found multiple extra template constraints");
+            }
+
+            if (r->get_tail_size() != 1) {
+                STRACE("predabst", tout << "Error: extra template constraint tail size is " << r->get_tail_size() << " but should be 1\n";);
+                throw default_exception("extra template constraint has tail of length != 1");
+            }
+
+            expr_ref_vector extra_subst(m);
+            extra_subst.reserve(head_decl->get_arity());
+            for (unsigned i = 0; i < head_decl->get_arity(); ++i) {
+                extra_subst[i] = m.mk_fresh_const("b", arith_util(m).mk_int());
+            }
+            expr_ref extras = apply_subst(r->get_tail(0), extra_subst);
+            STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
+            m_template.process_template_extra(extra_subst, extras);
+        }
+
+        static bool is_template(rule const* r) {
             return r->get_decl()->get_name().str().substr(0, 8) == "__temp__";
         }
 
@@ -458,38 +490,6 @@ namespace datalog {
             expr_ref body2 = apply_subst(r->get_tail(0), all_subst);
             STRACE("predabst", tout << " template: " << mk_pp(suffix_app2, m) << "; " << mk_pp(body2, m) << "\n";);
             m_template.process_template(suffix_decl, rel_template(suffix_app2, body2), temp_subst);
-        }
-
-        bool is_template_extra(rule const* r) const {
-            return r->get_decl()->get_name() == "__temp__extra__";
-        }
-
-        void collect_template_extra(rule const* r) {
-            CASSERT("predabst", is_template_extra(r));
-            // r is a rule of the form:
-            //  ??? => __temp__extra__
-            // Treat ??? as an extra template constraint.
-            func_decl* head_decl = r->get_decl();
-            STRACE("predabst", tout << "Found extra template constraint\n";);
-
-            if (false /* XXX TBD */) {
-                STRACE("predabst", tout << "Error: found multiple extra template constraints\n";);
-                throw default_exception("found multiple extra template constraints");
-            }
-
-            if (r->get_tail_size() != 1) {
-                STRACE("predabst", tout << "Error: extra template constraint tail size is " << r->get_tail_size() << " but should be 1\n";);
-                throw default_exception("extra template constraint has tail of length != 1");
-            }
-
-            expr_ref_vector extra_subst(m);
-            extra_subst.reserve(head_decl->get_arity());
-            for (unsigned i = 0; i < head_decl->get_arity(); ++i) {
-                extra_subst[i] = m.mk_fresh_const("b", arith_util(m).mk_int());
-            }
-            expr_ref extras = apply_subst(r->get_tail(0), extra_subst);
-            STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
-            m_template.process_template_extra(extra_subst, extras);
         }
 
         lbool abstract_check_refine(rule_set const& rules) {

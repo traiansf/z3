@@ -697,7 +697,7 @@ namespace datalog {
             uint_set& current_rules = e_current_rules->get_data().m_value;
             for (uint_set::iterator r_id = current_rules.begin(), r_id_end = current_rules.end(); r_id != r_id_end; ++r_id) {
                 STRACE("predabst", tout << "Attempting to apply rule " << *r_id << "\n";);
-                // Find all positions in the body of the rule at which this
+                // Find all positions in the body of this rule at which the
                 // func_decl appears.
                 rule* r = rules.get_rule(*r_id);
                 uint_set current_poss = get_rule_body_positions(r, current_func_decl);
@@ -738,11 +738,17 @@ namespace datalog {
 
             // grow node combinations as cartesian product with nodes at pos
             for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
+                if (!m_func_decl2max_reach_node_set.contains(r->get_decl(pos))) {
+                    // The Cartesian product with an empty set is the empty set.
+                    nodes_set.reset();
+                    break;
+                }
                 node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2max_reach_node_set[r->get_decl(pos)];
                 STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
                 unsigned orig_nodes_set_size = nodes_set.size();
                 // compute cartesian product
                 // first, store the product with first node in place
+                CASSERT("predabst", pos_nodes.begin() != pos_nodes.end());
                 node_set::iterator pos_node = pos_nodes.begin();
                 for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
                     STRACE("predabst-cprod", tout << "Adding " << *pos_node << " to existing set " << nodes_set[nodes_set_offset] << "\n";);

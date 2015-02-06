@@ -461,26 +461,25 @@ namespace datalog {
         }
 
         bool is_template_extra(rule const* r) const {
-            return r->get_decl()->get_name().str().substr(0, 15) == "__temp__extra__";
+            return r->get_decl()->get_name() == "__temp__extra__";
         }
 
         void collect_template_extra(rule const* r) {
             CASSERT("predabst", is_template_extra(r));
             // r is a rule of the form:
-            //  ??? => __temp__extra__SUFFIX
-            // Treat ??? as an extra template constraint for query symbol SUFFIX.
+            //  ??? => __temp__extra__
+            // Treat ??? as an extra template constraint.
             func_decl* head_decl = r->get_decl();
-            symbol suffix(head_decl->get_name().str().substr(15).c_str());
-            STRACE("predabst", tout << "Found extra template constraint for query symbol " << suffix << "\n";);
+            STRACE("predabst", tout << "Found extra template constraint\n";);
 
             if (false /* XXX TBD */) {
-                STRACE("predabst", tout << "Error: found multiple extra template constraints for " << suffix << "\n";);
-                throw default_exception("found multiple extra template constraints for " + suffix.str());
+                STRACE("predabst", tout << "Error: found multiple extra template constraints\n";);
+                throw default_exception("found multiple extra template constraints");
             }
 
             if (r->get_tail_size() != 1) {
                 STRACE("predabst", tout << "Error: extra template constraint tail size is " << r->get_tail_size() << " but should be 1\n";);
-                throw default_exception("extra template constraint for " + suffix.str() + " has tail of length != 1");
+                throw default_exception("extra template constraint has tail of length != 1");
             }
 
             expr_ref_vector extra_subst(m);
@@ -745,17 +744,16 @@ namespace datalog {
                 }
                 node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2max_reach_node_set[r->get_decl(pos)];
                 STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
+                CASSERT("predabst", pos_nodes.num_elems() != 0);
                 unsigned orig_nodes_set_size = nodes_set.size();
-                // compute cartesian product
-                // first, store the product with first node in place
-                CASSERT("predabst", pos_nodes.begin() != pos_nodes.end());
+                // First, store the product with the first node in-place.
                 node_set::iterator pos_node = pos_nodes.begin();
                 for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
                     STRACE("predabst-cprod", tout << "Adding " << *pos_node << " to existing set " << nodes_set[nodes_set_offset] << "\n";);
                     nodes_set[nodes_set_offset].push_back(*pos_node);
                 }
                 ++pos_node;
-                // then, product for rest nodes goes into additional vectors
+                // Then, the product with each of the remaining nodes goes into additional vectors.
                 for (node_set::iterator pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
                     for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
                         STRACE("predabst-cprod", tout << "Using " << *pos_node << " instead of last element of existing set " << nodes_set[nodes_set_offset] << "\n";);
@@ -840,7 +838,7 @@ namespace datalog {
         }
 
         bool is_wf_predicate(func_decl const* pred) const {
-            return pred->get_name().str().substr(0, 6) == "__wf__";
+            return pred->get_name() == "__wf__";
         }
 
         void check_well_founded(unsigned r_id) {

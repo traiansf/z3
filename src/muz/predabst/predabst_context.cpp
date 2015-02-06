@@ -345,7 +345,7 @@ namespace datalog {
             expr_ref_vector inst(m);
             inst.reserve(n); // note that this is not necessarily the final size of inst
             for (unsigned i = 0; i < n; ++i) {
-                CASSERT("predabst", is_var(vars[i])); // fails if vars[i] is a constant!  This can only happen when there was no predicate list, and so we inserted an empty list above, but when the arguments to the predicate we inserted were not a set of distinct variables
+                CASSERT("predabst", is_var(vars[i]));
                 unsigned idx = to_var(vars[i])->get_idx();
                 if (idx >= inst.size()) {
                     inst.resize(idx + 1);
@@ -421,9 +421,9 @@ namespace datalog {
             //  ??? => __temp__extra__
             // Treat ??? as an extra template constraint.
             func_decl* head_decl = r->get_decl();
-            STRACE("predabst", tout << "Found extra template constraint\n";);
+            STRACE("predabst", tout << "Found extra template constraint with " << head_decl->get_arity() << "parameters\n";);
 
-            if (false /* XXX TBD */) {
+            if (m_template.get_params().size() > 0) {
                 STRACE("predabst", tout << "Error: found multiple extra template constraints\n";);
                 throw default_exception("found multiple extra template constraints");
             }
@@ -433,14 +433,12 @@ namespace datalog {
                 throw default_exception("extra template constraint has tail of length != 1");
             }
 
-            expr_ref_vector extra_subst(m);
-            extra_subst.reserve(head_decl->get_arity());
-            for (unsigned i = 0; i < head_decl->get_arity(); ++i) {
-                extra_subst[i] = m.mk_fresh_const("b", arith_util(m).mk_int());
-            }
+            // Replace the variables corresponding to the extra template parameters with fresh constants.
+            expr_ref_vector extra_params = get_fresh_head_args(r, "b");
+            expr_ref_vector extra_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), extra_params.c_ptr());
             expr_ref extras = apply_subst(r->get_tail(0), extra_subst);
             STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
-            m_template.process_template_extra(extra_subst, extras);
+            m_template.process_template_extra(extra_params, extras);
         }
 
         static bool is_template(rule const* r) {
@@ -456,8 +454,21 @@ namespace datalog {
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
             STRACE("predabst", tout << "Found template for query symbol " << suffix << "\n";);
 
-            CASSERT("predabst", head_decl->get_arity() >= m_template.get_params_count());
-            unsigned new_arity = head_decl->get_arity() - m_template.get_params_count();
+            expr_ref_vector const& extra_params = m_template.get_params();
+            unsigned num_extras = extra_params.size();
+            if (head_decl->get_arity() < num_extras) {
+                STRACE("predabst", tout << "Error: template for " << suffix << " doesn't have enough parameters for the extra template parameters\n";);
+                throw default_exception("template for " + suffix.str() + " has insufficient parameters");
+            }
+
+            unsigned new_arity = head_decl->get_arity() - num_extras;
+            for (unsigned i = 0; i < num_extras; ++i) {
+                if (head_decl->get_domain(new_arity + i) != to_app(extra_params[i])->get_decl()->get_range()) {
+                    STRACE("predabst", tout << "Error: extra parameter " << i << " to template for " << suffix << " is of wrong type\n";);
+                    throw default_exception("extra parameter to template for " + suffix.str() + " is of wrong type");
+                }
+            }
+
             func_decl* suffix_decl = m.mk_func_decl(
                 suffix,
                 new_arity,
@@ -473,23 +484,21 @@ namespace datalog {
                 throw default_exception("template for " + suffix.str() + " has tail of length != 1");
             }
 
-            expr_ref_vector temp_subst(m);
-            temp_subst.reserve(new_arity);
-            for (unsigned i = 0; i < new_arity; ++i) {
-                temp_subst[i] = m.mk_fresh_const("v", arith_util(m).mk_int());
-            }
-            app* suffix_app = m.mk_app(suffix_decl, r->get_head()->get_args());
-            expr_ref body1 = apply_subst(r->get_tail(0), m_template.get_params());
-            STRACE("predabst", tout << "  template SK: " << mk_pp(suffix_app, m) << "; " << mk_pp(body1, m) << "\n";);
-            m_template.process_template_sk(rel_template(suffix_app, body1));
+            // First, replace the variables corresponding to the extra template parameters with their corresponding constants.
+            app* orig_head = m.mk_app(suffix_decl, r->get_head()->get_args());
+            expr_ref_vector extra_subst = build_subst(num_extras, r->get_head()->get_args() + new_arity, extra_params.c_ptr());
+            expr_ref orig_body = apply_subst(r->get_tail(0), extra_subst);
+            STRACE("predabst", tout << "  template SK: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
 
-            expr_ref_vector all_subst(temp_subst);
-            all_subst.append(m_template.get_params());
-            all_subst.reverse();
-            app* suffix_app2 = m.mk_app(suffix_decl, new_arity, temp_subst.c_ptr());
-            expr_ref body2 = apply_subst(r->get_tail(0), all_subst);
-            STRACE("predabst", tout << " template: " << mk_pp(suffix_app2, m) << "; " << mk_pp(body2, m) << "\n";);
-            m_template.process_template(suffix_decl, rel_template(suffix_app2, body2), temp_subst);
+            // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
+            expr_ref_vector query_params = get_fresh_head_args(r, "v", new_arity);
+            app* head = m.mk_app(suffix_decl, query_params.c_ptr());
+            expr_ref_vector all_params = vector_concat(query_params, extra_params);
+            expr_ref_vector all_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), all_params.c_ptr());
+            expr_ref body = apply_subst(r->get_tail(0), all_subst);
+            STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
+
+            m_template.process_template(suffix_decl, rel_template(orig_head, orig_body), rel_template(head, body), query_params);
         }
 
         lbool abstract_check_refine(rule_set const& rules) {
@@ -773,8 +782,8 @@ namespace datalog {
             if (!m_func_decl2vars_preds.find(orig_temp.m_head->get_decl(), vp)) {
                 return false;
             }
-            expr_ref_vector temp_subst2(m_template.get_temp_subst());
-            temp_subst2.reverse();
+            expr_ref_vector temp_subst2(m_template.get_temp_subst()); // >>> what does this think it's getting...?
+            temp_subst2.reverse(); // >>> huh?
             scoped_push _push1(m_solver);
             m_solver.assert_expr(instance.m_body);
             if (m_solver.check() == l_false) {
@@ -863,8 +872,8 @@ namespace datalog {
             for (unsigned i = 0; i < pred->get_arity(); ++i) {
                 subst_vars[i] = m.mk_fresh_const("s", arith_util(m).mk_int());
             }
-            to_rank = apply_subst(to_rank, subst_vars);
-            subst_vars.reverse();
+            to_rank = apply_subst(to_rank, subst_vars); // >>> subst_vars is NOT a substitution vector!
+            subst_vars.reverse(); // >>> huh?
             expr_ref bound(m), decrease(m);
             if (well_founded(subst_vars, to_rank, bound, decrease)) {
                 STRACE("predabst", tout << "=====================================\n";);
@@ -1084,8 +1093,8 @@ namespace datalog {
                 if (m_template.get_orig_template(a, orig_temp_body)) {
                     STRACE("predabst", tout << "mk_core_tree_internal: found template for query symbol " << a->get_decl()->get_name() << "\n";);
                     qargs.append(m_template.get_params());
-                    qargs.reverse();
-                    orig_temp_body = apply_subst(orig_temp_body, qargs);
+                    qargs.reverse(); // >>> huh?
+                    orig_temp_body = apply_subst(orig_temp_body, qargs); // >>> is qargs a substitution vector?
                     expr_ref_vector inst_body_terms = get_conj_terms(orig_temp_body);
                     for (unsigned j = 0; j < inst_body_terms.size(); j++) {
                         solver.assert_expr(inst_body_terms.get(j));
@@ -1132,7 +1141,7 @@ namespace datalog {
                         temp_subst.push_back(rule_subst.get(i));
                     }
                     temp_subst.append(rule_subst);
-                    temp_body = apply_subst(temp_body, temp_subst);
+                    temp_body = apply_subst(temp_body, temp_subst); // >>> is this _really_ a substitution vector?
                     m_template.get_modref().get()->eval(temp_body, inst_body);
                     cs = mk_conj(cs, inst_body);
                 }
@@ -1189,7 +1198,7 @@ namespace datalog {
                     STRACE("predabst", tout << "mk_core_clauses_internal: found template for query symbol " << a->get_decl()->get_name() << "\n";);
                     expr_ref_vector temp_subst(m_template.get_params());
                     temp_subst.append(rule_subst);
-                    orig_temp_body = apply_subst(orig_temp_body, temp_subst);
+                    orig_temp_body = apply_subst(orig_temp_body, temp_subst); // >>> is temp_subst really a substitution vector?
                     m_template.get_modref().get()->eval(orig_temp_body, inst_body);
                     cs = mk_conj(cs, inst_body);
                 }
@@ -1278,17 +1287,21 @@ namespace datalog {
             }
         }
 
-        // Returns a vector of fresh constants of the right type to be arguments to the head of rule r.
-        expr_ref_vector get_fresh_head_args(rule const* r, char const* prefix) {
+        // Returns a vector of fresh constants of the right type to be the first n arguments to the head of rule r.
+        expr_ref_vector get_fresh_head_args(rule const* r, char const* prefix, unsigned n) {
             ptr_vector<sort> free_sorts;
             r->get_vars(m, free_sorts);
-            unsigned num_args = r->get_head()->get_num_args();
             expr_ref_vector head_args(m);
-            head_args.reserve(num_args);
-            for (unsigned i = 0; i < num_args; ++i) {
-                head_args[i] = m.mk_fresh_const(prefix, free_sorts[i]); // XXX this is nonsense; free_sorts[i] is not the type of argument i!
+            head_args.reserve(n);
+            for (unsigned i = 0; i < n; ++i) {
+                head_args[i] = m.mk_fresh_const(prefix, free_sorts[to_var(r->get_head()->get_arg(i))->get_idx()]);
             }
             return head_args;
+        }
+
+        // Returns a vector of fresh constants of the right type to be arguments to the head of rule r.
+        expr_ref_vector get_fresh_head_args(rule const* r, char const* prefix) {
+            return get_fresh_head_args(r, prefix, r->get_head()->get_num_args());
         }
 
         // Returns a substitution vector (i.e. a vector indexed by variable
@@ -1315,6 +1328,8 @@ namespace datalog {
             return rule_subst;
         }
 
+        // >>> this is (obviously) supposed to return a substiution vector.
+        // >>> it does, but the vector contains fresh constants for variables that are not used in r; we should probably avoid those.
         expr_ref_vector get_subst_vect_free(rule const* r, char const* prefix) {
             ptr_vector<sort> free_sorts;
             r->get_vars(m, free_sorts);

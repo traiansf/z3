@@ -75,7 +75,6 @@ class rel_template_suit {
     expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args);
 
     var_subst m_var_subst;
-    expr_ref_vector m_extra_subst;
     expr_ref_vector m_temp_subst;
 
     model_ref m_modref;
@@ -89,23 +88,21 @@ public:
         m_acc(expr_ref(m_rel_manager.mk_true(), m_rel_manager)),
         m_params(m_rel_manager),
         m_var_subst(m_rel_manager, false),
-        m_extra_subst(m_rel_manager),
         m_temp_subst(m_rel_manager) {
     }
 
     void process_template_extra(expr_ref_vector& t_params, expr_ref const& extras) {
+        CASSERT("predabst", m_params.size() == 0);
         m_params.append(t_params);
+        CASSERT("predabst", !m_extras);
         m_extras = extras;
     }
 
-    void process_template(func_decl* head_name, rel_template const& aa, expr_ref_vector const& temp_subst) {
-        m_rel_templates.push_back(aa);
+    void process_template(func_decl* head_name, rel_template const& orig_temp, rel_template const& temp, expr_ref_vector const& query_params) {
         m_names.push_back(head_name);
-        m_temp_subst.append(temp_subst);
-    }
-
-    void process_template_sk(rel_template const& aa) {
-        m_rel_templates_orig.push_back(aa);
+        m_rel_templates_orig.push_back(orig_temp);
+        m_rel_templates.push_back(temp);
+        m_temp_subst.append(query_params); // >>> I don't see how this can possibly be right
     }
 
     void init_template_instantiate();
@@ -127,9 +124,6 @@ public:
 
     bool get_instance(app* head, expr_ref& body, expr_ref_vector& vars);
 
-    unsigned get_params_count() {
-        return m_params.size();
-    }
 
     expr_ref_vector const& get_params() {
         return m_params;

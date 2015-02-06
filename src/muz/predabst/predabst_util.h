@@ -21,6 +21,13 @@ Revision History:
 
 #include "ast.h"
 
+template<typename T, typename TManager>
+inline ref_vector<T, TManager> vector_concat(ref_vector<T, TManager> const& v1, ref_vector<T, TManager> const& v2) {
+    ref_vector<T, TManager> v(v1);
+    v.append(v2);
+    return v;
+}
+
 expr_ref_vector get_conj_terms(expr_ref const& conj);
 
 expr_ref mk_disj(expr_ref_vector const& terms);

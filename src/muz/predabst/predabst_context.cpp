@@ -689,29 +689,23 @@ namespace datalog {
         void inference_step(rule_set const& rules, unsigned current_id) {
             STRACE("predabst", tout << "Performing inference from node " << current_id << "\n";);
             func_decl* current_func_decl = m_node2info[current_id].m_func_decl;
+            // Find all rules whose body contains the func_decl of the new node.
             func_decl2rule_set::obj_map_entry* e_current_rules = m_func_decl2rules.find_core(current_func_decl);
             if (!e_current_rules) {
                 return;
             }
-            //get all rules whose body contains the symbol with a new node
             uint_set& current_rules = e_current_rules->get_data().m_value;
-            //iterate over each rule
             for (uint_set::iterator r_id = current_rules.begin(), r_id_end = current_rules.end(); r_id != r_id_end; ++r_id) {
                 STRACE("predabst", tout << "Attempting to apply rule " << *r_id << "\n";);
-                // positions of current_id among body func_decls
-                uint_set current_poss;
+                // Find all positions in the body of the rule at which this
+                // func_decl appears.
                 rule* r = rules.get_rule(*r_id);
-                for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                    if (r->get_decl(i) == current_func_decl) { // XXX we could precompute this set and store it in m_func_decl2rules
-                        current_poss.insert(i);
-                    }
-                }
-                STRACE("predabst-cprod", tout << "This node (" << current_id << ") can be used in positions " << current_poss << "\n";);
-
-                // current_id is put on each appropriate position
+                uint_set current_poss = get_rule_body_positions(r, current_func_decl);
                 for (uint_set::iterator current_pos = current_poss.begin(), current_pos_end = current_poss.end(); current_pos != current_pos_end; ++current_pos) {
                     STRACE("predabst-cprod", tout << "Using this node in position " << *current_pos << "\n";);
-                    // apply rule on each possible combination of nodes
+                    // Find all possible combinations of nodes that can be used
+                    // with this rule, assuming that the new node is used at
+                    // this position.
                     vector<node_vector> nodes_set = build_cartesian_product(r, current_id, *current_pos);
                     for (vector<node_vector>::iterator nodes = nodes_set.begin(), nodes_end = nodes_set.end(); nodes != nodes_end; ++nodes) {
                         CASSERT("predabst", nodes->size() == r->get_uninterpreted_tail_size());
@@ -721,10 +715,18 @@ namespace datalog {
                         }
                     }
                 }
-
-                //STRACE("predabst", tout << "Finished applying rule " << *r_id << "\n";);
             }
-            //STRACE("predabst", tout << "Finished performing inference from node " << current_id << "\n";);
+        }
+
+        uint_set get_rule_body_positions(rule* r, func_decl* fdecl) {
+            // XXX we could precompute this set and store it in m_func_decl2rules
+            uint_set positions;
+            for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
+                if (r->get_decl(i) == fdecl) {
+                    positions.insert(i);
+                }
+            }
+            return positions;
         }
 
         vector<node_vector> build_cartesian_product(rule* r, unsigned node, unsigned current_pos) {

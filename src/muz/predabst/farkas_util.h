@@ -75,7 +75,6 @@ class rel_template_suit {
     expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args);
 
     var_subst m_var_subst;
-    expr_ref_vector m_temp_subst;
 
     model_ref m_modref;
 
@@ -87,8 +86,7 @@ public:
         m_extra_sol(m_rel_manager),
         m_acc(expr_ref(m_rel_manager.mk_true(), m_rel_manager)),
         m_params(m_rel_manager),
-        m_var_subst(m_rel_manager, false),
-        m_temp_subst(m_rel_manager) {
+        m_var_subst(m_rel_manager, false) {
     }
 
     void process_template_extra(expr_ref_vector& t_params, expr_ref const& extras) {
@@ -98,11 +96,10 @@ public:
         m_extras = extras;
     }
 
-    void process_template(func_decl* head_name, rel_template const& orig_temp, rel_template const& temp, expr_ref_vector const& query_params) {
+    void process_template(func_decl* head_name, rel_template const& orig_temp, rel_template const& temp) {
         m_names.push_back(head_name);
         m_rel_templates_orig.push_back(orig_temp);
         m_rel_templates.push_back(temp);
-        m_temp_subst.append(query_params); // >>> I don't see how this can possibly be right
     }
 
     void init_template_instantiate();
@@ -127,10 +124,6 @@ public:
 
     expr_ref_vector const& get_params() {
         return m_params;
-    }
-
-    expr_ref_vector const& get_temp_subst() {
-        return m_temp_subst;
     }
 
     vector<func_decl*> const& get_names() {

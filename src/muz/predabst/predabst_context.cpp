@@ -498,7 +498,7 @@ namespace datalog {
             expr_ref body = apply_subst(r->get_tail(0), all_subst);
             STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
 
-            m_template.process_template(suffix_decl, rel_template(orig_head, orig_body), rel_template(head, body), query_params);
+            m_template.process_template(suffix_decl, rel_template(orig_head, orig_body), rel_template(head, body));
         }
 
         lbool abstract_check_refine(rule_set const& rules) {
@@ -525,7 +525,10 @@ namespace datalog {
 
                 try {
                     // initial abstract inference
-                    initialize_abs_templates(rules);
+                    unsigned inst_r_id = rules.get_num_rules(); // This is a kind of pseudo- rule id.
+                    for (unsigned i = 0; !m_cancel && i < m_template.get_template_instances().size(); i++) {
+                        initialize_abs_templates(rules, i);
+                    }
                     for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
                         rule* r = rules.get_rule(i);
                         if (r->get_uninterpreted_tail_size() == 0) {
@@ -618,7 +621,7 @@ namespace datalog {
 
             // store instantiation for non-query head
             if (!rules.is_output_predicate(r->get_decl())) {
-                expr_ref_vector heads = app_inst_preds(r->get_head(), rule_subst);
+                expr_ref_vector heads = app_inst_preds(to_app(apply_subst(r->get_head(), rule_subst)));
                 for (unsigned i = 0; i < heads.size(); ++i) {
                     heads[i] = m.mk_not(heads[i].get());
                 }
@@ -628,7 +631,7 @@ namespace datalog {
 
             // store instantiation for body applications
             for (unsigned i = 0; i < usz; ++i) {
-                expr_ref_vector tails = app_inst_preds(r->get_tail(i), rule_subst);
+                expr_ref_vector tails = app_inst_preds(to_app(apply_subst(r->get_tail(i), rule_subst)));
                 STRACE("predabst", tout << "  tails[" << i << "]: "; print_expr_ref_vector(tout, tails););
                 body_preds_vector.push_back(tails);
             }
@@ -642,45 +645,37 @@ namespace datalog {
             }
         }
 
-        // ground arguments of appl using subst, and then instantiate each predicate
-        // by replacing its free variables with grounded arguments of app
-        // Note: subst is vector of constants to substitute for variables 0, 1, ...
-        expr_ref_vector app_inst_preds(app* appl, expr_ref_vector const& subst) {
+        // instantiate each predicate by replacing its free variables with (grounded) arguments of gappl
+        expr_ref_vector app_inst_preds(app* gappl) {
             vars_preds vp;
-            if (!m_func_decl2vars_preds.find(appl->get_decl(), vp)) {
-                STRACE("predabst", tout << "No predicate list found for " << mk_pp(appl->get_decl(), m) << ": inserting an empty list\n";);
+            if (!m_func_decl2vars_preds.find(gappl->get_decl(), vp)) {
+                STRACE("predabst", tout << "No predicate list found for " << mk_pp(gappl->get_decl(), m) << ": inserting an empty list\n";);
                 expr_ref_vector* preds = alloc(expr_ref_vector, m);
-                m_func_decl2vars_preds.insert(appl->get_decl(), std::make_pair(appl->get_args(), preds));
-                m_func_decls.push_back(appl->get_decl());
+                m_func_decl2vars_preds.insert(gappl->get_decl(), std::make_pair(gappl->get_args(), preds));
+                m_func_decls.push_back(gappl->get_decl());
                 return expr_ref_vector(m);
             }
             expr* const* vars = vp.first;
             expr_ref_vector const& preds = *vp.second;
             if (!preds.size()) {
                 return expr_ref_vector(m);
-                // XXX This is a hack to work around the incorrect use of appl->get_args() above, to avoid hitting a to_var crash below.
+                // XXX This is a hack to work around the incorrect use of gappl->get_args() above, to avoid hitting a to_var crash below.
             }
-            // ground appl arguments
-            expr_ref gappl = apply_subst(appl, subst);
             // instantiation maps preds variables to head arguments
             expr_ref_vector inst = build_subst(to_app(gappl)->get_num_args(), vars, to_app(gappl)->get_args());
             // preds instantiates to inst_preds
             return apply_subst(preds, inst);
         }
 
-        void initialize_abs_templates(rule_set const& rules) {
-            unsigned inst_r_id = rules.get_num_rules(); // This is a kind of pseudo- rule id.
-            for (unsigned i = 0; i < m_template.get_template_instances().size(); i++) {
-                cube_t cube;
-                if (cart_temp_pred_abst_rule(m_template.get_template_instances().get(i), m_template.get_orig_templates().get(i), cube)) {
-                    add_node(m_template.get_orig_templates().get(i).m_head->get_decl(), cube, inst_r_id, node_vector());
-                    // XXX Why no check_node_property here?
-                    inst_r_id++;
-                }
-                else {
-                    // XXX Is this reachable?
-                    throw default_exception("m_template.get_template_instances().get(i).m_head");
-                }
+        void initialize_abs_templates(rule_set const& rules, unsigned t_id) {
+            unsigned inst_r_id = rules.get_num_rules() + t_id; // This is a kind of pseudo- rule id.
+            rel_template const& instance = m_template.get_template_instances().get(t_id);
+            STRACE("predabst", tout << "Initializing abs using template " << t_id << "\n";);
+
+            cube_t cube;
+            if (cart_temp_pred_abst_rule(t_id, instance, cube)) {
+                add_node(instance.m_head->get_decl(), cube, inst_r_id);
+                // XXX Why no check_node_property here?
             }
         }
 
@@ -776,27 +771,28 @@ namespace datalog {
             return nodes_set;
         }
 
-
-        bool cart_temp_pred_abst_rule(rel_template instance, rel_template orig_temp, cube_t& cube) {
-            vars_preds vp;
-            if (!m_func_decl2vars_preds.find(orig_temp.m_head->get_decl(), vp)) {
-                return false;
-            }
-            expr_ref_vector temp_subst2(m_template.get_temp_subst()); // >>> what does this think it's getting...?
-            temp_subst2.reverse(); // >>> huh?
+        bool cart_temp_pred_abst_rule(unsigned t_id, rel_template instance, cube_t& cube) {
+            STRACE("predabst", tout << "Applying template " << t_id << "\n";);
             scoped_push _push1(m_solver);
             m_solver.assert_expr(instance.m_body);
             if (m_solver.check() == l_false) {
+                STRACE("predabst", tout << "Template application failed\n";);
                 return false;
             }
-            expr_ref_vector const& preds = *vp.second;
-            cube.resize(preds.size());
-            for (unsigned i = 0; i < preds.size(); ++i) {
-                expr_ref subst_pred = apply_subst(preds[i], temp_subst2);
-                scoped_push _push2(m_solver);
-                m_solver.assert_expr(subst_pred);
-                cube[i] = (m_solver.check() == l_true);
+            vars_preds vp;
+            if (m_func_decl2vars_preds.find(instance.m_head->get_decl(), vp)) {
+                expr* const* vars = vp.first;
+                expr_ref_vector const& preds = *vp.second;
+                expr_ref_vector temp_subst = build_subst(instance.m_head->get_num_args(), vars, instance.m_head->get_args());
+                cube.resize(preds.size());
+                for (unsigned i = 0; i < preds.size(); ++i) {
+                    expr_ref subst_pred = apply_subst(preds[i], temp_subst);
+                    scoped_push _push2(m_solver);
+                    m_solver.assert_expr(subst_pred);
+                    cube[i] = (m_solver.check() == l_true);
+                }
             }
+            STRACE("predabst", tout << "Template application succeeded, with cube " << cube << "\n";);
             return true;
         }
 

@@ -883,9 +883,10 @@ bool rel_template_suit::get_orig_template(app* in_head, expr_ref& body) {
 
 bool rel_template_suit::get_instance(app* head, expr_ref& body, expr_ref_vector& vars) {
     for (unsigned i = 0; i < m_rel_template_instances.size(); i++) {
-        if (m_rel_template_instances[i].m_head->get_decl() == head->get_decl()) {
-            body = m_rel_template_instances[i].m_body;
-            vars.append(m_rel_template_instances[i].m_head->get_decl()->get_arity(), m_rel_template_instances[i].m_head->get_args());
+        rel_template const& instance = m_rel_template_instances[i];
+        if (instance.m_head->get_decl() == head->get_decl()) {
+            body = instance.m_body;
+            vars.append(instance.m_head->get_decl()->get_arity(), instance.m_head->get_args());
             return true;
         }
     }
@@ -903,7 +904,7 @@ bool rel_template_suit::constrain_template(expr_ref const& fml) {
     }
     expr_ref_vector args_coll(m_rel_manager);
     expr_ref c1(subst_template_body(m_acc, m_rel_templates, args_coll), m_rel_manager);
-    args_coll.append(m_temp_subst);
+    //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
     expr_ref constraint_st(m_rel_manager.mk_true(), m_rel_manager);
     vector<lambda_kind> all_lambda_kinds;

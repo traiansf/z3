@@ -853,15 +853,12 @@ static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym
 }
 
 void rel_template_suit::init_template_instantiate() {
-    STRACE("predabst", tout << "init_template_instantiate\n";);
-    if (m_rel_templates.size() == 0) {
-        return;
-    }
-    STRACE("predabst", display(tout););
-    STRACE("predabst", tout << "m_extras  : " << mk_pp(m_extras, m_rel_manager) << "\n";);
+    STRACE("predabst", tout << "init_template_instantiate\n"; display(tout););
     smt_params new_param;
     smt::kernel solver(m_rel_manager, new_param);
-    solver.assert_expr(m_extras);
+    if (m_extras) {
+        solver.assert_expr(m_extras);
+    }
     STRACE("predabst", solver.display(tout););
     if (solver.check() == l_true) {
         solver.get_model(m_modref);
@@ -896,12 +893,11 @@ bool rel_template_suit::get_instance(app* head, expr_ref& body, expr_ref_vector&
 }
 
 bool rel_template_suit::constrain_template(expr_ref const& fml) {
-    if (m_rel_templates.size() == 0) {
+    if (m_rel_templates.size() == 0) { // XXX remove this check eventually
         return false;
     }
-    STRACE("predabst", tout << "constrain_template begin ...\n";);
     reset();
-    STRACE("predabst", display(tout););
+    STRACE("predabst", tout << "constrain_template begin\n"; display(tout););
     if (!fml.m().is_true(fml)) {
         m_acc = fml.m().mk_and(fml, m_acc);
     }
@@ -919,7 +915,9 @@ bool rel_template_suit::constrain_template(expr_ref const& fml) {
         smt::kernel solver(m_rel_manager, new_param);
         solver.assert_expr(constraint_st);
         solver.assert_expr(lambda_cs);
-        solver.assert_expr(m_extras);
+        if (m_extras) {
+            solver.assert_expr(m_extras);
+        }
         if (solver.check() == l_true) {
             model_ref modref;
             solver.get_model(modref);

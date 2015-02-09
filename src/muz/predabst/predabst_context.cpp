@@ -94,7 +94,7 @@ namespace datalog {
         typedef vector<unsigned> node_vector;
         typedef uint_set node_set;
         //typedef uint_set rule_set; // rule_set has another meaning; use node_id_set/rule_id_set?
-        typedef std::pair<expr* const*, expr_ref_vector*> vars_preds;
+        typedef std::pair<expr_ref_vector*, expr_ref_vector*> vars_preds;
         typedef obj_map<func_decl, vars_preds> func_decl2vars_preds;
         typedef obj_map<func_decl, uint_set> func_decl2rule_set;
         typedef obj_map<func_decl, node_set> func_decl2node_set;
@@ -188,6 +188,7 @@ namespace datalog {
         ~imp() {
             for (func_decl2vars_preds::iterator it = m_func_decl2vars_preds.begin(),
                 end = m_func_decl2vars_preds.end(); it != end; ++it) {
+                dealloc(it->m_value.first);
                 dealloc(it->m_value.second);
             }
         }
@@ -199,6 +200,8 @@ namespace datalog {
             STRACE("predabst", tout << "Before making the query:\n"; rules.display(tout););
             rm.mk_query(query, rules);
             STRACE("predabst", tout << "After making the query:\n"; rules.display(tout););
+
+            process_regular_rules(rules);
 
             // Some of the rules are actually declarations of predicate lists,
             // templates and extra constraints on templates.  Find these, and
@@ -247,73 +250,57 @@ namespace datalog {
 
         model_ref get_model() const {
             model_ref md = alloc(model, m);
-            // reachable predicates are concretized
-            for (func_decl2node_set::iterator
-                it_decl = m_func_decl2max_reach_node_set.begin(),
-                end_decl = m_func_decl2max_reach_node_set.end();
-                it_decl != end_decl; ++it_decl) {
-                CASSERT("predabst", it_decl->m_value.begin() != it_decl->m_value.end());
-                if (it_decl->m_key->get_arity() == 0) {
-                    md->register_decl(it_decl->m_key, m.mk_true());
+            rule_set const& rules = m_ctx.get_rules();
+            for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+                func_decl* fdecl = m_func_decls[i];
+                if (rules.is_output_predicate(fdecl)) {
+                    // output predicates are ignored
                 }
-                else {
-                    vars_preds vp;
-                    expr_ref e(m);
-                    if (m_func_decl2vars_preds.find(it_decl->m_key, vp)) {
-                        expr_ref_vector disj(m);
-                        expr_ref_vector const& preds = *vp.second;
-                        for (node_set::iterator it_node = it_decl->m_value.begin(),
-                            end_node = it_decl->m_value.end(); it_node != end_node;
-                            ++it_node) {
-                            cube_t const& cube = m_node2info[*it_node].m_cube;
-                            expr_ref_vector conj(m);
-                            for (unsigned i = 0; i < cube.size(); ++i) {
-                                if (cube[i]) {
-                                    conj.push_back(preds[i]);
-                                }
-                            }
-                            disj.push_back(mk_conj(conj));
-                        }
-                        e = mk_disj(disj);
+                else if (m_func_decl2max_reach_node_set.contains(fdecl)) {
+                    node_set const& nodes = m_func_decl2max_reach_node_set[fdecl];
+                    CASSERT("predabst", nodes.begin() != nodes.end());
+                    // reachable predicates are concretized
+                    if (fdecl->get_arity() == 0) {
+                        md->register_decl(fdecl, m.mk_true());
                     }
                     else {
-                        e = m.mk_true();
+                        expr_ref e(m);
+                        vars_preds vp;
+                        if (m_func_decl2vars_preds.find(fdecl, vp)) {
+                            expr_ref_vector disj(m);
+                            expr_ref_vector const& preds = *vp.second;
+                            for (node_set::iterator it_node = nodes.begin(),
+                                end_node = nodes.end(); it_node != end_node;
+                                ++it_node) {
+                                cube_t const& cube = m_node2info[*it_node].m_cube;
+                                expr_ref_vector conj(m);
+                                for (unsigned i = 0; i < cube.size(); ++i) {
+                                    if (cube[i]) {
+                                        conj.push_back(preds[i]);
+                                    }
+                                }
+                                disj.push_back(mk_conj(conj));
+                            }
+                            e = mk_disj(disj);
+                        }
+                        else {
+                            e = m.mk_true();
+                        }
+                        func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
+                        fi->set_else(e);
+                        md->register_decl(fdecl, fi);
                     }
-                    func_interp* fi = alloc(func_interp, m, it_decl->m_key->get_arity());
-                    fi->set_else(e);
-                    md->register_decl(it_decl->m_key, fi);
-                }
-            }
-            func_decl_set false_func_decls;
-            // unreachable body predicates are false
-            for (func_decl2rule_set::iterator it = m_func_decl2rules.begin(),
-                end = m_func_decl2rules.end(); it != end; ++it) {
-                if (!m_func_decl2max_reach_node_set.contains(it->m_key)) {
-                    false_func_decls.insert(it->m_key);
-                }
-            }
-            // unreachable head predicates are false
-            rule_set const& rules = m_ctx.get_rules();
-            for (rule_set::iterator it = rules.begin(), end = rules.end(); it != end;
-                ++it) {
-                func_decl* head_decl = (*it)->get_decl();
-                if (rules.is_output_predicate(head_decl)) {
-                    continue;
-                }
-                if (!m_func_decl2max_reach_node_set.contains(head_decl)) {
-                    false_func_decls.insert(head_decl);
-                }
-            }
-            for (func_decl_set::iterator it = false_func_decls.begin(),
-                end = false_func_decls.end(); it != end; ++it) {
-                func_decl* d = *it;
-                if (d->get_arity() == 0) {
-                    md->register_decl(d, m.mk_false());
                 }
                 else {
-                    func_interp* fi = alloc(func_interp, m, d->get_arity());
-                    fi->set_else(m.mk_false());
-                    md->register_decl(d, fi);
+                    // unreachable predicates are false
+                    if (fdecl->get_arity() == 0) {
+                        md->register_decl(fdecl, m.mk_false());
+                    }
+                    else {
+                        func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
+                        fi->set_else(m.mk_false());
+                        md->register_decl(fdecl, fi);
+                    }
                 }
             }
             return md;
@@ -355,6 +342,31 @@ namespace datalog {
             return inst;
         }
 
+        static bool is_regular_rule(rule const* r) {
+            return !is_predicate_list(r) && !is_template_extra(r) && !is_template(r);
+        }
+
+        void process_regular_rules(rule_set const& rules) {
+            for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
+                rule* r = rules.get_rule(i);
+                if (is_regular_rule(r)) {
+                    for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
+                        process_func_decl(r->get_tail(i)->get_decl());
+                    }
+                    process_func_decl(r->get_head()->get_decl());
+                }
+            }
+        }
+
+        void process_func_decl(func_decl *fdecl) {
+            if (!m_func_decl2vars_preds.contains(fdecl)) {
+                m_func_decls.push_back(fdecl);
+                expr_ref_vector* vars = get_arg_vars(fdecl);
+                expr_ref_vector* preds = alloc(expr_ref_vector, m);
+                m_func_decl2vars_preds.insert(fdecl, std::make_pair(vars, preds));
+            }
+        }
+
         void process_special_rules(rule_set& rules, bool(*p)(rule const*), void (imp::*f)(rule const*)) {
             ptr_vector<rule> to_delete;
             for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
@@ -388,9 +400,9 @@ namespace datalog {
                 head_decl->get_arity(),
                 head_decl->get_domain(),
                 head_decl->get_range());
-            if (m_func_decls.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found multiple predicate lists for " << suffix << "\n";);
-                throw default_exception("found multiple predicate lists for " + suffix.str());
+            if (!m_func_decl2vars_preds.contains(suffix_decl)) {
+                STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol " << suffix << "\n";);
+                throw default_exception("found predicate list for non-existent query symbol " + suffix.str());
             }
 
             if (r->get_uninterpreted_tail_size() != 0) {
@@ -398,17 +410,17 @@ namespace datalog {
                 throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
             }
 
-            // Add SUFFIX to m_func_decls.
-            m_func_decls.push_back(suffix_decl);
-
-            // Add SUFFIX -> p1..pN to m_func_decl2vars_preds.
-            expr_ref_vector* preds = alloc(expr_ref_vector, m);
-            preds->reserve(r->get_tail_size());
+            // Add p1..pN to m_func_decl2vars_preds[SUFFIX]
+            vars_preds vp;
+            bool found = m_func_decl2vars_preds.find(suffix_decl, vp);
+            CASSERT("predabst", found);
+            expr_ref_vector& vars = *vp.first;
+            expr_ref_vector& preds = *vp.second;
+            expr_ref_vector subst = build_subst(vars.size(), r->get_head()->get_args(), vars.c_ptr());
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(r->get_tail(i), m) << "\n";);
-                (*preds)[i] = r->get_tail(i);
+                preds.push_back(apply_subst(r->get_tail(i), subst));
             }
-            m_func_decl2vars_preds.insert(suffix_decl, std::make_pair(r->get_head()->get_args(), preds));
         }
 
         static bool is_template_extra(rule const* r) {
@@ -434,7 +446,7 @@ namespace datalog {
             }
 
             // Replace the variables corresponding to the extra template parameters with fresh constants.
-            expr_ref_vector extra_params = get_fresh_head_args(r, "b");
+            expr_ref_vector extra_params = get_fresh_args(r->get_decl(), "b");
             expr_ref_vector extra_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), extra_params.c_ptr());
             expr_ref extras = apply_subst(r->get_tail(0), extra_subst);
             STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
@@ -474,6 +486,11 @@ namespace datalog {
                 new_arity,
                 head_decl->get_domain(),
                 head_decl->get_range());
+            if (!m_func_decl2vars_preds.contains(suffix_decl)) {
+                STRACE("predabst", tout << "Error: found template for non-existent query symbol " << suffix << "\n";);
+                throw default_exception("found template for non-existent query symbol " + suffix.str());
+            }
+
             if (m_template.get_names().contains(suffix_decl)) {
                 STRACE("predabst", tout << "Error: found multiple templates for " << suffix << "\n";);
                 throw default_exception("found multiple templates for " + suffix.str());
@@ -491,7 +508,7 @@ namespace datalog {
             STRACE("predabst", tout << "  template SK: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
 
             // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
-            expr_ref_vector query_params = get_fresh_head_args(r, "v", new_arity);
+            expr_ref_vector query_params = get_fresh_args(r->get_decl(), "v", new_arity);
             app* head = m.mk_app(suffix_decl, query_params.c_ptr());
             expr_ref_vector all_params = vector_concat(query_params, extra_params);
             expr_ref_vector all_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), all_params.c_ptr());
@@ -648,21 +665,12 @@ namespace datalog {
         // instantiate each predicate by replacing its free variables with (grounded) arguments of gappl
         expr_ref_vector app_inst_preds(app* gappl) {
             vars_preds vp;
-            if (!m_func_decl2vars_preds.find(gappl->get_decl(), vp)) {
-                STRACE("predabst", tout << "No predicate list found for " << mk_pp(gappl->get_decl(), m) << ": inserting an empty list\n";);
-                expr_ref_vector* preds = alloc(expr_ref_vector, m);
-                m_func_decl2vars_preds.insert(gappl->get_decl(), std::make_pair(gappl->get_args(), preds));
-                m_func_decls.push_back(gappl->get_decl());
-                return expr_ref_vector(m);
-            }
-            expr* const* vars = vp.first;
+            bool found = m_func_decl2vars_preds.find(gappl->get_decl(), vp);
+            CASSERT("predabst", found);
+            expr_ref_vector const& vars = *vp.first;
             expr_ref_vector const& preds = *vp.second;
-            if (!preds.size()) {
-                return expr_ref_vector(m);
-                // XXX This is a hack to work around the incorrect use of gappl->get_args() above, to avoid hitting a to_var crash below.
-            }
             // instantiation maps preds variables to head arguments
-            expr_ref_vector inst = build_subst(to_app(gappl)->get_num_args(), vars, to_app(gappl)->get_args());
+            expr_ref_vector inst = build_subst(vars.size(), vars.c_ptr(), to_app(gappl)->get_args());
             // preds instantiates to inst_preds
             return apply_subst(preds, inst);
         }
@@ -780,17 +788,17 @@ namespace datalog {
                 return false;
             }
             vars_preds vp;
-            if (m_func_decl2vars_preds.find(instance.m_head->get_decl(), vp)) {
-                expr* const* vars = vp.first;
-                expr_ref_vector const& preds = *vp.second;
-                expr_ref_vector temp_subst = build_subst(instance.m_head->get_num_args(), vars, instance.m_head->get_args());
-                cube.resize(preds.size());
-                for (unsigned i = 0; i < preds.size(); ++i) {
-                    expr_ref subst_pred = apply_subst(preds[i], temp_subst);
-                    scoped_push _push2(m_solver);
-                    m_solver.assert_expr(subst_pred);
-                    cube[i] = (m_solver.check() == l_true);
-                }
+            bool found = m_func_decl2vars_preds.find(instance.m_head->get_decl(), vp);
+            CASSERT("predabst", found);
+            expr_ref_vector const& vars = *vp.first;
+            expr_ref_vector const& preds = *vp.second;
+            expr_ref_vector temp_subst = build_subst(vars.size(), vars.c_ptr(), instance.m_head->get_args());
+            cube.resize(preds.size());
+            for (unsigned i = 0; i < preds.size(); ++i) {
+                expr_ref subst_pred = apply_subst(preds[i], temp_subst);
+                scoped_push _push2(m_solver);
+                m_solver.assert_expr(subst_pred);
+                cube[i] = (m_solver.check() == l_true);
             }
             STRACE("predabst", tout << "Template application succeeded, with cube " << cube << "\n";);
             return true;
@@ -850,19 +858,17 @@ namespace datalog {
             func_decl* pred = m_node2info[r_id].m_func_decl;
             cube_t cube = m_node2info[r_id].m_cube;
             vars_preds vp;
-            if (!m_func_decl2vars_preds.find(pred, vp)) {
-                return;
-            }
-            expr* const* vars = vp.first;
-            expr_ref_vector const& preds_set = *vp.second;
+            bool found = m_func_decl2vars_preds.find(pred, vp);
+            CASSERT("predabst", found);
+            expr_ref_vector const& preds = *vp.second;
             expr_ref to_rank(m.mk_true(), m);
             for (unsigned i = 0; i < cube.size(); i++) {
                 if (cube[i]) {
-                    to_rank = mk_conj(to_rank, expr_ref(preds_set[i], m));
-                    STRACE("predabst", tout << "check_well_founded: used cube " << mk_pp(preds_set[i], m) << "\n";);
+                    to_rank = mk_conj(to_rank, expr_ref(preds[i], m));
+                    STRACE("predabst", tout << "check_well_founded: used cube " << mk_pp(preds[i], m) << "\n";);
                 }
                 else {
-                    STRACE("predabst", tout << "check_well_founded: did not use cube " << mk_pp(preds_set[i], m) << "\n";);
+                    STRACE("predabst", tout << "check_well_founded: did not use cube " << mk_pp(preds[i], m) << "\n";);
                 }
             }
             expr_ref_vector subst_vars(m);
@@ -953,7 +959,7 @@ namespace datalog {
 
         bool refine_t_wf(unsigned node_id, rule_set const& rules) {
             rule* r = rules.get_rule(m_node2info[node_id].m_parent_rule);
-            expr_ref_vector head_args = get_fresh_head_args(r, "s");
+            expr_ref_vector head_args = get_fresh_args(r->get_decl(), "s");
             core_clauses2 clauses;
             expr_ref to_wf(m.mk_true(), m);
             refine_cand_info to_refine_cand_info;
@@ -1002,10 +1008,11 @@ namespace datalog {
                             vars_preds vp;
                             bool found = m_func_decl2vars_preds.find(fd, vp);
                             CASSERT("predabst", found);
-                            expr_ref_vector vars(m, fd->get_arity(), vp.first);
+                            expr_ref_vector const& vars = *vp.first;
+                            expr_ref_vector& preds = *vp.second;
                             vector<expr_ref_vector> rel_info = allrels_info.get_info(i).second;
                             for (unsigned k = 0; k < rel_info.size(); k++) {
-                                new_preds_added += get_interpolant_pred(rel_info.get(k), vars, interpolants, *vp.second);
+                                new_preds_added += get_interpolant_pred(rel_info.get(k), vars, interpolants, preds);
                             }
                             break;
                         }
@@ -1278,21 +1285,30 @@ namespace datalog {
             }
         }
 
-        // Returns a vector of fresh constants of the right type to be the first n arguments to the head of rule r.
-        expr_ref_vector get_fresh_head_args(rule const* r, char const* prefix, unsigned n) {
-            ptr_vector<sort> free_sorts;
-            r->get_vars(m, free_sorts);
+        // Returns a vector of fresh constants of the right type to be the first n arguments to fdecl.
+        expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix, unsigned n) {
             expr_ref_vector head_args(m);
             head_args.reserve(n);
             for (unsigned i = 0; i < n; ++i) {
-                head_args[i] = m.mk_fresh_const(prefix, free_sorts[to_var(r->get_head()->get_arg(i))->get_idx()]);
+                head_args[i] = m.mk_fresh_const(prefix, fdecl->get_domain(i));
             }
             return head_args;
         }
 
-        // Returns a vector of fresh constants of the right type to be arguments to the head of rule r.
-        expr_ref_vector get_fresh_head_args(rule const* r, char const* prefix) {
-            return get_fresh_head_args(r, prefix, r->get_head()->get_num_args());
+        
+        // Returns a vector of fresh constants of the right type to be arguments to fdecl.
+        expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix) {
+            return get_fresh_args(fdecl, prefix, fdecl->get_arity());
+        }
+
+        // Returns a vector of variables of the right type to be arguments to fdecl.
+        expr_ref_vector* get_arg_vars(func_decl* fdecl) {
+            expr_ref_vector* arg_vars = alloc(expr_ref_vector, m);
+            arg_vars->reserve(fdecl->get_arity());
+            for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
+                (*arg_vars)[i] = m.mk_var(i, fdecl->get_domain(i)); // >>> do I need to construct a fresh variable name?
+            }
+            return arg_vars;
         }
 
         // Returns a substitution vector (i.e. a vector indexed by variable

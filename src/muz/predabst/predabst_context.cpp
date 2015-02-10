@@ -1051,7 +1051,8 @@ namespace datalog {
                 smt::kernel solver(m, new_param);
                 vector<name2symbol> names;
                 core_tree core;
-                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, solver, 0, names, core);
+                unsigned count;
+                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, solver, count, names, core);
                 return false;
             }
             catch (core_tree_info const& core_info2) {
@@ -1063,7 +1064,7 @@ namespace datalog {
         // Note: root_id is always passed as zero, and never modified or used (except to give to the exception...)
         // Note: all args but the first three should arguably be class members.
         void mk_core_tree_internal(unsigned hname, expr_ref_vector const& hargs, unsigned n_id, unsigned root_id, smt::kernel& solver,
-                                   unsigned count, vector<name2symbol>& names_map, core_tree& core) {
+                                   unsigned& count, vector<name2symbol>& names_map, core_tree& core) {
             STRACE("predabst", tout << "mk_core_tree_internal: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
             node_info const& node = m_node2info[n_id];
             rule* r = m_rule2info[node.m_parent_rule].m_rule;
@@ -1079,7 +1080,16 @@ namespace datalog {
                 }
                 univ_iter++;
             }
-            vector<std::pair<std::pair<unsigned, expr_ref_vector>, unsigned> > todo;
+            struct todo_item {
+                unsigned        m_name;
+                expr_ref_vector m_hargs;
+                unsigned        m_node_id;
+                todo_item(unsigned name, expr_ref_vector const& hargs, unsigned node_id) :
+                    m_name(name),
+                    m_hargs(hargs),
+                    m_node_id(node_id) {}
+            };
+            vector<todo_item> todo;
             vector<unsigned> names;
             for (unsigned i = 0; i < usz; i++) { // Each iteration corresponds to an in-arrow to this node.
                 app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
@@ -1104,12 +1114,13 @@ namespace datalog {
                     count++;
                     names.push_back(count);
                     names_map.insert(std::make_pair(count, qs_i->get_decl())); // maps name id to query symbol decl
-                    todo.push_back(std::make_pair(std::make_pair(count, qargs), node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
+                    todo.push_back(todo_item(count, qargs, node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
                 }
             }
             core.insert(std::make_pair(hname, core_tree_node(n_id, names)));
             for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_tree_internal(todo.get(i).first.first, todo.get(i).first.second, todo.get(i).second, root_id, solver, count, names_map, core);
+                todo_item const& item = todo.get(i);
+                mk_core_tree_internal(item.m_name, item.m_hargs, item.m_node_id, root_id, solver, count, names_map, core);
             }
         }
 

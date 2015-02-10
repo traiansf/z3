@@ -98,7 +98,6 @@ namespace datalog {
         typedef obj_map<func_decl, vars_preds> func_decl2vars_preds;
         typedef obj_map<func_decl, uint_set> func_decl2rule_set;
         typedef obj_map<func_decl, node_set> func_decl2node_set;
-        typedef std::pair<unsigned, func_decl*> name2symbol;
 
         struct rule_info {
             func_decl*              m_func_decl;
@@ -171,15 +170,13 @@ namespace datalog {
             unsigned            m_last_name;
             unsigned            m_last_node_tid;
             unsigned            m_pos;
-            vector<name2symbol> m_name_map;
             core_tree           m_core;
             core_tree_info() {}
-            core_tree_info(unsigned root_id, unsigned last_name, unsigned last_node_tid, unsigned pos, vector<name2symbol> const& name_map, core_tree const& core) :
+            core_tree_info(unsigned root_id, unsigned last_name, unsigned last_node_tid, unsigned pos, core_tree const& core) :
                 m_root_id(root_id),
                 m_last_name(last_name),
                 m_last_node_tid(last_node_tid),
                 m_pos(pos),
-                m_name_map(name_map),
                 m_core(core) {}
         };
 
@@ -1049,10 +1046,9 @@ namespace datalog {
             try {
                 smt_params new_param;
                 smt::kernel solver(m, new_param);
-                vector<name2symbol> names;
                 core_tree core;
                 unsigned count;
-                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, solver, count, names, core);
+                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, solver, count, core);
                 return false;
             }
             catch (core_tree_info const& core_info2) {
@@ -1064,7 +1060,7 @@ namespace datalog {
         // Note: root_id is always passed as zero, and never modified or used (except to give to the exception...)
         // Note: all args but the first three should arguably be class members.
         void mk_core_tree_internal(unsigned hname, expr_ref_vector const& hargs, unsigned n_id, unsigned root_id, smt::kernel& solver,
-                                   unsigned& count, vector<name2symbol>& names_map, core_tree& core) {
+                                   unsigned& count, core_tree& core) {
             STRACE("predabst", tout << "mk_core_tree_internal: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
             node_info const& node = m_node2info[n_id];
             rule* r = m_rule2info[node.m_parent_rule].m_rule;
@@ -1076,7 +1072,7 @@ namespace datalog {
                 app_ref as = apply_subst(r->get_tail(i), rule_subst);
                 solver.assert_expr(as);
                 if (solver.check() == l_false) {
-                    throw core_tree_info(root_id, hname, n_id, univ_iter, names_map, core);
+                    throw core_tree_info(root_id, hname, n_id, univ_iter, core);
                 }
                 univ_iter++;
             }
@@ -1104,7 +1100,7 @@ namespace datalog {
                     for (unsigned j = 0; j < inst_body_terms.size(); j++) {
                         solver.assert_expr(inst_body_terms.get(j));
                         if (solver.check() == l_false) {
-                            throw core_tree_info(root_id, hname, n_id, univ_iter, names_map, core);
+                            throw core_tree_info(root_id, hname, n_id, univ_iter, core);
                         }
                         univ_iter++;
                     }
@@ -1113,14 +1109,13 @@ namespace datalog {
                     STRACE("predabst", tout << "mk_core_tree_internal: no template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
                     count++;
                     names.push_back(count);
-                    names_map.insert(std::make_pair(count, qs_i->get_decl())); // maps name id to query symbol decl
                     todo.push_back(todo_item(count, qargs, node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
                 }
             }
             core.insert(std::make_pair(hname, core_tree_node(n_id, names)));
             for (unsigned i = 0; i < todo.size(); i++) {
                 todo_item const& item = todo.get(i);
-                mk_core_tree_internal(item.m_name, item.m_hargs, item.m_node_id, root_id, solver, count, names_map, core);
+                mk_core_tree_internal(item.m_name, item.m_hargs, item.m_node_id, root_id, solver, count, core);
             }
         }
 

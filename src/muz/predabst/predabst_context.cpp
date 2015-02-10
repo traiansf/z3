@@ -127,11 +127,9 @@ namespace datalog {
 
         struct core_tree_node {
             unsigned         m_node_id;
-            vector<unsigned> m_parent_nodes;
             vector<unsigned> m_names;
-            core_tree_node(unsigned node_id, vector<unsigned> const& parent_nodes, vector<unsigned> const& names) :
+            core_tree_node(unsigned node_id, vector<unsigned> const& names) :
                 m_node_id(node_id),
-                m_parent_nodes(parent_nodes),
                 m_names(names) {}
         };
 
@@ -1109,7 +1107,7 @@ namespace datalog {
                     todo.push_back(std::make_pair(std::make_pair(count, qargs), node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
                 }
             }
-            core.insert(std::make_pair(hname, core_tree_node(n_id, node.m_parent_nodes, names)));
+            core.insert(std::make_pair(hname, core_tree_node(n_id, names)));
             for (unsigned i = 0; i < todo.size(); i++) {
                 mk_core_tree_internal(todo.get(i).first.first, todo.get(i).first.second, todo.get(i).second, root_id, solver, count, names_map, core);
             }
@@ -1378,10 +1376,6 @@ namespace datalog {
                 out << "core_hname: " << core.find(i)->first << ", core_id: " << core.find(i)->second.m_node_id << ", core_ids: [";
                 for (unsigned j = 0; j < core.find(i)->second.m_names.size(); j++) {
                     out << " " << core.find(i)->second.m_names.get(j);
-                }
-                out << "], core_body_names: [";
-                for (unsigned j = 0; j < core.find(i)->second.m_parent_nodes.size(); j++) {
-                    out << " " << core.find(i)->second.m_parent_nodes.get(j);
                 }
                 out << "]\n";
             }

@@ -550,13 +550,12 @@ namespace datalog {
                 }
                 for (unsigned t_id = 0; !m_cancel && t_id < m_template.get_template_instances().size(); ++t_id) {
                     unsigned r_id = rules.get_num_rules() + t_id;
-                    instantiate_template(rules, t_id, r_id);
+                    instantiate_template_rule(rules, t_id, r_id);
                 }
 
                 try {
                     // initial abstract inference
-                    unsigned num_all_rules = rules.get_num_rules() + m_template.get_template_instances().size();
-                    for (unsigned r_id = 0; !m_cancel && r_id < num_all_rules; ++r_id) {
+                    for (unsigned r_id = 0; !m_cancel && r_id < m_rule2info.size(); ++r_id) {
                         if (m_rule2info[r_id].m_body_preds.size() == 0) {
                             initialize_abs(rules, r_id);
                         }
@@ -671,7 +670,7 @@ namespace datalog {
         }
 
         // Sets up m_rule2info for this iteration of the abstract_check_refine loop.
-        void instantiate_template(rule_set const& rules, unsigned t_id, unsigned r_id) {
+        void instantiate_template_rule(rule_set const& rules, unsigned t_id, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating template " << t_id << " (rule " << r_id << ")\n";);
             rel_template const& instance = m_template.get_template_instances().get(t_id);
 

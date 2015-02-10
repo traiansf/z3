@@ -315,6 +315,13 @@ namespace datalog {
             return expr2;
         }
 
+        // Apply a substitution vector to an application expression, returning the result.
+        app_ref apply_subst(app* app, expr_ref_vector const& subst) {
+            expr_ref expr2(m);
+            m_var_subst(app, subst.size(), subst.c_ptr(), expr2);
+            return app_ref(to_app(expr2), m);
+        }
+
         // Apply a substitution vector to each expression in a vector of
         // expressions, returning the result.
         expr_ref_vector apply_subst(expr_ref_vector const& exprs, expr_ref_vector const& subst) {
@@ -448,9 +455,9 @@ namespace datalog {
             // Replace the variables corresponding to the extra template parameters with fresh constants.
             expr_ref_vector extra_params = get_fresh_args(r->get_decl(), "b");
             expr_ref_vector extra_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), extra_params.c_ptr());
-            expr_ref extras = apply_subst(r->get_tail(0), extra_subst);
+            app_ref extras = apply_subst(r->get_tail(0), extra_subst);
             STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
-            m_template.process_template_extra(extra_params, extras);
+            m_template.process_template_extra(extra_params, expr_ref(extras, m));
         }
 
         static bool is_template(rule const* r) {
@@ -504,7 +511,7 @@ namespace datalog {
             // First, replace the variables corresponding to the extra template parameters with their corresponding constants.
             app* orig_head = m.mk_app(suffix_decl, r->get_head()->get_args());
             expr_ref_vector extra_subst = build_subst(num_extras, r->get_head()->get_args() + new_arity, extra_params.c_ptr());
-            expr_ref orig_body = apply_subst(r->get_tail(0), extra_subst);
+            app_ref orig_body = apply_subst(r->get_tail(0), extra_subst);
             STRACE("predabst", tout << "  template SK: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
 
             // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
@@ -512,10 +519,10 @@ namespace datalog {
             app* head = m.mk_app(suffix_decl, query_params.c_ptr());
             expr_ref_vector all_params = vector_concat(query_params, extra_params);
             expr_ref_vector all_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), all_params.c_ptr());
-            expr_ref body = apply_subst(r->get_tail(0), all_subst);
+            app_ref body = apply_subst(r->get_tail(0), all_subst);
             STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
 
-            m_template.process_template(suffix_decl, rel_template(orig_head, orig_body), rel_template(head, body));
+            m_template.process_template(suffix_decl, rel_template(orig_head, expr_ref(orig_body, m)), rel_template(head, expr_ref(body, m)));
         }
 
         lbool abstract_check_refine(rule_set const& rules) {
@@ -638,7 +645,7 @@ namespace datalog {
 
             // store instantiation for non-query head
             if (!rules.is_output_predicate(r->get_decl())) {
-                expr_ref_vector heads = app_inst_preds(to_app(apply_subst(r->get_head(), rule_subst)));
+                expr_ref_vector heads = app_inst_preds(apply_subst(r->get_head(), rule_subst));
                 for (unsigned i = 0; i < heads.size(); ++i) {
                     heads[i] = m.mk_not(heads[i].get());
                 }
@@ -648,7 +655,7 @@ namespace datalog {
 
             // store instantiation for body applications
             for (unsigned i = 0; i < usz; ++i) {
-                expr_ref_vector tails = app_inst_preds(to_app(apply_subst(r->get_tail(i), rule_subst)));
+                expr_ref_vector tails = app_inst_preds(apply_subst(r->get_tail(i), rule_subst));
                 STRACE("predabst", tout << "  tails[" << i << "]: "; print_expr_ref_vector(tout, tails););
                 body_preds_vector.push_back(tails);
             }
@@ -670,7 +677,7 @@ namespace datalog {
             expr_ref_vector const& vars = *vp.first;
             expr_ref_vector const& preds = *vp.second;
             // instantiation maps preds variables to head arguments
-            expr_ref_vector inst = build_subst(vars.size(), vars.c_ptr(), to_app(gappl)->get_args());
+            expr_ref_vector inst = build_subst(vars.size(), vars.c_ptr(), gappl->get_args());
             // preds instantiates to inst_preds
             return apply_subst(preds, inst);
         }
@@ -1074,7 +1081,7 @@ namespace datalog {
             unsigned usz = r->get_uninterpreted_tail_size();
             unsigned tsz = r->get_tail_size();
             for (unsigned i = usz; i < tsz; i++) {
-                expr_ref as = apply_subst(r->get_tail(i), rule_subst);
+                app_ref as = apply_subst(r->get_tail(i), rule_subst);
                 solver.assert_expr(as);
                 if (solver.check() == l_false) {
                     throw core_tree_info(root_id, hname, n_id, univ_iter, names_map, core);
@@ -1084,12 +1091,11 @@ namespace datalog {
             vector<std::pair<std::pair<unsigned, expr_ref_vector>, unsigned> > todo;
             vector<unsigned> names;
             for (unsigned i = 0; i < usz; i++) { // Each iteration corresponds to an in-arrow to this node.
-                expr_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                app *a = to_app(qs_i);
-                expr_ref_vector qargs(m, a->get_decl()->get_arity(), a->get_args());
+                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                 expr_ref orig_temp_body(m);
-                if (m_template.get_orig_template(a, orig_temp_body)) {
-                    STRACE("predabst", tout << "mk_core_tree_internal: found template for query symbol " << a->get_decl()->get_name() << "\n";);
+                if (m_template.get_orig_template(qs_i, orig_temp_body)) {
+                    STRACE("predabst", tout << "mk_core_tree_internal: found template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
                     qargs.append(m_template.get_params());
                     qargs.reverse(); // >>> huh?
                     orig_temp_body = apply_subst(orig_temp_body, qargs); // >>> is qargs a substitution vector?
@@ -1103,10 +1109,10 @@ namespace datalog {
                     }
                 }
                 else {
-                    STRACE("predabst", tout << "mk_core_tree_internal: no template for query symbol " << a->get_decl()->get_name() << "\n";);
+                    STRACE("predabst", tout << "mk_core_tree_internal: no template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
                     count++;
                     names.push_back(count);
-                    names_map.insert(std::make_pair(count, a->get_decl())); // maps name id to query symbol decl
+                    names_map.insert(std::make_pair(count, qs_i->get_decl())); // maps name id to query symbol decl
                     todo.push_back(std::make_pair(std::make_pair(count, qargs), node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
                 }
             }
@@ -1126,14 +1132,13 @@ namespace datalog {
             vector<std::pair<func_decl*, std::pair<expr_ref_vector, unsigned> > > todo;
             expr_ref_vector cl_bs(m);
             for (unsigned i = 0; i < usz; i++) {
-                expr_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                app *a = to_app(qs_i);
-                expr_ref_vector qs_i_vars(m, a->get_decl()->get_arity(), a->get_args());
+                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                expr_ref_vector qs_i_vars(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                 expr_ref inst_body(m), temp_body(m);
-                for (unsigned j = 0; j < a->get_num_args(); j++) {
-                    refine_cand_info_set.insert(a->get_decl(), qs_i_vars);
+                for (unsigned j = 0; j < qs_i->get_num_args(); j++) {
+                    refine_cand_info_set.insert(qs_i->get_decl(), qs_i_vars);
                 }
-                if (m_template.get_orig_template(a, temp_body)) {
+                if (m_template.get_orig_template(qs_i, temp_body)) {
                     expr_ref_vector temp_subst(m);
                     for (unsigned i = 0; i < m_template.get_params().size(); i++) {
                         temp_subst.push_back(rule_subst.get(i));
@@ -1144,7 +1149,7 @@ namespace datalog {
                     cs = mk_conj(cs, inst_body);
                 }
                 else {
-                    todo.push_back(std::make_pair(a->get_decl(), std::make_pair(qs_i_vars, node.m_parent_nodes.get(i))));
+                    todo.push_back(std::make_pair(qs_i->get_decl(), std::make_pair(qs_i_vars, node.m_parent_nodes.get(i))));
                     cl_bs.push_back(qs_i);
                 }
             }
@@ -1183,17 +1188,16 @@ namespace datalog {
             vector<unsigned> const& names = it->second.second;
             unsigned name_count = 0;
             for (unsigned i = 0; i < usz; i++) {
-                expr_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                app *a = to_app(qs_i);
-                expr_ref_vector qargs(m, a->get_decl()->get_arity(), a->get_args());
+                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                 expr_ref inst_body(m);
                 expr_ref orig_temp_body(m);
-                for (unsigned j = 0; j < a->get_num_args(); j++) {
-                    STRACE("predabst", tout << "Recording " << a->get_decl()->get_name() << "("; print_expr_ref_vector(tout, qargs, false); tout << ")\n";);
-                    refine_cand_info_set.insert(a->get_decl(), qargs);
+                for (unsigned j = 0; j < qs_i->get_num_args(); j++) {
+                    STRACE("predabst", tout << "Recording " << qs_i->get_decl()->get_name() << "("; print_expr_ref_vector(tout, qargs, false); tout << ")\n";);
+                    refine_cand_info_set.insert(qs_i->get_decl(), qargs);
                 }
-                if (m_template.get_orig_template(a, orig_temp_body)) {
-                    STRACE("predabst", tout << "mk_core_clauses_internal: found template for query symbol " << a->get_decl()->get_name() << "\n";);
+                if (m_template.get_orig_template(qs_i, orig_temp_body)) {
+                    STRACE("predabst", tout << "mk_core_clauses_internal: found template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
                     expr_ref_vector temp_subst(m_template.get_params());
                     temp_subst.append(rule_subst);
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst); // >>> is temp_subst really a substitution vector?
@@ -1201,7 +1205,7 @@ namespace datalog {
                     cs = mk_conj(cs, inst_body);
                 }
                 else {
-                    STRACE("predabst", tout << "mk_core_clauses_internal: no template for query symbol " << a->get_decl()->get_name() << "\n";);
+                    STRACE("predabst", tout << "mk_core_clauses_internal: no template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
                     cl_bs.push_back(qs_i);
                     if (core.find(names.get(name_count)) != core.end()) {
                         todo.push_back(std::make_pair(names.get(name_count), qargs));
@@ -1231,7 +1235,7 @@ namespace datalog {
             unsigned tsz = r->get_tail_size();
             unsigned curr_pos = hvars.size() + 1;
             for (unsigned i = usz; i < tsz; i++) {
-                expr_ref as = apply_subst(r->get_tail(i), rule_subst);
+                app_ref as = apply_subst(r->get_tail(i), rule_subst);
                 if (!m.is_true(as)) {
                     body.push_back(as);
                 }
@@ -1241,10 +1245,10 @@ namespace datalog {
                 curr_pos++;
             }
             for (unsigned i = 0; i < usz; i++) {
-                expr_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                 expr_ref inst_body(m);
                 expr_ref_vector tmp(m);
-                if (m_template.get_instance(to_app(qs_i), inst_body, tmp)) {
+                if (m_template.get_instance(qs_i, inst_body, tmp)) {
                     expr_ref_vector inst_body_terms = get_conj_terms(inst_body);
                     for (unsigned j = 0; j < inst_body_terms.size(); j++) {
                         body.push_back(inst_body_terms.get(j));
@@ -1274,10 +1278,10 @@ namespace datalog {
             expr_ref conj = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
             cs = mk_conj(cs, conj);
             for (unsigned i = 0; i < usz; i++) {
-                expr_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                expr_ref_vector qs_i_vars(m, to_app(qs_i)->get_decl()->get_arity(), to_app(qs_i)->get_args());
+                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                expr_ref_vector qs_i_vars(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                 if (m_template.get_names().contains(r->get_decl(i))) {
-                    cs = mk_conj(cs, qs_i);
+                    cs = mk_conj(cs, expr_ref(qs_i, m));
                 }
                 else {
                     mk_leaf(qs_i_vars, node.m_parent_nodes.get(i), rules, cs);

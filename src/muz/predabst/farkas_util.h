@@ -117,10 +117,9 @@ public:
         return m_rel_template_instances;
     }
 
-    bool get_orig_template(app* in_head, expr_ref& body);
+    bool get_orig_template(func_decl* fdecl, expr_ref& body);
 
-    bool get_instance(app* head, expr_ref& body, expr_ref_vector& vars);
-
+    bool get_instance(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars);
 
     expr_ref_vector const& get_params() {
         return m_params;

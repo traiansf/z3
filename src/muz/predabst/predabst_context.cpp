@@ -102,10 +102,12 @@ namespace datalog {
         typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 
         struct rule_info {
+            func_decl*              m_func_decl;
             expr_ref                m_body;
             expr_ref_vector         m_head_preds;
             vector<expr_ref_vector> m_body_preds;
-            rule_info(expr_ref const& body) :
+            rule_info(func_decl* func_decl, expr_ref const& body) :
+                m_func_decl(func_decl),
                 m_body(body),
                 m_head_preds(body.m()) {}
         };
@@ -546,17 +548,17 @@ namespace datalog {
                 for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
                     instantiate_rule(rules, i);
                 }
+                for (unsigned t_id = 0; !m_cancel && t_id < m_template.get_template_instances().size(); ++t_id) {
+                    unsigned r_id = rules.get_num_rules() + t_id;
+                    instantiate_template(rules, t_id, r_id);
+                }
 
                 try {
                     // initial abstract inference
-                    unsigned inst_r_id = rules.get_num_rules(); // This is a kind of pseudo- rule id.
-                    for (unsigned i = 0; !m_cancel && i < m_template.get_template_instances().size(); i++) {
-                        initialize_abs_templates(rules, i);
-                    }
-                    for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
-                        rule* r = rules.get_rule(i);
-                        if (r->get_uninterpreted_tail_size() == 0) {
-                            initialize_abs(rules, i);
+                    unsigned num_all_rules = rules.get_num_rules() + m_template.get_template_instances().size();
+                    for (unsigned r_id = 0; !m_cancel && r_id < num_all_rules; ++r_id) {
+                        if (m_rule2info[r_id].m_body_preds.size() == 0) {
+                            initialize_abs(rules, r_id);
                         }
                     }
                     // process worklist
@@ -618,8 +620,7 @@ namespace datalog {
         }
 
         // Sets up m_rule2info and m_func_decl2rules for this iteration of
-        // the abstract_check_refine loop, and adds (via app_inst_preds) additional
-        // entries to m_func_decl2vars_preds.
+        // the abstract_check_refine loop.
         void instantiate_rule(rule_set const& rules, unsigned r_id) {
             rule* r = rules.get_rule(r_id);
             STRACE("predabst", tout << "Instantiating rule " << r_id << "\n"; r->display(m_ctx, tout););
@@ -639,7 +640,7 @@ namespace datalog {
             STRACE("predabst", tout << "  conj: " << mk_pp(conj, m) << "\n";);
 
             // store ground body and instantiations
-            rule_info info(conj);
+            rule_info info(r->get_decl(), conj);
             expr_ref_vector& head_preds = info.m_head_preds;
             vector<expr_ref_vector>& body_preds_vector = info.m_body_preds;
 
@@ -669,6 +670,21 @@ namespace datalog {
             }
         }
 
+        // Sets up m_rule2info for this iteration of the abstract_check_refine loop.
+        void instantiate_template(rule_set const& rules, unsigned t_id, unsigned r_id) {
+            STRACE("predabst", tout << "Instantiating template " << t_id << " (rule " << r_id << ")\n";);
+            rel_template const& instance = m_template.get_template_instances().get(t_id);
+
+            rule_info info(instance.m_head->get_decl(), instance.m_body);
+            expr_ref_vector& head_preds = info.m_head_preds;
+
+            CASSERT("predabst", !rules.is_output_predicate(instance.m_head->get_decl()));
+            expr_ref_vector heads = app_inst_preds(instance.m_head);
+            head_preds.swap(heads);
+
+            m_rule2info.push_back(info);
+        }
+
         // instantiate each predicate by replacing its free variables with (grounded) arguments of gappl
         expr_ref_vector app_inst_preds(app* gappl) {
             vars_preds vp;
@@ -682,25 +698,12 @@ namespace datalog {
             return apply_subst(preds, inst);
         }
 
-        void initialize_abs_templates(rule_set const& rules, unsigned t_id) {
-            unsigned inst_r_id = rules.get_num_rules() + t_id; // This is a kind of pseudo- rule id.
-            rel_template const& instance = m_template.get_template_instances().get(t_id);
-            STRACE("predabst", tout << "Initializing abs using template " << t_id << "\n";);
-
-            cube_t cube;
-            if (cart_temp_pred_abst_rule(t_id, instance, cube)) {
-                add_node(instance.m_head->get_decl(), cube, inst_r_id);
-                // XXX Why no check_node_property here?
-            }
-        }
-
         void initialize_abs(rule_set const& rules, unsigned r_id) {
-            rule* r = rules.get_rule(r_id);
-            STRACE("predabst", tout << "Initializing abs using rule " << r_id << "\n"; r->display(m_ctx, tout););
+            STRACE("predabst", tout << "Initializing abs using rule " << r_id << "\n";);
 
             cube_t cube;
             if (cart_pred_abst_rule(r_id, cube)) {
-                check_node_property(rules, add_node(r->get_decl(), cube, r_id));
+                check_node_property(rules, add_node(m_rule2info[r_id].m_func_decl, cube, r_id));
             }
         }
 
@@ -786,31 +789,6 @@ namespace datalog {
             return nodes_set;
         }
 
-        bool cart_temp_pred_abst_rule(unsigned t_id, rel_template instance, cube_t& cube) {
-            STRACE("predabst", tout << "Applying template " << t_id << "\n";);
-            scoped_push _push1(m_solver);
-            m_solver.assert_expr(instance.m_body);
-            if (m_solver.check() == l_false) {
-                STRACE("predabst", tout << "Template application failed\n";);
-                return false;
-            }
-            vars_preds vp;
-            bool found = m_func_decl2vars_preds.find(instance.m_head->get_decl(), vp);
-            CASSERT("predabst", found);
-            expr_ref_vector const& vars = *vp.first;
-            expr_ref_vector const& preds = *vp.second;
-            expr_ref_vector temp_subst = build_subst(vars.size(), vars.c_ptr(), instance.m_head->get_args());
-            cube.resize(preds.size());
-            for (unsigned i = 0; i < preds.size(); ++i) {
-                expr_ref subst_pred = apply_subst(preds[i], temp_subst);
-                scoped_push _push2(m_solver);
-                m_solver.assert_expr(subst_pred);
-                cube[i] = (m_solver.check() == l_true);
-            }
-            STRACE("predabst", tout << "Template application succeeded, with cube " << cube << "\n";);
-            return true;
-        }
-
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         bool cart_pred_abst_rule(unsigned r_id, cube_t& cube, node_vector const& nodes = node_vector()) {
@@ -861,9 +839,9 @@ namespace datalog {
             return pred->get_name() == "__wf__";
         }
 
-        void check_well_founded(unsigned r_id) {
-            func_decl* pred = m_node2info[r_id].m_func_decl;
-            cube_t cube = m_node2info[r_id].m_cube;
+        void check_well_founded(unsigned id) {
+            func_decl* pred = m_node2info[id].m_func_decl;
+            cube_t cube = m_node2info[id].m_cube;
             vars_preds vp;
             bool found = m_func_decl2vars_preds.find(pred, vp);
             CASSERT("predabst", found);
@@ -888,7 +866,7 @@ namespace datalog {
             expr_ref bound(m), decrease(m);
             if (!well_founded(subst_vars, to_rank, bound, decrease)) {
                 STRACE("predabst", tout << "Formula is not well-founded\n";);
-                throw acr_error(r_id, not_wf);
+                throw acr_error(id, not_wf);
             }
 
             STRACE("predabst", tout << "Formula is well-founded: bound " << mk_pp(bound, m) << "; decrease " << mk_pp(decrease, m) << "\n";);
@@ -1094,7 +1072,7 @@ namespace datalog {
                 app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                 expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                 expr_ref orig_temp_body(m);
-                if (m_template.get_orig_template(qs_i, orig_temp_body)) {
+                if (m_template.get_orig_template(qs_i->get_decl(), orig_temp_body)) {
                     STRACE("predabst", tout << "mk_core_tree_internal: found template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
                     qargs.append(m_template.get_params());
                     qargs.reverse(); // >>> huh?
@@ -1138,7 +1116,7 @@ namespace datalog {
                 for (unsigned j = 0; j < qs_i->get_num_args(); j++) {
                     refine_cand_info_set.insert(qs_i->get_decl(), qs_i_vars);
                 }
-                if (m_template.get_orig_template(qs_i, temp_body)) {
+                if (m_template.get_orig_template(qs_i->get_decl(), temp_body)) {
                     expr_ref_vector temp_subst(m);
                     for (unsigned i = 0; i < m_template.get_params().size(); i++) {
                         temp_subst.push_back(rule_subst.get(i));
@@ -1196,7 +1174,7 @@ namespace datalog {
                     STRACE("predabst", tout << "Recording " << qs_i->get_decl()->get_name() << "("; print_expr_ref_vector(tout, qargs, false); tout << ")\n";);
                     refine_cand_info_set.insert(qs_i->get_decl(), qargs);
                 }
-                if (m_template.get_orig_template(qs_i, orig_temp_body)) {
+                if (m_template.get_orig_template(qs_i->get_decl(), orig_temp_body)) {
                     STRACE("predabst", tout << "mk_core_clauses_internal: found template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
                     expr_ref_vector temp_subst(m_template.get_params());
                     temp_subst.append(rule_subst);
@@ -1248,7 +1226,7 @@ namespace datalog {
                 app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                 expr_ref inst_body(m);
                 expr_ref_vector tmp(m);
-                if (m_template.get_instance(qs_i, inst_body, tmp)) {
+                if (m_template.get_instance(qs_i->get_decl(), inst_body, tmp)) {
                     expr_ref_vector inst_body_terms = get_conj_terms(inst_body);
                     for (unsigned j = 0; j < inst_body_terms.size(); j++) {
                         body.push_back(inst_body_terms.get(j));
@@ -1279,11 +1257,11 @@ namespace datalog {
             cs = mk_conj(cs, conj);
             for (unsigned i = 0; i < usz; i++) {
                 app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                expr_ref_vector qs_i_vars(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                 if (m_template.get_names().contains(r->get_decl(i))) {
                     cs = mk_conj(cs, expr_ref(qs_i, m));
                 }
                 else {
+                    expr_ref_vector qs_i_vars(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                     mk_leaf(qs_i_vars, node.m_parent_nodes.get(i), rules, cs);
                 }
             }

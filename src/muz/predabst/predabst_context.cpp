@@ -103,11 +103,13 @@ namespace datalog {
 
         struct rule_info {
             func_decl*              m_func_decl;
+            rule*                   m_rule;
             expr_ref                m_body;
             expr_ref_vector         m_head_preds;
             vector<expr_ref_vector> m_body_preds;
-            rule_info(func_decl* func_decl, expr_ref const& body) :
+            rule_info(func_decl* func_decl, rule* rule, expr_ref const& body) :
                 m_func_decl(func_decl),
+                m_rule(rule),
                 m_body(body),
                 m_head_preds(body.m()) {}
         };
@@ -582,10 +584,10 @@ namespace datalog {
                     STRACE("predabst", print_trace(tout, node_id););
 
                     core_tree_info core_info;
-                    if (mk_core_tree(rules, node_id, core_info)) {
+                    if (mk_core_tree(node_id, core_info)) {
                         // The result didn't hold up without abstraction.  We
                         // need to refine the predicates and retry.
-                        if (!refine_unreachable(core_info, rules)) {
+                        if (!refine_unreachable(core_info)) {
                             STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
                             return l_undef;
                         }
@@ -599,12 +601,12 @@ namespace datalog {
                         bool result;
                         if (exc.m_kind == reached_query) {
                             STRACE("predabst", tout << "Refining templates (reachable)\n";);
-                            result = refine_t_reach(node_id, rules);
+                            result = refine_t_reach(node_id);
                         }
                         else {
                             CASSERT("predabst", exc.m_kind == not_wf);
                             STRACE("predabst", tout << "Refining templates (WF)\n";);
-                            result = refine_t_wf(node_id, rules);
+                            result = refine_t_wf(node_id);
                         }
 
                         if (!result) {
@@ -639,7 +641,7 @@ namespace datalog {
             STRACE("predabst", tout << "  conj: " << mk_pp(conj, m) << "\n";);
 
             // store ground body and instantiations
-            rule_info info(r->get_decl(), conj);
+            rule_info info(r->get_decl(), r, conj);
             expr_ref_vector& head_preds = info.m_head_preds;
             vector<expr_ref_vector>& body_preds_vector = info.m_body_preds;
 
@@ -674,7 +676,7 @@ namespace datalog {
             STRACE("predabst", tout << "Instantiating template " << t_id << " (rule " << r_id << ")\n";);
             rel_template const& instance = m_template.get_template_instances().get(t_id);
 
-            rule_info info(instance.m_head->get_decl(), instance.m_body);
+            rule_info info(instance.m_head->get_decl(), nullptr, instance.m_body);
             expr_ref_vector& head_preds = info.m_head_preds;
 
             CASSERT("predabst", !rules.is_output_predicate(instance.m_head->get_decl()));
@@ -928,26 +930,26 @@ namespace datalog {
             return true;
         }
 
-        bool refine_unreachable(core_tree_info const& core_info, rule_set const& rules) {
+        bool refine_unreachable(core_tree_info const& core_info) {
             refine_cand_info allrels_info;
-            core_clauses clauses = mk_core_clauses(core_info, rules, allrels_info);
+            core_clauses clauses = mk_core_clauses(core_info, allrels_info);
             vector<refine_pred_info> interpolants = solve_clauses(clauses, m);
             return refine_preds(allrels_info, interpolants);
         }
 
-        bool refine_t_reach(unsigned node_id, rule_set const& rules) {
-            expr_ref cs = mk_leaf(expr_ref_vector(m), node_id, rules);
+        bool refine_t_reach(unsigned node_id) {
+            expr_ref cs = mk_leaf(expr_ref_vector(m), node_id);
             expr_ref imp(m.mk_not(cs), m);
             return m_template.constrain_template(imp);
         }
 
-        bool refine_t_wf(unsigned node_id, rule_set const& rules) {
-            rule* r = rules.get_rule(m_node2info[node_id].m_parent_rule);
+        bool refine_t_wf(unsigned node_id) {
+            rule* r = m_rule2info[m_node2info[node_id].m_parent_rule].m_rule;
             expr_ref_vector head_args = get_fresh_args(r->get_decl(), "s");
             core_clauses2 clauses;
             expr_ref to_wf(m.mk_true(), m);
             refine_cand_info to_refine_cand_info;
-            mk_core_tree_WF(r->get_decl(), head_args, node_id, rules, clauses, to_wf, to_refine_cand_info);
+            mk_core_tree_WF(r->get_decl(), head_args, node_id, clauses, to_wf, to_refine_cand_info);
             to_refine_cand_info.insert(r->get_decl(), head_args);
 
             expr_ref bound_sol(m);
@@ -962,7 +964,7 @@ namespace datalog {
                 }
                 return refine_preds(to_refine_cand_info, interpolants);
             }
-            expr_ref cs = mk_leaf(head_args, node_id, rules);
+            expr_ref cs = mk_leaf(head_args, node_id);
             expr_ref_vector cs_vars(get_all_vars(cs));
 
             app_ref_vector q_vars(m);
@@ -1031,13 +1033,13 @@ namespace datalog {
             return new_preds_added;
         }
 
-        bool mk_core_tree(rule_set const& rules, unsigned node_id, core_tree_info &core_info) {
+        bool mk_core_tree(unsigned node_id, core_tree_info &core_info) {
             try {
                 smt_params new_param;
                 smt::kernel solver(m, new_param);
                 vector<name2symbol> names;
                 core_tree core;
-                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, rules, solver, 0, names, core);
+                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, solver, 0, names, core);
                 return false;
             }
             catch (core_tree_info const& core_info2) {
@@ -1048,11 +1050,11 @@ namespace datalog {
 
         // Note: root_id is always passed as zero, and never modified or used (except to give to the exception...)
         // Note: all args but the first three should arguably be class members.
-        void mk_core_tree_internal(unsigned hname, expr_ref_vector const& hargs, unsigned n_id, unsigned root_id, rule_set const& rules, smt::kernel& solver,
+        void mk_core_tree_internal(unsigned hname, expr_ref_vector const& hargs, unsigned n_id, unsigned root_id, smt::kernel& solver,
                                    unsigned count, vector<name2symbol>& names_map, core_tree& core) {
             STRACE("predabst", tout << "mk_core_tree_internal: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
             node_info const& node = m_node2info[n_id];
-            rule* r = rules.get_rule(node.m_parent_rule);
+            rule* r = m_rule2info[node.m_parent_rule].m_rule;
             expr_ref_vector rule_subst = get_subst_vect(r, hargs);
             unsigned univ_iter = hargs.size() + 1; // XXX why not zero?
             unsigned usz = r->get_uninterpreted_tail_size();
@@ -1095,14 +1097,14 @@ namespace datalog {
             }
             core.insert(std::make_pair(hname, std::make_pair(std::make_pair(n_id, node.m_parent_nodes), names)));
             for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_tree_internal(todo.get(i).first.first, todo.get(i).first.second, todo.get(i).second, root_id, rules, solver, count, names_map, core);
+                mk_core_tree_internal(todo.get(i).first.first, todo.get(i).first.second, todo.get(i).second, root_id, solver, count, names_map, core);
             }
         }
 
-        void mk_core_tree_WF(func_decl* hname, expr_ref_vector hargs, unsigned n_id, rule_set const& rules, core_clauses2& clauses, expr_ref& to_wf, refine_cand_info& refine_cand_info_set) {
+        void mk_core_tree_WF(func_decl* hname, expr_ref_vector hargs, unsigned n_id, core_clauses2& clauses, expr_ref& to_wf, refine_cand_info& refine_cand_info_set) {
             STRACE("predabst", tout << "mk_core_tree_WF: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
             node_info const& node = m_node2info[n_id];
-            rule* r = rules.get_rule(node.m_parent_rule);
+            rule* r = m_rule2info[node.m_parent_rule].m_rule;
             expr_ref_vector rule_subst = get_subst_vect(r, hargs);
             unsigned usz = r->get_uninterpreted_tail_size(), tsz = r->get_tail_size();
             expr_ref cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
@@ -1133,15 +1135,15 @@ namespace datalog {
             clauses.insert(std::make_pair(hname, std::make_pair(hargs, std::make_pair(cs, cl_bs))));
             to_wf = mk_conj(to_wf, cs);
             for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_tree_WF(todo.get(i).first, todo.get(i).second.first, todo.get(i).second.second, rules, clauses, to_wf, refine_cand_info_set);
+                mk_core_tree_WF(todo.get(i).first, todo.get(i).second.first, todo.get(i).second.second, clauses, to_wf, refine_cand_info_set);
             }
         }
 
-        core_clauses mk_core_clauses(core_tree_info const& core_info, rule_set const& rules, refine_cand_info &allrels_info) {
+        core_clauses mk_core_clauses(core_tree_info const& core_info, refine_cand_info &allrels_info) {
             expr_ref_vector last_vars(m);
             core_clauses clauses;
-            mk_core_clauses_internal(core_info.m_root_id, expr_ref_vector(m), core_info.m_last_name, core_info.m_core, rules, last_vars, clauses, allrels_info);
-            expr_ref_vector body = last_clause_body(last_vars, core_info.m_pos, core_info.m_last_node_tid, rules);
+            mk_core_clauses_internal(core_info.m_root_id, expr_ref_vector(m), core_info.m_last_name, core_info.m_core, last_vars, clauses, allrels_info);
+            expr_ref_vector body = last_clause_body(last_vars, core_info.m_pos, core_info.m_last_node_tid);
             expr_ref cs = mk_conj(body);
             STRACE("predabst", tout << "mk_core_clauses: adding final clause " << core_info.m_last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
             clauses.insert(std::make_pair(core_info.m_last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
@@ -1150,12 +1152,11 @@ namespace datalog {
 
         // The last parameter builds up information that will ultimately be passed to refine_preds.
         void mk_core_clauses_internal(unsigned hname, expr_ref_vector hargs, unsigned last_name, core_tree const& core,
-                             rule_set const& rules,
                              expr_ref_vector& last_vars, core_clauses& clauses, refine_cand_info& refine_cand_info_set) {
             STRACE("predabst", tout << "mk_core_clauses_internal: " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << last_name << "\n";);
             core_tree::const_iterator it = core.find(hname);
             node_info const& node = m_node2info[it->second.first.first];
-            rule* r = rules.get_rule(node.m_parent_rule);
+            rule* r = m_rule2info[node.m_parent_rule].m_rule;
             expr_ref_vector rule_subst = get_subst_vect(r, hargs);
             unsigned usz = r->get_uninterpreted_tail_size();
             unsigned tsz = r->get_tail_size();
@@ -1199,13 +1200,13 @@ namespace datalog {
             }
 
             for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_clauses_internal(todo.get(i).first, todo.get(i).second, last_name, core, rules, last_vars, clauses, refine_cand_info_set);
+                mk_core_clauses_internal(todo.get(i).first, todo.get(i).second, last_name, core, last_vars, clauses, refine_cand_info_set);
             }
         }
 
-        expr_ref_vector last_clause_body(expr_ref_vector const& hvars, unsigned crit_pos, unsigned tid, rule_set const& rules) {
+        expr_ref_vector last_clause_body(expr_ref_vector const& hvars, unsigned crit_pos, unsigned tid) {
             node_info const& node = m_node2info[tid];
-            rule* r = rules.get_rule(node.m_parent_rule);
+            rule* r = m_rule2info[node.m_parent_rule].m_rule;
             expr_ref_vector rule_subst = get_subst_vect(r, hvars);
             expr_ref_vector body(m);
             unsigned usz = r->get_uninterpreted_tail_size();
@@ -1240,15 +1241,15 @@ namespace datalog {
             return body;
         }
 
-        expr_ref mk_leaf(expr_ref_vector hargs, unsigned n_id, rule_set const& rules) {
+        expr_ref mk_leaf(expr_ref_vector hargs, unsigned n_id) {
             expr_ref cs(m.mk_true(), m);
-            mk_leaf(hargs, n_id, rules, cs);
+            mk_leaf(hargs, n_id, cs);
             return cs;
         }
 
-        void mk_leaf(expr_ref_vector hargs, unsigned n_id, rule_set const& rules, expr_ref& cs) {
+        void mk_leaf(expr_ref_vector hargs, unsigned n_id, expr_ref& cs) {
             node_info const& node = m_node2info[n_id];
-            rule* r = rules.get_rule(node.m_parent_rule);
+            rule* r = m_rule2info[node.m_parent_rule].m_rule;
             expr_ref_vector rule_subst = get_subst_vect(r, hargs);
             unsigned usz = r->get_uninterpreted_tail_size();
             unsigned tsz = r->get_tail_size();
@@ -1261,7 +1262,7 @@ namespace datalog {
                 }
                 else {
                     expr_ref_vector qs_i_vars(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                    mk_leaf(qs_i_vars, node.m_parent_nodes.get(i), rules, cs);
+                    mk_leaf(qs_i_vars, node.m_parent_nodes.get(i), cs);
                 }
             }
         }

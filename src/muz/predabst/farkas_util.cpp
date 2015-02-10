@@ -62,21 +62,21 @@ static void push_front(ref_vector<T, TManager>& v, obj_ref<T, TManager> e) {
 
 static expr_ref_vector get_all_terms(expr_ref const& term) {
     expr_ref_vector all_facts(term.m());
-    if (!arith_util(term.m()).is_mul(term.get())) {
+    if (!arith_util(term.m()).is_mul(term)) {
         all_facts.push_back(term);
     }
     else {
         expr_ref_vector facts(term.m());
         facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
         for (unsigned i = 0; i < facts.size(); ++i) {
-            all_facts.append(get_all_terms(expr_ref(facts[i].get(), term.m())));
+            all_facts.append(get_all_terms(expr_ref(facts.get(i), term.m())));
         }
     }
     return all_facts;
 }
 
 static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, expr_ref_vector& var_facts, expr_ref_vector& const_facts, bool& has_params) {
-    if (!arith_util(term.m()).is_mul(term.get())) {
+    if (!arith_util(term.m()).is_mul(term)) {
         if (vars.contains(term)) {
             var_facts.push_back(term);
         }
@@ -92,7 +92,7 @@ static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, exp
         expr_ref_vector facts(term.m());
         facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
         for (unsigned i = 0; i < facts.size(); ++i) {
-            get_all_terms(expr_ref(facts[i].get(), term.m()), vars, var_facts, const_facts, has_params);
+            get_all_terms(expr_ref(facts.get(i), term.m()), vars, var_facts, const_facts, has_params);
         }
     }
 }
@@ -186,7 +186,7 @@ public:
             out << " Unknown relation! ";
             break;
         }
-        out << mk_pp(m_const.get(), m_pred_manager) << "\n";
+        out << mk_pp(m_const, m_pred_manager) << "\n";
         out << "Params? : " << (m_has_params ? "TRUE" : "FALSE") << "\n";
     }
 
@@ -224,7 +224,7 @@ private:
         arith_util arith(m_pred_manager);
         rewrite_pred(term);
         expr_ref_vector p_coeffs(m_pred_manager), p_vars(m_pred_manager), p_const_facts(m_pred_manager), add_facts(m_pred_manager);
-        if (arith.is_add(term.get())) {
+        if (arith.is_add(term)) {
             add_facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
         }
         else {
@@ -232,22 +232,22 @@ private:
         }
         for (unsigned i = 0; i < add_facts.size(); ++i) {
             expr_ref_vector mul_facts(m_pred_manager), var_mul_facts(m_pred_manager), const_mul_facts(m_pred_manager);
-            expr_ref mul_term(add_facts[i].get(), m_pred_manager);
+            expr_ref mul_term(add_facts.get(i), m_pred_manager);
             get_all_terms(mul_term, m_vars, var_mul_facts, const_mul_facts, m_has_params);
             CASSERT("predabst", var_mul_facts.size() <= 1);
             if (var_mul_facts.size() == 0) {
-                p_const_facts.push_back(add_facts[i].get());
+                p_const_facts.push_back(add_facts.get(i));
             }
             else if (const_mul_facts.size() == 0) {
-                p_vars.push_back(add_facts[i].get());
+                p_vars.push_back(add_facts.get(i));
                 p_coeffs.push_back(arith.mk_numeral(rational(1), true));
             }
             else if (const_mul_facts.size() == 1) {
-                p_vars.push_back(var_mul_facts[0].get());
-                p_coeffs.push_back(const_mul_facts[0].get());
+                p_vars.push_back(var_mul_facts.get(0));
+                p_coeffs.push_back(const_mul_facts.get(0));
             }
             else {
-                p_vars.push_back(var_mul_facts[0].get());
+                p_vars.push_back(var_mul_facts.get(0));
                 p_coeffs.push_back(arith.mk_mul(const_mul_facts.size(), const_mul_facts.c_ptr()));
             }
         }
@@ -255,7 +255,7 @@ private:
             m_const = arith.mk_numeral(rational(0), true);
         }
         else if (p_const_facts.size() == 1) {
-            m_const = arith.mk_uminus(p_const_facts[0].get());
+            m_const = arith.mk_uminus(p_const_facts.get(0));
         }
         else {
             m_const = arith.mk_uminus(arith.mk_add(p_const_facts.size(), p_const_facts.c_ptr()));
@@ -264,8 +264,8 @@ private:
         rw(m_const);
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             for (unsigned j = 0; j < p_vars.size(); ++j) {
-                if (m_vars[i].get() == p_vars[j].get()) {
-                    m_coeffs.set(i, p_coeffs[j].get());
+                if (m_vars.get(i) == p_vars.get(j)) {
+                    m_coeffs.set(i, p_coeffs.get(j));
                     p_vars.erase(j);
                     p_coeffs.erase(j);
                     break;
@@ -398,7 +398,7 @@ public:
             solver.get_model(modref);
             expr_ref solution(m_imp_manager);
             for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
-                if (modref.get()->eval(m_lambdas.get(j), solution, true)) {
+                if (modref->eval(m_lambdas.get(j), solution, true)) {
                     m_solutions.push_back(solution);
                 }
                 else {
@@ -432,7 +432,7 @@ public:
         m_lhs.display(out);
         out << "RHS: \n";
         m_rhs.display(out);
-        out << "Constraint: \n" << mk_pp(m_constraints.get(), m) << "\n";
+        out << "Constraint: \n" << mk_pp(m_constraints, m) << "\n";
         if (m_solutions.size() > 0) {
             out << "Solutions: \n";
         }
@@ -499,21 +499,20 @@ private:
 
 static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref& constraint_st) {
     ast_manager& m = fml.m();
+    constraint_st = m.mk_true();
     expr_ref norm_fml = neg_and_2dnf(fml);
     CASSERT("predabst", fml.m().is_or(norm_fml));
-    expr_ref_vector disjs(fml.m());
-    disjs.append(to_app(norm_fml)->get_num_args(), to_app(norm_fml)->get_args());
-    for (unsigned i = 0; i < disjs.size(); ++i) {
-        expr_ref each_disj(disjs.get(i), fml.m());
+    for (unsigned i = 0; i < to_app(norm_fml)->get_num_args(); ++i) {
+        expr_ref disj(to_app(norm_fml)->get_arg(i), fml.m());
         app_ref_vector q_vars_disj(q_vars);
         qe_lite ql1(fml.m());
-        ql1(q_vars_disj, each_disj);
+        ql1(q_vars_disj, disj);
         farkas_imp f_imp(vars);
-        f_imp.set(expr_ref(each_disj, fml.m()), expr_ref(fml.m().mk_false(), fml.m()));
+        f_imp.set(disj, expr_ref(m.mk_false(), m));
         if (!f_imp.solve_constraint()) {
             return false;
         }
-        constraint_st = fml.m().mk_and(constraint_st, f_imp.get_constraints());
+        constraint_st = m.mk_and(constraint_st, f_imp.get_constraints());
     }
     return true;
 }
@@ -525,7 +524,7 @@ static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& 
     disjs.append(to_app(norm_fml)->get_num_args(), to_app(norm_fml)->get_args());
     for (unsigned i = 0; i < disjs.size(); ++i) {
         farkas_imp f_imp(vars, mk_lambda_kinds);
-        f_imp.set(expr_ref(disjs[i].get(), fml.m()), expr_ref(fml.m().mk_false(), fml.m()));
+        f_imp.set(expr_ref(disjs.get(i), fml.m()), expr_ref(fml.m().mk_false(), fml.m()));
         if (f_imp.solve_constraint()) {
             constraint_st = fml.m().mk_and(constraint_st, f_imp.get_constraints());
             all_lambda_kinds.append(f_imp.get_lambda_kinds());
@@ -537,41 +536,42 @@ static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& 
     return true;
 }
 
-bool well_founded(expr_ref_vector const& vsws, expr_ref const& LHS, expr_ref sol_bound, expr_ref sol_decrease) {
-    ast_manager& m = LHS.get_manager();
-    arith_util arith(m);
-    if (m.is_true(LHS) || !m.is_and(LHS) || to_app(LHS)->get_num_args() <= 1 || (vsws.size() % 2) != 0) {
+bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref sol_bound, expr_ref sol_decrease) {
+    ast_manager& m = lhs.get_manager();
+    if (m.is_true(lhs) || !m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1 || (vsws.size() % 2) != 0) {
         return false;
     }
 
-    expr_ref_vector vs(m), ws(m);
-    bool hasv = false, hasvp = false;
-    expr_ref_vector LHS_vars(get_all_vars(LHS));
-    for (unsigned i = 0; i < vsws.size(); i++) {
-        if (i < (vsws.size() / 2)) {
-            vs.push_back(vsws.get(i));
-            if (!hasv && LHS_vars.contains(vsws.get(i))) {
-                hasv = true;
-            }
-        }
-        else {
-            ws.push_back(vsws.get(i));
-            if (!hasvp && LHS_vars.contains(vsws.get(i))) {
-                hasvp = true;
-            }
-        }
+    expr_ref_vector lhs_vars(get_all_vars(lhs));
 
+    expr_ref_vector vs(m);
+    bool hasv = false;
+    for (unsigned i = 0; i < (vsws.size() / 2); i++) {
+        vs.push_back(vsws.get(i));
+        hasv = hasv || lhs_vars.contains(vsws.get(i));
+    }
+    if (!hasv) {
+        return false;
     }
 
-    if (!hasv || !hasvp) {
+    expr_ref_vector ws(m);
+    bool hasw = false;
+    for (unsigned i = (vsws.size() / 2); i < vsws.size(); ++i) {
+        ws.push_back(vsws.get(i));
+        hasw = hasw || lhs_vars.contains(vsws.get(i));
+    }
+    if (!hasw) {
         return false;
     }
 
     app_ref_vector q_vars(m);
-    for (unsigned j = 0; j < LHS_vars.size(); j++) {
-        if (!vsws.contains(LHS_vars.get(j))) q_vars.push_back(to_app(LHS_vars.get(j)));
+    for (unsigned j = 0; j < lhs_vars.size(); j++) {
+        if (!vsws.contains(lhs_vars.get(j))) {
+            q_vars.push_back(to_app(lhs_vars.get(j)));
+        }
     }
 
+    arith_util arith(m);
     expr_ref_vector params(m);
     expr_ref sum_psvs(arith.mk_numeral(rational(0), true), m);
     expr_ref sum_psws(arith.mk_numeral(rational(0), true), m);
@@ -579,8 +579,8 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& LHS, expr_ref sol
     for (unsigned i = 0; i < vs.size(); ++i) {
         expr_ref param(m.mk_fresh_const("p", arith.mk_int()), m);
         params.push_back(param);
-        sum_psvs = arith.mk_add(sum_psvs.get(), arith.mk_mul(param.get(), vs[i].get()));
-        sum_psws = arith.mk_add(sum_psws.get(), arith.mk_mul(param.get(), ws[i].get()));
+        sum_psvs = arith.mk_add(sum_psvs, arith.mk_mul(param, vs.get(i)));
+        sum_psws = arith.mk_add(sum_psws, arith.mk_mul(param, ws.get(i)));
     }
 
     expr_ref delta0(m.mk_const(symbol("delta0"), arith.mk_int()), m);
@@ -588,20 +588,19 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& LHS, expr_ref sol
 
     expr_ref bound(arith.mk_ge(sum_psvs, delta0), m);
     expr_ref decrease(arith.mk_lt(sum_psws, sum_psvs), m);
-    expr_ref to_solve(m.mk_or(m.mk_not(LHS), m.mk_and(bound, decrease)), m);
+    expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
     STRACE("predabst", tout << "bound: " << mk_pp(bound, m) << "\n";);
     STRACE("predabst", tout << "decrease: " << mk_pp(decrease, m) << "\n";);
-    expr_ref constraint_st(m.mk_true(), m);
+    expr_ref constraint_st(m);
     if (exists_valid(to_solve, vsws, q_vars, constraint_st)) {
         smt_params new_param;
         smt::kernel solver(m, new_param);
         solver.assert_expr(constraint_st);
         if (solver.check() == l_true) {
-            expr_ref_vector values(m);
             model_ref modref;
             solver.get_model(modref);
-            if (modref.get()->eval(bound.get(), sol_bound) && modref.get()->eval(decrease.get(), sol_decrease)) {
+            if (modref->eval(bound, sol_bound) && modref->eval(decrease, sol_decrease)) {
                 return true;
             }
             return false; // when does it happen?
@@ -615,7 +614,8 @@ void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decre
     ast_manager& m = vsws.get_manager();
     arith_util arith(m);
 
-    expr_ref_vector vs(m), ws(m);
+    expr_ref_vector vs(m);
+    expr_ref_vector ws(m);
     for (unsigned i = 0; i < vsws.size(); i++) {
         if (i < (vsws.size() / 2)) {
             vs.push_back(vsws.get(i));
@@ -631,8 +631,8 @@ void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decre
     for (unsigned i = 0; i < vs.size(); ++i) {
         expr_ref param(m.mk_fresh_const("p", arith.mk_int()), m);
         params.push_back(param);
-        sum_psvs = arith.mk_add(sum_psvs.get(), arith.mk_mul(param.get(), vs[i].get()));
-        sum_psws = arith.mk_add(sum_psws.get(), arith.mk_mul(param.get(), ws[i].get()));
+        sum_psvs = arith.mk_add(sum_psvs, arith.mk_mul(param, vs.get(i)));
+        sum_psws = arith.mk_add(sum_psws, arith.mk_mul(param, ws.get(i)));
     }
 
     expr_ref delta0(m.mk_const(symbol("delta0"), arith.mk_int()), m);
@@ -656,7 +656,7 @@ static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kin
     expr_ref cons(m.mk_true(), m);
     for (unsigned i = 0; i < lambda_kinds.size(); i++) {
         if (lambda_kinds[i].m_kind == bilin_sing) {
-            cons = m.mk_and(cons, m.mk_or(m.mk_eq(lambda_kinds[i].m_lambda, nminus1), m.mk_eq(lambda_kinds[i].m_lambda.get(), n1)));
+            cons = m.mk_and(cons, m.mk_or(m.mk_eq(lambda_kinds[i].m_lambda, nminus1), m.mk_eq(lambda_kinds[i].m_lambda, n1)));
         }
         else if (lambda_kinds[i].m_kind == bilin) {
             if (lambda_kinds[i].m_op != 0) {
@@ -664,7 +664,7 @@ static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kin
             }
             expr_ref bilin_disj(m.mk_true(), m);
             for (int j = min_lambda; j <= max_lambda; j++) {
-                bilin_disj = m.mk_or(bilin_disj, m.mk_eq(lambda_kinds[i].m_lambda.get(), arith.mk_numeral(rational(j), true)));
+                bilin_disj = m.mk_or(bilin_disj, m.mk_eq(lambda_kinds[i].m_lambda, arith.mk_numeral(rational(j), true)));
             }
             cons = m.mk_and(cons, bilin_disj);
         }
@@ -719,21 +719,21 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_
     if (m.is_and(fml)) {
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
         for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(subst_template_body(expr_ref(sub_formulas[i].get(), m), rel_templates, args_coll).get());
+            new_sub_formulas.push_back(subst_template_body(expr_ref(sub_formulas.get(i), m), rel_templates, args_coll));
         }
         new_formula = m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr());
     }
     else if (m.is_or(fml)) {
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
         for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(subst_template_body(expr_ref(sub_formulas[i].get(), m), rel_templates, args_coll).get());
+            new_sub_formulas.push_back(subst_template_body(expr_ref(sub_formulas.get(i), m), rel_templates, args_coll));
         }
         new_formula = m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr());
 
     }
     else if (m.is_not(fml)) {
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        new_formula = m.mk_not(subst_template_body(expr_ref(sub_formulas[0].get(), m), rel_templates, args_coll));
+        new_formula = m.mk_not(subst_template_body(expr_ref(sub_formulas.get(0), m), rel_templates, args_coll));
     }
     else {
         if (m_names.contains(to_app(fml)->get_decl())) {
@@ -754,30 +754,27 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_
     return new_formula;
 }
 
+static void interpolate_helper(expr_ref_vector const& vars, expr_ref &fml) {
+    ast_manager& m = fml.get_manager();
+    qe_lite ql(m);
+    app_ref_vector q_vars(m);
+    expr_ref_vector all_vars = get_all_vars(fml);
+    for (unsigned j = 0; j < all_vars.size(); j++) {
+        if (!vars.contains(all_vars.get(j))) {
+            q_vars.push_back(to_app(all_vars.get(j)));
+        }
+    }
+    ql(q_vars, fml);
+}
+
 static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
+    interpolate_helper(vars, fmlA);
+    interpolate_helper(vars, fmlB);
+
     ast_manager& m = vars.get_manager();
     arith_util arith(m);
     expr_ref_vector params(m);
     expr_ref sum_vars(arith.mk_numeral(rational(0), true), m);
-
-    app_ref_vector q_varsA(m);
-    qe_lite ql(fmlA.m());
-    expr_ref_vector all_varsA(get_all_vars(fmlA));
-    for (unsigned j = 0; j < all_varsA.size(); j++) {
-        if (!vars.contains(all_varsA.get(j))) {
-            q_varsA.push_back(to_app(all_varsA.get(j)));
-        }
-    }
-
-    ql(q_varsA, fmlA);
-    app_ref_vector q_varsB(fmlB.m());
-    expr_ref_vector all_varsB(get_all_vars(fmlB));
-    for (unsigned j = 0; j < all_varsB.size(); j++) {
-        if (!vars.contains(all_varsB.get(j))) {
-            q_varsB.push_back(to_app(all_varsB.get(j)));
-        }
-    }
-    ql(q_varsB, fmlB);
     for (unsigned i = 0; i < vars.size(); ++i) {
         expr_ref param(m.mk_fresh_const("i", arith.mk_int()), m);
         params.push_back(param);
@@ -790,16 +787,15 @@ static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fml
     expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
 
     app_ref_vector q_vars(m);
-    expr_ref constraint_st(m.mk_true(), m);
+    expr_ref constraint_st(m);
     if (exists_valid(to_solve, vars, q_vars, constraint_st)) {
         smt_params new_param;
         smt::kernel solver(m, new_param);
         solver.assert_expr(constraint_st);
         if (solver.check() == l_true) {
-            expr_ref_vector values(m);
             model_ref modref;
             solver.get_model(modref);
-            if (modref.get()->eval(fmlQ.get(), fmlQ_sol)) {
+            if (modref->eval(fmlQ, fmlQ_sol)) {
                 return true;
             }
             // when does it happen?
@@ -864,7 +860,7 @@ void rel_template_suit::init_template_instantiate() {
         solver.get_model(m_modref);
         for (unsigned i = 0; i < m_rel_templates.size(); i++) {
             expr_ref instance(m_rel_manager);
-            if (m_modref.get()->eval(m_rel_templates[i].m_body, instance)) {
+            if (m_modref->eval(m_rel_templates[i].m_body, instance)) {
                 m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
             }
         }
@@ -925,7 +921,7 @@ bool rel_template_suit::constrain_template(expr_ref const& fml) {
             solver.get_model(modref);
             for (unsigned i = 0; i < m_rel_templates.size(); i++) {
                 expr_ref instance(m_rel_manager);
-                if (modref.get()->eval(m_rel_templates[i].m_body, instance)) {
+                if (modref->eval(m_rel_templates[i].m_body, instance)) {
                     STRACE("predabst", tout << "instance  : " << mk_pp(instance, m_rel_manager) << "\n";);
                     m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
 
@@ -971,7 +967,7 @@ void rel_template_suit::display(std::ostream& out) const {
 }
 
 void refine_pred_info::display(std::ostream& out) const {
-    out << "pred: " << mk_pp(m_pred.get(), m_pred.m()) << ", pred_vars: [";
+    out << "pred: " << mk_pp(m_pred, m_pred.m()) << ", pred_vars: [";
     for (unsigned i = 0; i < m_pred_vars.size(); i++) {
         out << " " << mk_pp(m_pred_vars.get(i), m_pred.m());
     }

@@ -649,7 +649,7 @@ namespace datalog {
             if (!rules.is_output_predicate(r->get_decl())) {
                 expr_ref_vector heads = app_inst_preds(apply_subst(r->get_head(), rule_subst));
                 for (unsigned i = 0; i < heads.size(); ++i) {
-                    heads[i] = m.mk_not(heads[i].get());
+                    heads[i] = m.mk_not(heads.get(i));
                 }
                 STRACE("predabst", tout << "  heads: "; print_expr_ref_vector(tout, heads););
                 head_preds.swap(heads);
@@ -840,32 +840,35 @@ namespace datalog {
             return pred->get_name() == "__wf__";
         }
 
-        void check_well_founded(unsigned id) {
-            func_decl* pred = m_node2info[id].m_func_decl;
-            cube_t cube = m_node2info[id].m_cube;
+        expr_ref cube_to_formula(func_decl* fdecl, cube_t const& cube, expr_ref_vector const& args) {
             vars_preds vp;
-            bool found = m_func_decl2vars_preds.find(pred, vp);
+            bool found = m_func_decl2vars_preds.find(fdecl, vp);
             CASSERT("predabst", found);
+            expr_ref_vector const& vars = *vp.first;
             expr_ref_vector const& preds = *vp.second;
-            expr_ref to_rank(m.mk_true(), m);
+            expr_ref expr(m.mk_true(), m);
             for (unsigned i = 0; i < cube.size(); i++) {
                 if (cube[i]) {
-                    to_rank = mk_conj(to_rank, expr_ref(preds[i], m));
+                    expr = mk_conj(expr, expr_ref(preds[i], m)); // >>> this builds a deep one-sided expression tree; does this matter?  see also other uses of mk_conj
                     STRACE("predabst", tout << "check_well_founded: used cube " << mk_pp(preds[i], m) << "\n";);
                 }
                 else {
                     STRACE("predabst", tout << "check_well_founded: did not use cube " << mk_pp(preds[i], m) << "\n";);
                 }
             }
-            expr_ref_vector subst_vars(m);
-            subst_vars.reserve(pred->get_arity());
-            for (unsigned i = 0; i < pred->get_arity(); ++i) {
-                subst_vars[i] = m.mk_fresh_const("s", arith_util(m).mk_int());
-            }
-            to_rank = apply_subst(to_rank, subst_vars); // >>> subst_vars is NOT a substitution vector!
-            subst_vars.reverse(); // >>> huh?
-            expr_ref bound(m), decrease(m);
-            if (!well_founded(subst_vars, to_rank, bound, decrease)) {
+            return apply_subst(expr, build_subst(args.size(), vars.c_ptr(), args.c_ptr()));
+        }
+
+        void check_well_founded(unsigned id) {
+            func_decl* fdecl = m_node2info[id].m_func_decl;
+            cube_t cube = m_node2info[id].m_cube;
+
+            expr_ref_vector args = get_fresh_args(fdecl, "s");
+            expr_ref to_rank = cube_to_formula(fdecl, cube, args);
+
+            expr_ref bound(m);
+            expr_ref decrease(m);
+            if (!well_founded(args, to_rank, bound, decrease)) {
                 STRACE("predabst", tout << "Formula is not well-founded\n";);
                 throw acr_error(id, not_wf);
             }
@@ -989,7 +992,7 @@ namespace datalog {
             if (interpolants.size() > 0) {
                 for (unsigned i = 0; i < allrels_info.get_size(); i++) {
                     for (unsigned j = 0; j < m_func_decls.size(); j++) {
-                        func_decl *fd = to_func_decl(m_func_decls.get(j));
+                        func_decl *fd = m_func_decls.get(j);
                         if (allrels_info.get_info(i).first == fd) {
                             vars_preds vp;
                             bool found = m_func_decl2vars_preds.find(fd, vp);
@@ -1124,7 +1127,7 @@ namespace datalog {
                     }
                     temp_subst.append(rule_subst);
                     temp_body = apply_subst(temp_body, temp_subst); // >>> is this _really_ a substitution vector?
-                    m_template.get_modref().get()->eval(temp_body, inst_body);
+                    m_template.get_modref()->eval(temp_body, inst_body);
                     cs = mk_conj(cs, inst_body);
                 }
                 else {
@@ -1179,7 +1182,7 @@ namespace datalog {
                     expr_ref_vector temp_subst(m_template.get_params());
                     temp_subst.append(rule_subst);
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst); // >>> is temp_subst really a substitution vector?
-                    m_template.get_modref().get()->eval(orig_temp_body, inst_body);
+                    m_template.get_modref()->eval(orig_temp_body, inst_body);
                     cs = mk_conj(cs, inst_body);
                 }
                 else {
@@ -1276,7 +1279,6 @@ namespace datalog {
             }
             return head_args;
         }
-
         
         // Returns a vector of fresh constants of the right type to be arguments to fdecl.
         expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix) {
@@ -1317,18 +1319,27 @@ namespace datalog {
             return rule_subst;
         }
 
-        // >>> this is (obviously) supposed to return a substiution vector.
-        // >>> it does, but the vector contains fresh constants for variables that are not used in r; we should probably avoid those.
+        // Returns a substitution vector mapping each variable used in r to a
+        // fresh constant.
         expr_ref_vector get_subst_vect_free(rule const* r, char const* prefix) {
-            ptr_vector<sort> free_sorts;
-            r->get_vars(m, free_sorts);
-            expr_ref_vector rule_subst(m);
-            rule_subst.reserve(free_sorts.size());
-            for (unsigned i = 0; i < free_sorts.size(); ++i) {
-                app *c = m.mk_fresh_const(prefix, free_sorts[i]);
-                STRACE("predabst", tout << "  substituting " << mk_pp(c, m) << " for var " << i << " of type " << mk_pp(free_sorts[i], m) << "\n";);
-                rule_subst[i] = c;
+            used_vars used;
+            // The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
+            used.process(r->get_head());
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                used.process(r->get_tail(i));
             }
+
+            expr_ref_vector rule_subst(m);
+            rule_subst.reserve(used.get_max_found_var_idx_plus_1());
+            for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
+                sort* s = used.get(i);
+                if (s) {
+                    app *c = m.mk_fresh_const(prefix, s);
+                    STRACE("predabst", tout << "  substituting " << mk_pp(c, m) << " for var " << i << " of type " << mk_pp(s, m) << "\n";);
+                    rule_subst[i] = c;
+                }
+            }
+
             return rule_subst;
         }
 

@@ -201,7 +201,7 @@ static vector<expr_ref_vector> to_dnf_struct(expr_ref const& fml) {
         vector<vector<expr_ref_vector> > dnf_sub_structs;
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
         for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            dnf_sub_structs.push_back(to_dnf_struct(expr_ref(sub_formulas[i].get(), fml.m())));
+            dnf_sub_structs.push_back(to_dnf_struct(expr_ref(sub_formulas.get(i), fml.m())));
         }
         return cnf_to_dnf_struct(dnf_sub_structs);
     }
@@ -210,7 +210,7 @@ static vector<expr_ref_vector> to_dnf_struct(expr_ref const& fml) {
         if (fml.m().is_or(fml)) {
             sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
             for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-                dnf_struct.append(to_dnf_struct(expr_ref(sub_formulas[i].get(), fml.m())));
+                dnf_struct.append(to_dnf_struct(expr_ref(sub_formulas.get(i), fml.m())));
             }
         }
         else {
@@ -266,7 +266,7 @@ static expr_ref neg_formula(expr_ref const& fml) {
     if (m.is_and(fml)) {
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
         for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas[i].get(), m)));
+            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas.get(i), m)));
         }
         expr_ref ee1(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
         return ee1;
@@ -274,7 +274,7 @@ static expr_ref neg_formula(expr_ref const& fml) {
     else if (m.is_or(fml)) {
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
         for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas[i].get(), m)));
+            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas.get(i), m)));
         }
         expr_ref ee2(m.mk_and(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
         return ee2;
@@ -297,7 +297,7 @@ static expr_ref non_neg_formula(expr_ref const& fml) {
     if (m.is_and(fml)) {
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
         for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas[i].get(), m)));
+            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas.get(i), m)));
         }
         expr_ref ee1(m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
         return ee1;
@@ -305,7 +305,7 @@ static expr_ref non_neg_formula(expr_ref const& fml) {
     else if (m.is_or(fml)) {
         sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
         for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas[i].get(), m)));
+            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas.get(i), m)));
         }
         expr_ref ee2(m.mk_or(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
         return ee2;

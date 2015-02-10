@@ -99,7 +99,6 @@ namespace datalog {
         typedef obj_map<func_decl, uint_set> func_decl2rule_set;
         typedef obj_map<func_decl, node_set> func_decl2node_set;
         typedef std::pair<unsigned, func_decl*> name2symbol;
-        typedef std::map<unsigned, std::pair<std::pair<unsigned, vector<unsigned> >, vector<unsigned> > > core_tree;
 
         struct rule_info {
             func_decl*              m_func_decl;
@@ -125,6 +124,18 @@ namespace datalog {
                 m_parent_rule(parent_rule),
                 m_parent_nodes(parent_nodes) {}
         };
+
+        struct core_tree_node {
+            unsigned         m_node_id;
+            vector<unsigned> m_parent_nodes;
+            vector<unsigned> m_names;
+            core_tree_node(unsigned node_id, vector<unsigned> const& parent_nodes, vector<unsigned> const& names) :
+                m_node_id(node_id),
+                m_parent_nodes(parent_nodes),
+                m_names(names) {}
+        };
+
+        typedef std::map<unsigned, core_tree_node> core_tree;
 
         static const unsigned NON_NODE = UINT_MAX;
 
@@ -1098,7 +1109,7 @@ namespace datalog {
                     todo.push_back(std::make_pair(std::make_pair(count, qargs), node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
                 }
             }
-            core.insert(std::make_pair(hname, std::make_pair(std::make_pair(n_id, node.m_parent_nodes), names)));
+            core.insert(std::make_pair(hname, core_tree_node(n_id, node.m_parent_nodes, names)));
             for (unsigned i = 0; i < todo.size(); i++) {
                 mk_core_tree_internal(todo.get(i).first.first, todo.get(i).first.second, todo.get(i).second, root_id, solver, count, names_map, core);
             }
@@ -1158,7 +1169,7 @@ namespace datalog {
                              expr_ref_vector& last_vars, core_clauses& clauses, refine_cand_info& refine_cand_info_set) {
             STRACE("predabst", tout << "mk_core_clauses_internal: " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << last_name << "\n";);
             core_tree::const_iterator it = core.find(hname);
-            node_info const& node = m_node2info[it->second.first.first];
+            node_info const& node = m_node2info[it->second.m_node_id];
             rule* r = m_rule2info[node.m_parent_rule].m_rule;
             expr_ref_vector rule_subst = get_subst_vect(r, hargs);
             unsigned usz = r->get_uninterpreted_tail_size();
@@ -1166,7 +1177,7 @@ namespace datalog {
             expr_ref cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
             vector<std::pair<unsigned, expr_ref_vector> > todo;
             expr_ref_vector cl_bs(m);
-            vector<unsigned> const& names = it->second.second;
+            vector<unsigned> const& names = it->second.m_names;
             unsigned name_count = 0;
             for (unsigned i = 0; i < usz; i++) {
                 app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
@@ -1364,13 +1375,13 @@ namespace datalog {
 
         void print_core_tree(std::ostream& out, core_tree const& core) {
             for (unsigned i = 0; i < core.size(); i++) {
-                out << "core_hname: " << core.find(i)->first << ", core_id: " << core.find(i)->second.first.first << ", core_ids: [";
-                for (unsigned j = 0; j < core.find(i)->second.first.second.size(); j++) {
-                    out << " " << core.find(i)->second.first.second.get(j);
+                out << "core_hname: " << core.find(i)->first << ", core_id: " << core.find(i)->second.m_node_id << ", core_ids: [";
+                for (unsigned j = 0; j < core.find(i)->second.m_names.size(); j++) {
+                    out << " " << core.find(i)->second.m_names.get(j);
                 }
                 out << "], core_body_names: [";
-                for (unsigned j = 0; j < core.find(i)->second.second.size(); j++) {
-                    out << " " << core.find(i)->second.second.get(j);
+                for (unsigned j = 0; j < core.find(i)->second.m_parent_nodes.size(); j++) {
+                    out << " " << core.find(i)->second.m_parent_nodes.get(j);
                 }
                 out << "]\n";
             }

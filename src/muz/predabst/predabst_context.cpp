@@ -29,50 +29,25 @@ Revision History:
 namespace datalog {
 
     struct refine_cand_info {
-        typedef std::pair<func_decl*, vector<expr_ref_vector> > refine_cand_rel_info;
+        obj_map<func_decl, vector<expr_ref_vector> > m_allrels_info;
+        vector<expr_ref_vector> m_empty;
 
-        vector<refine_cand_rel_info> m_allrels_info;
-
-        void insert(func_decl* sym, expr_ref_vector const& args);
-
-        unsigned get_size() const {
-            return m_allrels_info.size();
+        void insert(func_decl* fdecl, expr_ref_vector const& args) {
+            if (!m_allrels_info.contains(fdecl)) {
+                m_allrels_info.insert(fdecl, m_empty);
+            }
+            m_allrels_info[fdecl].push_back(args);
         }
 
-        refine_cand_rel_info const& get_info(unsigned i) const {
-            return m_allrels_info.get(i);
+        vector<expr_ref_vector> const& get(func_decl* fdecl) const {
+            if (m_allrels_info.contains(fdecl)) {
+                return m_allrels_info[fdecl];
+            }
+            else {
+                return m_empty;
+            }
         }
-
-        void display(std::ostream& out) const;
     };
-
-    void refine_cand_info::insert(func_decl* sym, expr_ref_vector const& args) {
-        for (unsigned i = 0; i < m_allrels_info.size(); i++) {
-            if (m_allrels_info.get(i).first == sym) {
-                m_allrels_info.get(i).second.push_back(args);
-                return;
-            }
-        }
-        vector<expr_ref_vector> new_args;
-        new_args.push_back(args);
-        m_allrels_info.push_back(std::make_pair(sym, new_args));
-    }
-
-    void refine_cand_info::display(std::ostream& out) const {
-        for (unsigned i = 0; i < m_allrels_info.size(); i++) {
-            refine_cand_rel_info const& info = m_allrels_info.get(i);
-            out << "refine_cand_info: " << i << ": " << info.first->get_name() << " -[ ";
-            for (unsigned j = 0; j < info.second.size(); j++) {
-                expr_ref_vector const& v = info.second.get(j);
-                out << "usage " << j << " -[ ";
-                for (unsigned k = 0; k < v.size(); k++) {
-                    out << mk_pp(v.get(k), v.m()) << " ";
-                }
-                out << " ] ";
-            }
-            out << " ] \n";
-        }
-    }
 
     class predabst::imp {
         struct stats {
@@ -456,7 +431,7 @@ namespace datalog {
 
         expr_ref cube_to_formula(cube_t const& cube, expr_ref_vector const& preds) const {
             expr_ref_vector es(m);
-            for (unsigned i = 0; i < cube.size(); i++) {
+            for (unsigned i = 0; i < cube.size(); ++i) {
                 if (cube[i]) {
                     es.push_back(preds[i]);
                 }
@@ -1031,7 +1006,7 @@ namespace datalog {
                 vector<refine_pred_info> interpolants;
                 interpolants.push_back(refine_pred_info(bound, get_all_vars(bound)));
                 interpolants.push_back(refine_pred_info(decrease, get_all_vars(decrease)));
-                for (unsigned i = 0; i < interpolants.size(); i++) {
+                for (unsigned i = 0; i < interpolants.size(); ++i) {
                     STRACE("predabst", tout << "Interpolant " << i << ":"; interpolants.get(i).display(tout););
                 }
                 return refine_preds(to_refine_cand_info, interpolants);
@@ -1041,9 +1016,9 @@ namespace datalog {
             expr_ref_vector cs_vars(get_all_vars(cs));
 
             app_ref_vector q_vars(m);
-            for (unsigned j = 0; j < cs_vars.size(); j++) {
-                if (!args.contains(cs_vars.get(j))) {
-                    q_vars.push_back(to_app(cs_vars.get(j)));
+            for (unsigned i = 0; i < cs_vars.size(); ++i) {
+                if (!args.contains(cs_vars.get(i))) {
+                    q_vars.push_back(to_app(cs_vars.get(i)));
                 }
             }
 
@@ -1058,40 +1033,45 @@ namespace datalog {
 
         bool refine_preds(refine_cand_info const& allrels_info, vector<refine_pred_info> const& interpolants) {
             unsigned new_preds_added = 0;
-            for (unsigned i = 0; i < allrels_info.get_size(); i++) {
-                func_decl *fd = allrels_info.get_info(i).first;
-                expr_ref_vector const& vars = m_func_decl2info[fd]->m_vars;
-                expr_ref_vector& preds = m_func_decl2info[fd]->m_preds;
-                vector<expr_ref_vector> rel_info = allrels_info.get_info(i).second;
-                for (unsigned k = 0; k < rel_info.size(); k++) {
-                    new_preds_added += get_interpolant_pred(rel_info.get(k), vars, interpolants, preds);
-                    STRACE("predabst", tout << "Found " << new_preds_added << " new predicates for " << fd->get_name() << "\n";);
+            for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+                func_decl *fdecl = m_func_decls.get(i);
+                vector<expr_ref_vector> rel_info = allrels_info.get(fdecl);
+                for (unsigned j = 0; j < rel_info.size(); ++j) {
+                    for (unsigned k = 0; k < interpolants.size(); ++k) {
+                        new_preds_added += get_interpolant_pred(fdecl, rel_info.get(j), interpolants.get(k));
+                    }
                 }
             }
             return (new_preds_added > 0);
         }
 
-        static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& pred_vars) {
-            for (unsigned j = 0; j < pred_vars.size(); j++) {
-                if (!args.contains(pred_vars.get(j))) {
+        static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& vars) {
+            for (unsigned i = 0; i < vars.size(); ++i) {
+                if (!args.contains(vars.get(i))) {
                     return false;
                 }
             }
             return true;
         }
 
-        unsigned get_interpolant_pred(expr_ref_vector const& args, expr_ref_vector const& vars, vector<refine_pred_info> const& interpolants, expr_ref_vector& in_preds) {
+        unsigned get_interpolant_pred(func_decl* fdecl, expr_ref_vector const& args, refine_pred_info const& interpolant) {
+            expr_ref_vector const& vars = m_func_decl2info[fdecl]->m_vars;
+            expr_ref_vector& preds = m_func_decl2info[fdecl]->m_preds;
+
             unsigned new_preds_added = 0;
-            for (unsigned i = 0; i < interpolants.size(); i++) {
-                if (is_args_pred(args, interpolants.get(i).m_pred_vars)) {
-                    expr_ref const& in_pred = interpolants.get(i).m_pred;
-                    expr_ref in_pred2(replace_pred(args, vars, in_pred), m);
-                    if (!in_preds.contains(in_pred2)) {
-                        in_preds.push_back(in_pred2);
-                        ++new_preds_added;
-                    }
+            if (is_args_pred(args, interpolant.m_pred_vars)) {
+                expr_ref const& in_pred = interpolant.m_pred;
+                expr_ref in_pred2(replace_pred(args, vars, in_pred), m);
+                if (!preds.contains(in_pred2)) {
+                    STRACE("predabst", tout << "Found new predicate " << mk_pp(in_pred2, m) << " for " << fdecl->get_name() << "\n";);
+                    preds.push_back(in_pred2);
+                    ++new_preds_added;
+                }
+                else {
+                    STRACE("predabst", tout << "Predicate " << mk_pp(in_pred2, m) << " for " << fdecl->get_name() << " is already present\n";);
                 }
             }
+            STRACE("predabst", tout << "Found " << new_preds_added << " new predicates for " << fdecl->get_name() << " using "; print_expr_ref_vector(tout, args, false); tout << ", ";  interpolant.display(tout););
             return new_preds_added;
         }
 
@@ -1136,7 +1116,7 @@ namespace datalog {
                     expr_ref_vector temp_subst = build_subst(orig_temp_vars, hargs); // >>> should we also be substituting the current chosen values for the extra template parameters?
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst);
                     expr_ref_vector inst_body_terms = get_conj_terms(orig_temp_body);
-                    for (unsigned i = 0; i < inst_body_terms.size(); i++) {
+                    for (unsigned i = 0; i < inst_body_terms.size(); ++i) {
                         solver.assert_expr(inst_body_terms.get(i));
                         if (solver.check() == l_false) {
                             core_info.m_root_id = root_name;
@@ -1152,7 +1132,7 @@ namespace datalog {
                     expr_ref_vector rule_subst = get_subst_vect(r, hargs, "s");
                     unsigned usz = r->get_uninterpreted_tail_size();
                     unsigned tsz = r->get_tail_size();
-                    for (unsigned i = usz; i < tsz; i++) {
+                    for (unsigned i = usz; i < tsz; ++i) {
                         app_ref as = apply_subst(r->get_tail(i), rule_subst);
                         solver.assert_expr(as);
                         if (solver.check() == l_false) {
@@ -1163,7 +1143,7 @@ namespace datalog {
                             return true;
                         }
                     }
-                    for (unsigned i = 0; i < usz; i++) { // Each iteration corresponds to an in-arrow to this node.
+                    for (unsigned i = 0; i < usz; ++i) { // Each iteration corresponds to an in-arrow to this node.
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                         unsigned name = count++;
@@ -1213,7 +1193,7 @@ namespace datalog {
                 unsigned usz = r->get_uninterpreted_tail_size();
                 unsigned tsz = r->get_tail_size();
                 cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
-                for (unsigned i = 0; i < usz; i++) {
+                for (unsigned i = 0; i < usz; ++i) {
                     app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                     expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                     refine_cand_info_set.insert(qs_i->get_decl(), qargs);
@@ -1221,7 +1201,7 @@ namespace datalog {
                 }
             }
             to_wf = mk_conj(to_wf, cs);
-            for (unsigned i = 0; i < todo.size(); i++) {
+            for (unsigned i = 0; i < todo.size(); ++i) {
                 todo_item const& item = todo.get(i);
                 mk_core_tree_wf(item.m_func_decl, item.m_hargs, item.m_node_id, to_wf, refine_cand_info_set);
             }
@@ -1291,7 +1271,7 @@ namespace datalog {
                     unsigned usz = r->get_uninterpreted_tail_size();
                     unsigned tsz = r->get_tail_size();
                     cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
-                    for (unsigned i = 0; i < usz; i++) {
+                    for (unsigned i = 0; i < usz; ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                         refine_cand_info_set.insert(qs_i->get_decl(), qargs);
@@ -1344,7 +1324,7 @@ namespace datalog {
             unsigned tsz = r->get_tail_size();
             expr_ref conj = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
             cs = mk_conj(cs, conj);
-            for (unsigned i = 0; i < usz; i++) {
+            for (unsigned i = 0; i < usz; ++i) {
                 app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                 if (m_template.get_names().contains(r->get_decl(i))) { // >>> rewrite following the other model
                     cs = mk_conj(cs, expr_ref(qs_i, m));
@@ -1368,9 +1348,9 @@ namespace datalog {
         }
 
         void print_core_tree(std::ostream& out, core_tree const& core) {
-            for (unsigned i = 0; i < core.size(); i++) {
+            for (unsigned i = 0; i < core.size(); ++i) {
                 out << "core_hname: " << core.find(i)->first << ", core_id: " << core.find(i)->second.m_node_id << ", core_ids: [";
-                for (unsigned j = 0; j < core.find(i)->second.m_names.size(); j++) {
+                for (unsigned j = 0; j < core.find(i)->second.m_names.size(); ++j) {
                     out << " " << core.find(i)->second.m_names.get(j);
                 }
                 out << "]\n";

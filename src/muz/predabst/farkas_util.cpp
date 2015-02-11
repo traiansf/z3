@@ -835,13 +835,12 @@ static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym
 }
 
 void rel_template_suit::init_template_instantiate() {
-    STRACE("predabst", tout << "init_template_instantiate\n"; display(tout););
     smt_params new_param;
     smt::kernel solver(m_rel_manager, new_param);
     if (m_extras) {
         solver.assert_expr(m_extras);
     }
-    STRACE("predabst", solver.display(tout););
+    //STRACE("predabst", solver.display(tout); tout << std::endl;);
     if (solver.check() == l_true) {
         solver.get_model(m_modref);
         for (unsigned i = 0; i < m_rel_templates.size(); i++) {

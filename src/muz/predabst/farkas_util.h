@@ -104,15 +104,15 @@ public:
     void init_template_instantiate();
     bool constrain_template(expr_ref const& fml);
 
-    vector<rel_template> const& get_templates() {
+    vector<rel_template> const& get_templates() const {
         return m_rel_templates;
     }
 
-    vector<rel_template> const& get_orig_templates() {
+    vector<rel_template> const& get_orig_templates() const {
         return m_rel_templates_orig;
     }
 
-    vector<rel_template> const& get_template_instances() {
+    vector<rel_template> const& get_template_instances() const {
         return m_rel_template_instances;
     }
 

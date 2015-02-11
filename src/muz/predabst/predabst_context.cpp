@@ -263,41 +263,19 @@ namespace datalog {
             rule_set const& rules = m_ctx.get_rules();
             for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                 func_decl* fdecl = m_func_decls[i];
-                if (rules.is_output_predicate(fdecl)) {
-                    // output predicates are ignored
-                }
-                else if (m_func_decl2max_reach_node_set.contains(fdecl)) {
+                if (!rules.is_output_predicate(fdecl)) {
+                    // output predicates are ignored; other predicates are concretized
                     node_set const& nodes = m_func_decl2max_reach_node_set[fdecl];
-                    CASSERT("predabst", nodes.begin() != nodes.end());
-                    // reachable predicates are concretized
-                    if (fdecl->get_arity() == 0) {
-                        md->register_decl(fdecl, m.mk_true());
+                    vars_preds const& vp = m_func_decl2vars_preds[fdecl];
+                    expr_ref_vector const& preds = *vp.second;
+                    expr_ref_vector disj(m);
+                    for (node_set::iterator it_node = nodes.begin(),
+                        end_node = nodes.end(); it_node != end_node;
+                        ++it_node) {
+                        cube_t const& cube = m_node2info[*it_node].m_cube;
+                        disj.push_back(cube_to_formula(cube, preds));
                     }
-                    else {
-                        vars_preds const& vp = m_func_decl2vars_preds[fdecl];
-                        expr_ref_vector const& preds = *vp.second;
-                        expr_ref_vector disj(m);
-                        for (node_set::iterator it_node = nodes.begin(),
-                            end_node = nodes.end(); it_node != end_node;
-                            ++it_node) {
-                            cube_t const& cube = m_node2info[*it_node].m_cube;
-                            disj.push_back(cube_to_formula(cube, preds));
-                        }
-                        func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
-                        fi->set_else(mk_disj(disj));
-                        md->register_decl(fdecl, fi);
-                    }
-                }
-                else {
-                    // unreachable predicates are false
-                    if (fdecl->get_arity() == 0) {
-                        md->register_decl(fdecl, m.mk_false());
-                    }
-                    else {
-                        func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
-                        fi->set_else(m.mk_false());
-                        md->register_decl(fdecl, fi);
-                    }
+                    register_decl(md, fdecl, mk_disj(disj));
                 }
             }
             return md;
@@ -667,6 +645,10 @@ namespace datalog {
                 STRACE("predabst", tout << "=====================================\n";);
 
                 m_func_decl2max_reach_node_set.reset();
+                for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+                    m_func_decl2max_reach_node_set.insert(m_func_decls.get(i), node_set());
+                }
+
                 m_rule2info.reset();
                 m_node2info.reset();
                 m_node_worklist.reset();
@@ -872,14 +854,13 @@ namespace datalog {
 
             // grow node combinations as cartesian product with nodes at pos
             for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
-                if (!m_func_decl2max_reach_node_set.contains(r->get_decl(pos))) {
+                node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2max_reach_node_set[r->get_decl(pos)];
+                STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
+                if (pos_nodes.num_elems() == 0) {
                     // The Cartesian product with an empty set is the empty set.
                     nodes_set.reset();
                     break;
                 }
-                node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2max_reach_node_set[r->get_decl(pos)];
-                STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
-                CASSERT("predabst", pos_nodes.num_elems() != 0);
                 unsigned orig_nodes_set_size = nodes_set.size();
                 // First, store the product with the first node in-place.
                 node_set::iterator pos_node = pos_nodes.begin();
@@ -974,39 +955,32 @@ namespace datalog {
         }
 
         unsigned add_node(func_decl* sym, cube_t const& cube, unsigned r_id, node_vector const& nodes = node_vector()) {
-            unsigned added_id = m_node2info.size();
-            func_decl2node_set::obj_map_entry * sym_nodes_entry = m_func_decl2max_reach_node_set.find_core(sym);
             // first fixpoint check combined with maximality maintainance
-            if (sym_nodes_entry) {
-                // nodes exist at this sym
-                node_set& sym_nodes = sym_nodes_entry->get_data().m_value;
-                node_vector old_lt_nodes;
-                for (node_set::iterator it = sym_nodes.begin(), end = sym_nodes.end(); it != end; ++it) {
-                    cube_t& old_cube = m_node2info[*it].m_cube;
-                    // if cube implies existing cube then nothing to add
-                    if (cube_leq(cube, old_cube)) {
-                        STRACE("predabst", tout << "New node is subsumed by node " << *it << "\n";);
-                        CASSERT("predabst", old_lt_nodes.size() == 0);
-                        return NON_NODE;
-                    }
-                    // stronger old cubes will not be considered maximal
-                    if (cube_leq(old_cube, cube)) {
-                        STRACE("predabst", tout << "New node subsumes node " << *it << "\n";);
-                        old_lt_nodes.push_back(*it);
-                    }
+            node_set& sym_nodes = m_func_decl2max_reach_node_set[sym];
+            node_vector old_lt_nodes;
+            for (node_set::iterator it = sym_nodes.begin(), end = sym_nodes.end(); it != end; ++it) {
+                cube_t& old_cube = m_node2info[*it].m_cube;
+                // if cube implies existing cube then nothing to add
+                if (cube_leq(cube, old_cube)) {
+                    STRACE("predabst", tout << "New node is subsumed by node " << *it << "\n";);
+                    CASSERT("predabst", old_lt_nodes.size() == 0);
+                    return NON_NODE;
                 }
-                // (no???) fixpoint reached since didn't return
-                // remove subsumed maximal nodes
-                for (node_vector::iterator it = old_lt_nodes.begin(), end = old_lt_nodes.end(); it != end; ++it) {
-                    sym_nodes.remove(*it);
-                    m_node_worklist.remove(*it); // removing non-existent element is ok
+                // stronger old cubes will not be considered maximal
+                if (cube_leq(old_cube, cube)) {
+                    STRACE("predabst", tout << "New node subsumes node " << *it << "\n";);
+                    old_lt_nodes.push_back(*it);
                 }
-                sym_nodes.insert(added_id);
             }
-            else {
-                m_func_decl2max_reach_node_set.insert_if_not_there2(sym, node_set())->get_data().m_value.insert(added_id);
+            // (no???) fixpoint reached since didn't return
+            // remove subsumed maximal nodes
+            for (node_vector::iterator it = old_lt_nodes.begin(), end = old_lt_nodes.end(); it != end; ++it) {
+                sym_nodes.remove(*it);
+                m_node_worklist.remove(*it); // removing non-existent element is ok
             }
             // no fixpoint reached hence create new node
+            unsigned added_id = m_node2info.size();
+            sym_nodes.insert(added_id);
             m_node_worklist.insert(added_id);
             m_node2info.push_back(node_info(sym, cube, r_id, nodes));
             STRACE("predabst", tout << "Added "; print_node(tout, added_id););
@@ -1371,6 +1345,17 @@ namespace datalog {
                     expr_ref_vector qs_i_vars(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                     mk_leaf(qs_i_vars, node.m_parent_nodes.get(i), cs);
                 }
+            }
+        }
+
+        void register_decl(model_ref const& md, func_decl* fdecl, expr* e) const {
+            if (fdecl->get_arity() == 0) {
+                md->register_decl(fdecl, e);
+            }
+            else {
+                func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
+                fi->set_else(e);
+                md->register_decl(fdecl, fi);
             }
         }
 

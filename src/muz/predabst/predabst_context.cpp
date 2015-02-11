@@ -276,26 +276,23 @@ namespace datalog {
                     else {
                         expr_ref e(m);
                         vars_preds vp;
-                        if (m_func_decl2vars_preds.find(fdecl, vp)) {
-                            expr_ref_vector disj(m);
-                            expr_ref_vector const& preds = *vp.second;
-                            for (node_set::iterator it_node = nodes.begin(),
-                                end_node = nodes.end(); it_node != end_node;
-                                ++it_node) {
-                                cube_t const& cube = m_node2info[*it_node].m_cube;
-                                expr_ref_vector conj(m);
-                                for (unsigned i = 0; i < cube.size(); ++i) {
-                                    if (cube[i]) {
-                                        conj.push_back(preds[i]);
-                                    }
+                        bool found = m_func_decl2vars_preds.find(fdecl, vp);
+                        CASSERT("predabst", found);
+                        expr_ref_vector disj(m);
+                        expr_ref_vector const& preds = *vp.second;
+                        for (node_set::iterator it_node = nodes.begin(),
+                            end_node = nodes.end(); it_node != end_node;
+                            ++it_node) {
+                            cube_t const& cube = m_node2info[*it_node].m_cube;
+                            expr_ref_vector conj(m);
+                            for (unsigned i = 0; i < cube.size(); ++i) {
+                                if (cube[i]) {
+                                    conj.push_back(preds[i]);
                                 }
-                                disj.push_back(mk_conj(conj));
                             }
-                            e = mk_disj(disj);
+                            disj.push_back(mk_conj(conj));
                         }
-                        else {
-                            e = m.mk_true();
-                        }
+                        e = mk_disj(disj);
                         func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
                         fi->set_else(e);
                         md->register_decl(fdecl, fi);

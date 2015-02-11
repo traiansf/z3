@@ -559,6 +559,11 @@ namespace datalog {
                 throw default_exception("found multiple extra template constraints");
             }
 
+            if (r->get_uninterpreted_tail_size() != 0) {
+                STRACE("predabst", tout << "Error: extra template constraint has an uninterpreted tail";);
+                throw default_exception("extra template constraint has an uninterpreted tail");
+            }
+
             if (r->get_tail_size() != 1) {
                 STRACE("predabst", tout << "Error: extra template constraint tail size is " << r->get_tail_size() << " but should be 1\n";);
                 throw default_exception("extra template constraint has tail of length != 1");
@@ -613,6 +618,11 @@ namespace datalog {
             if (m_template.get_names().contains(suffix_decl)) {
                 STRACE("predabst", tout << "Error: found multiple templates for " << suffix << "\n";);
                 throw default_exception("found multiple templates for " + suffix.str());
+            }
+
+            if (r->get_uninterpreted_tail_size() != 0) {
+                STRACE("predabst", tout << "Error: template has an uninterpreted tail\n";);
+                throw default_exception("template for " + suffix.str() + " has an uninterpreted tail");
             }
 
             if (r->get_tail_size() != 1) {

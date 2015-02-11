@@ -168,14 +168,14 @@ namespace datalog {
         struct core_tree_info {
             unsigned            m_root_id;
             unsigned            m_last_name;
-            unsigned            m_last_node_tid;
+            unsigned            m_last_node_id;
             unsigned            m_pos;
             core_tree           m_core;
             core_tree_info() {}
-            core_tree_info(unsigned root_id, unsigned last_name, unsigned last_node_tid, unsigned pos, core_tree const& core) :
+            core_tree_info(unsigned root_id, unsigned last_name, unsigned last_node_id, unsigned pos, core_tree const& core) :
                 m_root_id(root_id),
                 m_last_name(last_name),
-                m_last_node_tid(last_node_tid),
+                m_last_node_id(last_node_id),
                 m_pos(pos),
                 m_core(core) {}
         };
@@ -359,6 +359,20 @@ namespace datalog {
             return inst;
         }
 
+        expr_ref_vector build_subst(expr* const* vars, expr_ref_vector const& exprs) {
+            return build_subst(exprs.size(), vars, exprs.c_ptr());
+        }
+
+
+        expr_ref_vector build_subst(expr_ref_vector const& vars, expr* const* exprs) {
+            return build_subst(vars.size(), vars.c_ptr(), exprs);
+        }
+
+        expr_ref_vector build_subst(expr_ref_vector const& vars, expr_ref_vector const& exprs) {
+            CASSERT("predabst", vars.size() == exprs.size());
+            return build_subst(vars.size(), vars.c_ptr(), exprs.c_ptr());
+        }
+
         static bool is_regular_rule(rule const* r) {
             return !is_predicate_list(r) && !is_template_extra(r) && !is_template(r);
         }
@@ -433,7 +447,7 @@ namespace datalog {
             CASSERT("predabst", found);
             expr_ref_vector& vars = *vp.first;
             expr_ref_vector& preds = *vp.second;
-            expr_ref_vector subst = build_subst(vars.size(), r->get_head()->get_args(), vars.c_ptr());
+            expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(r->get_tail(i), m) << "\n";);
                 preds.push_back(apply_subst(r->get_tail(i), subst));
@@ -464,7 +478,7 @@ namespace datalog {
 
             // Replace the variables corresponding to the extra template parameters with fresh constants.
             expr_ref_vector extra_params = get_fresh_args(r->get_decl(), "b");
-            expr_ref_vector extra_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), extra_params.c_ptr());
+            expr_ref_vector extra_subst = build_subst(r->get_head()->get_args(), extra_params);
             app_ref extras = apply_subst(r->get_tail(0), extra_subst);
             STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
             m_template.process_template_extra(extra_params, expr_ref(extras, m));
@@ -520,15 +534,15 @@ namespace datalog {
 
             // First, replace the variables corresponding to the extra template parameters with their corresponding constants.
             app* orig_head = m.mk_app(suffix_decl, r->get_head()->get_args());
-            expr_ref_vector extra_subst = build_subst(num_extras, r->get_head()->get_args() + new_arity, extra_params.c_ptr());
+            expr_ref_vector extra_subst = build_subst(r->get_head()->get_args() + new_arity, extra_params);
             app_ref orig_body = apply_subst(r->get_tail(0), extra_subst);
-            STRACE("predabst", tout << "  template SK: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
+            STRACE("predabst", tout << "  orig template: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
 
             // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
             expr_ref_vector query_params = get_fresh_args(r->get_decl(), "v", new_arity);
             app* head = m.mk_app(suffix_decl, query_params.c_ptr());
             expr_ref_vector all_params = vector_concat(query_params, extra_params);
-            expr_ref_vector all_subst = build_subst(head_decl->get_arity(), r->get_head()->get_args(), all_params.c_ptr());
+            expr_ref_vector all_subst = build_subst(r->get_head()->get_args(), all_params);
             app_ref body = apply_subst(r->get_tail(0), all_subst);
             STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
 
@@ -700,7 +714,7 @@ namespace datalog {
             expr_ref_vector const& vars = *vp.first;
             expr_ref_vector const& preds = *vp.second;
             // instantiation maps preds variables to head arguments
-            expr_ref_vector inst = build_subst(vars.size(), vars.c_ptr(), gappl->get_args());
+            expr_ref_vector inst = build_subst(vars, gappl->get_args());
             // preds instantiates to inst_preds
             return apply_subst(preds, inst);
         }
@@ -834,7 +848,7 @@ namespace datalog {
 
         void check_node_property(rule_set const& rules, unsigned id) {
             if (id != NON_NODE && rules.is_output_predicate(m_node2info[id].m_func_decl)) {
-                STRACE("predabst", tout << "Reached query symbol " << m_node2info[id].m_func_decl << "\n";);
+                STRACE("predabst", tout << "Reached query symbol " << m_node2info[id].m_func_decl->get_name() << "\n";);
                 throw acr_error(id, reached_query);
             }
             if (id != NON_NODE && is_wf_predicate(m_node2info[id].m_func_decl)) {
@@ -862,7 +876,7 @@ namespace datalog {
                     STRACE("predabst", tout << "check_well_founded: did not use cube " << mk_pp(preds[i], m) << "\n";);
                 }
             }
-            return apply_subst(expr, build_subst(args.size(), vars.c_ptr(), args.c_ptr()));
+            return apply_subst(expr, build_subst(vars, args));
         }
 
         void check_well_founded(unsigned id) {
@@ -947,7 +961,7 @@ namespace datalog {
         }
 
         bool refine_t_reach(unsigned node_id) {
-            expr_ref cs = mk_leaf(expr_ref_vector(m), node_id);
+            expr_ref cs = mk_leaf(get_fresh_args(m_node2info[node_id].m_func_decl, "l"), node_id);
             expr_ref imp(m.mk_not(cs), m);
             return m_template.constrain_template(imp);
         }
@@ -955,17 +969,15 @@ namespace datalog {
         bool refine_t_wf(unsigned node_id) {
             rule* r = m_rule2info[m_node2info[node_id].m_parent_rule].m_rule;
             expr_ref_vector head_args = get_fresh_args(r->get_decl(), "s");
-            core_clauses2 clauses;
             expr_ref to_wf(m.mk_true(), m);
             refine_cand_info to_refine_cand_info;
-            mk_core_tree_WF(r->get_decl(), head_args, node_id, clauses, to_wf, to_refine_cand_info);
+            mk_core_tree_wf(r->get_decl(), head_args, node_id, to_wf, to_refine_cand_info);
             to_refine_cand_info.insert(r->get_decl(), head_args);
 
             expr_ref bound_sol(m);
             expr_ref decrease_sol(m);
-            vector<refine_pred_info> interpolants;
-
             if (well_founded(head_args, to_wf, bound_sol, decrease_sol)) {
+                vector<refine_pred_info> interpolants;
                 interpolants.push_back(refine_pred_info(bound_sol, get_all_vars(bound_sol)));
                 interpolants.push_back(refine_pred_info(decrease_sol, get_all_vars(decrease_sol)));
                 for (unsigned i = 0; i < interpolants.size(); i++) {
@@ -973,6 +985,7 @@ namespace datalog {
                 }
                 return refine_preds(to_refine_cand_info, interpolants);
             }
+
             expr_ref cs = mk_leaf(head_args, node_id);
             expr_ref_vector cs_vars(get_all_vars(cs));
 
@@ -1043,39 +1056,12 @@ namespace datalog {
         }
 
         bool mk_core_tree(unsigned node_id, core_tree_info &core_info) {
-            try {
-                smt_params new_param;
-                smt::kernel solver(m, new_param);
-                core_tree core;
-                unsigned count;
-                mk_core_tree_internal(0, expr_ref_vector(m), node_id, 0, solver, count, core);
-                return false;
-            }
-            catch (core_tree_info const& core_info2) {
-                core_info = core_info2;
-                return true;
-            }
-        }
+            smt_params new_param;
+            smt::kernel solver(m, new_param);
+            core_tree& core = core_info.m_core;
+            unsigned count = 0;
+            unsigned root_name = count++;
 
-        // Note: root_id is always passed as zero, and never modified or used (except to give to the exception...)
-        // Note: all args but the first three should arguably be class members.
-        void mk_core_tree_internal(unsigned hname, expr_ref_vector const& hargs, unsigned n_id, unsigned root_id, smt::kernel& solver,
-                                   unsigned& count, core_tree& core) {
-            STRACE("predabst", tout << "mk_core_tree_internal: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
-            node_info const& node = m_node2info[n_id];
-            rule* r = m_rule2info[node.m_parent_rule].m_rule;
-            expr_ref_vector rule_subst = get_subst_vect(r, hargs);
-            unsigned univ_iter = hargs.size() + 1; // XXX why not zero?
-            unsigned usz = r->get_uninterpreted_tail_size();
-            unsigned tsz = r->get_tail_size();
-            for (unsigned i = usz; i < tsz; i++) {
-                app_ref as = apply_subst(r->get_tail(i), rule_subst);
-                solver.assert_expr(as);
-                if (solver.check() == l_false) {
-                    throw core_tree_info(root_id, hname, n_id, univ_iter, core);
-                }
-                univ_iter++;
-            }
             struct todo_item {
                 unsigned        m_name;
                 expr_ref_vector m_hargs;
@@ -1086,74 +1072,118 @@ namespace datalog {
                     m_node_id(node_id) {}
             };
             vector<todo_item> todo;
-            vector<unsigned> names;
-            for (unsigned i = 0; i < usz; i++) { // Each iteration corresponds to an in-arrow to this node.
-                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                expr_ref orig_temp_body(m);
-                if (m_template.get_orig_template(qs_i->get_decl(), orig_temp_body)) {
-                    STRACE("predabst", tout << "mk_core_tree_internal: found template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
-                    qargs.append(m_template.get_params());
-                    qargs.reverse(); // >>> huh?
-                    orig_temp_body = apply_subst(orig_temp_body, qargs); // >>> is qargs a substitution vector?
+
+            todo.push_back(todo_item(root_name, get_fresh_args(m_node2info[node_id].m_func_decl, "r"), node_id));
+
+            while (!todo.empty()) {
+                todo_item item = todo.back();
+                todo.pop_back();
+
+                unsigned hname = item.m_name;
+                expr_ref_vector const& hargs = item.m_hargs;
+                unsigned n_id = item.m_node_id;
+                vector<unsigned> names;
+
+                STRACE("predabst", tout << "mk_core_tree: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
+                node_info const& node = m_node2info[n_id];
+                rule* r = m_rule2info[node.m_parent_rule].m_rule;
+                if (!r) {
+                    STRACE("predabst", tout << "mk_core_tree: node was generated by a template\n";);
+                    expr_ref orig_temp_body(m);
+                    expr_ref_vector orig_temp_vars(m);
+                    bool found = m_template.get_orig_template(node.m_func_decl, orig_temp_body, orig_temp_vars);
+                    CASSERT("predabst", found);
+                    expr_ref_vector temp_subst = build_subst(orig_temp_vars, hargs); // >>> should we also be substituting the current chosen values for the extra template parameters?
+                    orig_temp_body = apply_subst(orig_temp_body, temp_subst);
                     expr_ref_vector inst_body_terms = get_conj_terms(orig_temp_body);
-                    for (unsigned j = 0; j < inst_body_terms.size(); j++) {
-                        solver.assert_expr(inst_body_terms.get(j));
+                    for (unsigned i = 0; i < inst_body_terms.size(); i++) {
+                        solver.assert_expr(inst_body_terms.get(i));
                         if (solver.check() == l_false) {
-                            throw core_tree_info(root_id, hname, n_id, univ_iter, core);
+                            core_info.m_root_id = root_name;
+                            core_info.m_last_name = hname;
+                            core_info.m_last_node_id = n_id;
+                            core_info.m_pos = i;
+                            return true;
                         }
-                        univ_iter++;
                     }
                 }
                 else {
-                    STRACE("predabst", tout << "mk_core_tree_internal: no template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
-                    count++;
-                    names.push_back(count);
-                    todo.push_back(todo_item(count, qargs, node.m_parent_nodes.get(i))); // (name id, tail predicate args, parent node id); these form the first three args to mk_core_tree_internal
+                    STRACE("predabst", tout << "mk_core_tree: node was generated by a rule application\n";);
+                    expr_ref_vector rule_subst = get_subst_vect(r, hargs, "s");
+                    unsigned usz = r->get_uninterpreted_tail_size();
+                    unsigned tsz = r->get_tail_size();
+                    for (unsigned i = usz; i < tsz; i++) {
+                        app_ref as = apply_subst(r->get_tail(i), rule_subst);
+                        solver.assert_expr(as);
+                        if (solver.check() == l_false) {
+                            core_info.m_root_id = root_name;
+                            core_info.m_last_name = hname;
+                            core_info.m_last_node_id = n_id;
+                            core_info.m_pos = i;
+                            return true;
+                        }
+                    }
+                    for (unsigned i = 0; i < usz; i++) { // Each iteration corresponds to an in-arrow to this node.
+                        app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                        expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
+                        unsigned name = count++;
+                        names.push_back(name);
+                        todo.push_back(todo_item(name, qargs, node.m_parent_nodes.get(i)));
+                    }
                 }
+
+                core.insert(std::make_pair(hname, core_tree_node(n_id, names)));
             }
-            core.insert(std::make_pair(hname, core_tree_node(n_id, names)));
-            for (unsigned i = 0; i < todo.size(); i++) {
-                todo_item const& item = todo.get(i);
-                mk_core_tree_internal(item.m_name, item.m_hargs, item.m_node_id, root_id, solver, count, core);
-            }
+
+            return false;
         }
 
-        void mk_core_tree_WF(func_decl* hname, expr_ref_vector hargs, unsigned n_id, core_clauses2& clauses, expr_ref& to_wf, refine_cand_info& refine_cand_info_set) {
-            STRACE("predabst", tout << "mk_core_tree_WF: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
+        void mk_core_tree_wf(func_decl* hname, expr_ref_vector hargs, unsigned n_id, expr_ref& to_wf, refine_cand_info& refine_cand_info_set) {
+            STRACE("predabst", tout << "mk_core_tree_wf: node " << n_id << "; " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
+
+            struct todo_item {
+                func_decl*      m_func_decl;
+                expr_ref_vector m_hargs;
+                unsigned        m_node_id;
+                todo_item(func_decl* func_decl, expr_ref_vector const& hargs, unsigned node_id) :
+                    m_func_decl(func_decl),
+                    m_hargs(hargs),
+                    m_node_id(node_id) {}
+            };
+            vector<todo_item> todo;
+
             node_info const& node = m_node2info[n_id];
+            expr_ref cs(m);
             rule* r = m_rule2info[node.m_parent_rule].m_rule;
-            expr_ref_vector rule_subst = get_subst_vect(r, hargs);
-            unsigned usz = r->get_uninterpreted_tail_size(), tsz = r->get_tail_size();
-            expr_ref cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
-            vector<std::pair<func_decl*, std::pair<expr_ref_vector, unsigned> > > todo;
-            expr_ref_vector cl_bs(m);
-            for (unsigned i = 0; i < usz; i++) {
-                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                expr_ref_vector qs_i_vars(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                expr_ref inst_body(m), temp_body(m);
-                for (unsigned j = 0; j < qs_i->get_num_args(); j++) {
-                    refine_cand_info_set.insert(qs_i->get_decl(), qs_i_vars);
-                }
-                if (m_template.get_orig_template(qs_i->get_decl(), temp_body)) {
-                    expr_ref_vector temp_subst(m);
-                    for (unsigned i = 0; i < m_template.get_params().size(); i++) {
-                        temp_subst.push_back(rule_subst.get(i));
-                    }
-                    temp_subst.append(rule_subst);
-                    temp_body = apply_subst(temp_body, temp_subst); // >>> is this _really_ a substitution vector?
-                    m_template.get_modref()->eval(temp_body, inst_body);
-                    cs = mk_conj(cs, inst_body);
-                }
-                else {
-                    todo.push_back(std::make_pair(qs_i->get_decl(), std::make_pair(qs_i_vars, node.m_parent_nodes.get(i))));
-                    cl_bs.push_back(qs_i);
+            if (!r) {
+                STRACE("predabst", tout << "mk_core_tree_wf: node was generated by a template\n";);
+                expr_ref orig_temp_body(m);
+                expr_ref_vector orig_temp_vars(m);
+                bool found = m_template.get_orig_template(node.m_func_decl, orig_temp_body, orig_temp_vars);
+                CASSERT("predabst", found);
+                expr_ref_vector temp_subst = build_subst(orig_temp_vars, hargs);
+                orig_temp_body = apply_subst(orig_temp_body, temp_subst);
+                expr_ref inst_body(m);
+                m_template.get_modref()->eval(orig_temp_body, inst_body);
+                cs = mk_conj(cs, inst_body);
+            }
+            else {
+                STRACE("predabst", tout << "mk_core_tree_wf: node was generated by a rule application\n";);
+                expr_ref_vector rule_subst = get_subst_vect(r, hargs, "s");
+                unsigned usz = r->get_uninterpreted_tail_size();
+                unsigned tsz = r->get_tail_size();
+                cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
+                for (unsigned i = 0; i < usz; i++) {
+                    app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                    expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
+                    refine_cand_info_set.insert(qs_i->get_decl(), qargs);
+                    todo.push_back(todo_item(qs_i->get_decl(), qargs, node.m_parent_nodes.get(i)));
                 }
             }
-            clauses.insert(std::make_pair(hname, std::make_pair(hargs, std::make_pair(cs, cl_bs))));
             to_wf = mk_conj(to_wf, cs);
             for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_tree_WF(todo.get(i).first, todo.get(i).second.first, todo.get(i).second.second, clauses, to_wf, refine_cand_info_set);
+                todo_item const& item = todo.get(i);
+                mk_core_tree_wf(item.m_func_decl, item.m_hargs, item.m_node_id, to_wf, refine_cand_info_set);
             }
         }
 
@@ -1161,102 +1191,102 @@ namespace datalog {
             expr_ref_vector last_vars(m);
             core_clauses clauses;
             mk_core_clauses_internal(core_info.m_root_id, expr_ref_vector(m), core_info.m_last_name, core_info.m_core, last_vars, clauses, allrels_info);
-            expr_ref_vector body = last_clause_body(last_vars, core_info.m_pos, core_info.m_last_node_tid);
-            expr_ref cs = mk_conj(body);
-            STRACE("predabst", tout << "mk_core_clauses: adding final clause " << core_info.m_last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(cs, m) << "\n";);
-            clauses.insert(std::make_pair(core_info.m_last_name, std::make_pair(last_vars, std::make_pair(cs, expr_ref_vector(m)))));
+            expr_ref body = last_clause_body(last_vars, core_info.m_pos, core_info.m_last_node_id);
+            STRACE("predabst", tout << "mk_core_clauses: adding final clause " << core_info.m_last_name << "("; print_expr_ref_vector(tout, last_vars); tout << "); " << mk_pp(body, m) << "\n";);
+            clauses.insert(std::make_pair(core_info.m_last_name, std::make_pair(last_vars, std::make_pair(body, expr_ref_vector(m)))));
             return clauses;
         }
 
         // The last parameter builds up information that will ultimately be passed to refine_preds.
-        void mk_core_clauses_internal(unsigned hname, expr_ref_vector hargs, unsigned last_name, core_tree const& core,
+        void mk_core_clauses_internal(unsigned root_name, expr_ref_vector root_hargs, unsigned last_name, core_tree const& core,
                              expr_ref_vector& last_vars, core_clauses& clauses, refine_cand_info& refine_cand_info_set) {
-            STRACE("predabst", tout << "mk_core_clauses_internal: " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << last_name << "\n";);
-            core_tree::const_iterator it = core.find(hname);
-            node_info const& node = m_node2info[it->second.m_node_id];
-            rule* r = m_rule2info[node.m_parent_rule].m_rule;
-            expr_ref_vector rule_subst = get_subst_vect(r, hargs);
-            unsigned usz = r->get_uninterpreted_tail_size();
-            unsigned tsz = r->get_tail_size();
-            expr_ref cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
-            vector<std::pair<unsigned, expr_ref_vector> > todo;
-            expr_ref_vector cl_bs(m);
-            vector<unsigned> const& names = it->second.m_names;
-            unsigned name_count = 0;
-            for (unsigned i = 0; i < usz; i++) {
-                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                expr_ref inst_body(m);
-                expr_ref orig_temp_body(m);
-                for (unsigned j = 0; j < qs_i->get_num_args(); j++) {
-                    STRACE("predabst", tout << "Recording " << qs_i->get_decl()->get_name() << "("; print_expr_ref_vector(tout, qargs, false); tout << ")\n";);
-                    refine_cand_info_set.insert(qs_i->get_decl(), qargs);
+            struct todo_item {
+                unsigned        m_name;
+                expr_ref_vector m_hargs;
+                todo_item(unsigned name, expr_ref_vector const& hargs) :
+                    m_name(name),
+                    m_hargs(hargs) {}
+            };
+            vector<todo_item> todo;
+
+            todo.push_back(todo_item(root_name, root_hargs));
+
+            while (true) {
+                CASSERT("predabst", !todo.empty());
+                todo_item item = todo.back();
+                todo.pop_back();
+
+                unsigned hname = item.m_name;
+                expr_ref_vector const& hargs = item.m_hargs;
+
+                if (hname == last_name) {
+                    STRACE("predabst", tout << "mk_core_clauses_internal: found last name\n";);
+                    last_vars.append(hargs);
+                    return;
                 }
-                if (m_template.get_orig_template(qs_i->get_decl(), orig_temp_body)) {
-                    STRACE("predabst", tout << "mk_core_clauses_internal: found template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
-                    expr_ref_vector temp_subst(m_template.get_params());
-                    temp_subst.append(rule_subst);
-                    orig_temp_body = apply_subst(orig_temp_body, temp_subst); // >>> is temp_subst really a substitution vector?
+
+                STRACE("predabst", tout << "mk_core_clauses_internal: " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << last_name << "\n";);
+                core_tree::const_iterator it = core.find(hname);
+                CASSERT("predabst", it != core.end());
+                node_info const& node = m_node2info[it->second.m_node_id];
+                vector<unsigned> const& names = it->second.m_names;
+                rule* r = m_rule2info[node.m_parent_rule].m_rule;
+                expr_ref cs(m);
+                expr_ref_vector cl_bs(m);
+                if (!r) {
+                    STRACE("predabst", tout << "mk_core_clauses_internal: node was generated by a template\n";);
+                    expr_ref orig_temp_body(m);
+                    expr_ref_vector orig_temp_vars(m);
+                    bool found = m_template.get_orig_template(node.m_func_decl, orig_temp_body, orig_temp_vars);
+                    CASSERT("predabst", found);
+                    expr_ref_vector temp_subst = build_subst(orig_temp_vars, hargs);
+                    orig_temp_body = apply_subst(orig_temp_body, temp_subst);
+                    expr_ref inst_body(m);
                     m_template.get_modref()->eval(orig_temp_body, inst_body);
-                    cs = mk_conj(cs, inst_body);
+                    cs = inst_body;
                 }
                 else {
-                    STRACE("predabst", tout << "mk_core_clauses_internal: no template for query symbol " << qs_i->get_decl()->get_name() << "\n";);
-                    cl_bs.push_back(qs_i);
-                    if (core.find(names.get(name_count)) != core.end()) {
-                        todo.push_back(std::make_pair(names.get(name_count), qargs));
+                    STRACE("predabst", tout << "mk_core_clauses_internal: node was generated by a rule application\n";);
+                    expr_ref_vector rule_subst = get_subst_vect(r, hargs, "s");
+                    unsigned usz = r->get_uninterpreted_tail_size();
+                    unsigned tsz = r->get_tail_size();
+                    cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
+                    for (unsigned i = 0; i < usz; i++) {
+                        app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+                        expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
+                        refine_cand_info_set.insert(qs_i->get_decl(), qargs);
+                        cl_bs.push_back(qs_i);
+                        todo.push_back(todo_item(names.get(i), qargs));
                     }
-                    else if (names.get(i) == last_name) {
-                        last_vars.append(qargs);
-                    }
-                    name_count++;
                 }
-            }
-            if (hargs.size() > 0 || !m.is_true(cs)) {
-                STRACE("predabst", tout << "mk_core_clauses_internal: adding clause " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << mk_pp(cs, m) << "; "; print_expr_ref_vector(tout, cl_bs););
-                clauses.insert(std::make_pair(hname, std::make_pair(hargs, std::make_pair(cs, cl_bs))));
-            }
 
-            for (unsigned i = 0; i < todo.size(); i++) {
-                mk_core_clauses_internal(todo.get(i).first, todo.get(i).second, last_name, core, last_vars, clauses, refine_cand_info_set);
+                if (hargs.size() > 0 || !m.is_true(cs)) {
+                    STRACE("predabst", tout << "mk_core_clauses_internal: adding clause " << hname << "("; print_expr_ref_vector(tout, hargs, false); tout << "); " << mk_pp(cs, m) << "; "; print_expr_ref_vector(tout, cl_bs););
+                    clauses.insert(std::make_pair(hname, std::make_pair(hargs, std::make_pair(cs, cl_bs))));
+                }
             }
         }
 
-        expr_ref_vector last_clause_body(expr_ref_vector const& hvars, unsigned crit_pos, unsigned tid) {
-            node_info const& node = m_node2info[tid];
+        expr_ref last_clause_body(expr_ref_vector const& hvars, unsigned pos, unsigned node_id) {
+            node_info const& node = m_node2info[node_id];
             rule* r = m_rule2info[node.m_parent_rule].m_rule;
-            expr_ref_vector rule_subst = get_subst_vect(r, hvars);
-            expr_ref_vector body(m);
-            unsigned usz = r->get_uninterpreted_tail_size();
-            unsigned tsz = r->get_tail_size();
-            unsigned curr_pos = hvars.size() + 1;
-            for (unsigned i = usz; i < tsz; i++) {
-                app_ref as = apply_subst(r->get_tail(i), rule_subst);
-                if (!m.is_true(as)) {
-                    body.push_back(as);
-                }
-                if (curr_pos == crit_pos) {
-                    return body;
-                }
-                curr_pos++;
-            }
-            for (unsigned i = 0; i < usz; i++) {
-                app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
+            if (!r) {
+                STRACE("predabst", tout << "last_clause_body: node was generated by a template\n";);
                 expr_ref inst_body(m);
-                expr_ref_vector tmp(m);
-                if (m_template.get_instance(qs_i->get_decl(), inst_body, tmp)) {
-                    expr_ref_vector inst_body_terms = get_conj_terms(inst_body);
-                    for (unsigned j = 0; j < inst_body_terms.size(); j++) {
-                        body.push_back(inst_body_terms.get(j));
-                        if (curr_pos == crit_pos) {
-                            return body;
-                        }
-                        curr_pos++;
-                    }
-                }
+                expr_ref_vector inst_vars(m);
+                bool found = m_template.get_template_instance(node.m_func_decl, inst_body, inst_vars); // >>> why using instance, not orig, here?  why no use of hvars in this branch?
+                CASSERT("predabst", found);
+                expr_ref_vector inst_body_terms = get_conj_terms(inst_body);
+                return mk_conj(expr_ref_vector(m, pos + 1, inst_body_terms.c_ptr()));
             }
-            body.reset(); // >>> is this necessary, or will it always be empty at this point?
-            return body;
+            else {
+                STRACE("predabst", tout << "last_clause_body: node was generated by a rule application\n";);
+                expr_ref_vector rule_subst = get_subst_vect(r, hvars, "s");
+                unsigned usz = r->get_uninterpreted_tail_size();
+                unsigned tsz = r->get_tail_size();
+                return apply_subst(mk_conj(expr_ref_vector(m, pos - usz + 1, r->get_expr_tail() + usz)), rule_subst);
+            }
+            UNREACHABLE();
         }
 
         expr_ref mk_leaf(expr_ref_vector hargs, unsigned n_id) {
@@ -1266,16 +1296,17 @@ namespace datalog {
         }
 
         void mk_leaf(expr_ref_vector hargs, unsigned n_id, expr_ref& cs) {
+            STRACE("predabst", tout << "mk_leaf: " << n_id << " ("; print_expr_ref_vector(tout, hargs, false); tout << ")\n";);
             node_info const& node = m_node2info[n_id];
             rule* r = m_rule2info[node.m_parent_rule].m_rule;
-            expr_ref_vector rule_subst = get_subst_vect(r, hargs);
+            expr_ref_vector rule_subst = get_subst_vect(r, hargs, "s");
             unsigned usz = r->get_uninterpreted_tail_size();
             unsigned tsz = r->get_tail_size();
             expr_ref conj = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
             cs = mk_conj(cs, conj);
             for (unsigned i = 0; i < usz; i++) {
                 app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                if (m_template.get_names().contains(r->get_decl(i))) {
+                if (m_template.get_names().contains(r->get_decl(i))) { // >>> rewrite following the other model
                     cs = mk_conj(cs, expr_ref(qs_i, m));
                 }
                 else {
@@ -1311,26 +1342,41 @@ namespace datalog {
         }
 
         // Returns a substitution vector (i.e. a vector indexed by variable
-        // number) covering all the variables used by r, which maps variables
-        // 0..len(hvars)-1 to reversed(hvars), and maps n.. to fresh constants.
-        // XXX reversed(hvars)?
-        // XXX where does hvars come from, and is it really for a contiguous
-        // range of variables?
-        // XXX this is nonsense!!!
-        expr_ref_vector get_subst_vect(rule const* r, expr_ref_vector const& hvars) {
-            //CASSERT("predabst", hvars.size() == r->get_decl()->get_arity());
-            // XXX This assert should be enabled, but it causes tests to fail...
-            ptr_vector<sort> free_sorts;
-            r->get_vars(m, free_sorts);
-            CASSERT("predabst", free_sorts.size() >= hvars.size());
-            unsigned fresh_subst_size = free_sorts.size() - hvars.size();
-            expr_ref_vector rule_subst(m);
-            rule_subst.reserve(fresh_subst_size);
-            for (unsigned i = 0; i < fresh_subst_size; ++i) {
-                rule_subst[i] = m.mk_fresh_const("s", free_sorts[i]);
+        // number) covering all the variables used by r, which maps the variables
+        // used as head arguments to hvars, and maps all variables that do not
+        // appear in the head to fresh contants.
+        // >>> Seems like this ought to be able to be written as a combination of build_subst and get_subst_vect_fresh.
+        expr_ref_vector get_subst_vect(rule const* r, expr_ref_vector const& hvars, char const* prefix) {
+            CASSERT("predabst", hvars.size() == r->get_decl()->get_arity());
+
+            used_vars used;
+            // The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
+            used.process(r->get_head());
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                used.process(r->get_tail(i));
             }
-            rule_subst.append(hvars);
-            rule_subst.reverse();
+
+            expr_ref_vector rule_subst(m);
+            rule_subst.reserve(used.get_max_found_var_idx_plus_1());
+
+            for (unsigned i = 0; i < r->get_decl()->get_arity(); ++i) {
+                CASSERT("predabst", is_var(r->get_head()->get_arg(i)));
+                unsigned idx = to_var(r->get_head()->get_arg(i))->get_idx();
+                CASSERT("predabst", idx < rule_subst.size());
+                rule_subst[idx] = hvars.get(i);
+            }
+
+            for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
+                if (!rule_subst.get(i)) {
+                    sort* s = used.get(i);
+                    if (s) {
+                        app *c = m.mk_fresh_const(prefix, s);
+                        STRACE("predabst", tout << "  substituting " << mk_pp(c, m) << " for var " << i << " of type " << mk_pp(s, m) << "\n";);
+                        rule_subst[i] = c;
+                    }
+                }
+            }
+
             return rule_subst;
         }
 

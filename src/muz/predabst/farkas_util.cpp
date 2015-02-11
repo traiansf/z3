@@ -688,20 +688,6 @@ static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses
     }
 }
 
-static void display_core_clauses2(std::ostream& out, ast_manager& m, core_clauses2 const& clauses) {
-    for (unsigned j = 0; j < clauses.size(); j++) {
-        out << "clause --> " << clauses.get(j).first->get_name() << " [";
-        for (unsigned i = 0; i < clauses.get(j).second.first.size(); i++) {
-            out << mk_pp(clauses.get(j).second.first.get(i), m) << " ";
-        }
-        out << "] : " << mk_pp(clauses.get(j).second.second.first, m) << " [";
-        for (unsigned i = 0; i < clauses.get(j).second.second.second.size(); i++) {
-            out << mk_pp(clauses.get(j).second.second.second.get(i), m) << " ";
-        }
-        out << "]\n";
-    }
-}
-
 // XXX use print_expr_ref_vector instead
 static void display_expr_ref_vector(std::ostream& out, expr_ref_vector const& vect) {
     out << "expr vect --> [";
@@ -867,7 +853,7 @@ void rel_template_suit::init_template_instantiate() {
     }
 }
 
-bool rel_template_suit::get_orig_template(func_decl* fdecl, expr_ref& body) {
+bool rel_template_suit::get_orig_template(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars) {
     for (unsigned i = 0; i < m_rel_templates.size(); i++) {
         rel_template const& orig = m_rel_templates_orig[i];
         if (orig.m_head->get_decl() == fdecl) {
@@ -878,7 +864,7 @@ bool rel_template_suit::get_orig_template(func_decl* fdecl, expr_ref& body) {
     return false;
 }
 
-bool rel_template_suit::get_instance(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars) {
+bool rel_template_suit::get_template_instance(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars) {
     for (unsigned i = 0; i < m_rel_template_instances.size(); i++) {
         rel_template const& instance = m_rel_template_instances[i];
         if (instance.m_head->get_decl() == fdecl) {

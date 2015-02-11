@@ -24,7 +24,6 @@ Revision History:
 #include <map>
 
 typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
-typedef vector<std::pair<func_decl*, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > > core_clauses2;
 
 struct refine_pred_info {
     expr_ref        m_pred;
@@ -117,9 +116,9 @@ public:
         return m_rel_template_instances;
     }
 
-    bool get_orig_template(func_decl* fdecl, expr_ref& body);
+    bool get_orig_template(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars);
 
-    bool get_instance(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars);
+    bool get_template_instance(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars);
 
     expr_ref_vector const& get_params() {
         return m_params;

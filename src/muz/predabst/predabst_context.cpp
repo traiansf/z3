@@ -948,12 +948,15 @@ namespace datalog {
                     throw acr_error(id, reached_query);
                 }
                 if (m_func_decl2info[m_node2info[id].m_func_decl]->m_is_wf_predicate) {
-                    check_well_founded(id);
+                    if (!is_well_founded(id)) {
+                        STRACE("predabst", tout << "Formula is not well-founded\n";);
+                        throw acr_error(id, not_wf);
+                    }
                 }
             }
         }
 
-        void check_well_founded(unsigned id) {
+        bool is_well_founded(unsigned id) {
             func_decl* fdecl = m_node2info[id].m_func_decl;
             cube_t cube = m_node2info[id].m_cube;
 
@@ -965,12 +968,7 @@ namespace datalog {
 
             expr_ref bound(m);
             expr_ref decrease(m);
-            if (!well_founded(args, to_rank, bound, decrease)) {
-                STRACE("predabst", tout << "Formula is not well-founded\n";);
-                throw acr_error(id, not_wf);
-            }
-
-            STRACE("predabst", tout << "Formula is well-founded: bound " << mk_pp(bound, m) << "; decrease " << mk_pp(decrease, m) << "\n";);
+            return well_founded(args, to_rank, bound, decrease);
         }
 
         unsigned add_node(func_decl* sym, cube_t const& cube, unsigned r_id, node_vector const& nodes = node_vector()) {
@@ -1020,31 +1018,31 @@ namespace datalog {
         }
 
         bool refine_t_wf(unsigned node_id) {
-            rule* r = m_rule2info[m_node2info[node_id].m_parent_rule].m_rule;
-            expr_ref_vector head_args = get_fresh_args(r->get_decl(), "s");
+            func_decl* fdecl = m_node2info[node_id].m_func_decl;
+            expr_ref_vector args = get_fresh_args(fdecl, "s");
             expr_ref to_wf(m.mk_true(), m);
             refine_cand_info to_refine_cand_info;
-            mk_core_tree_wf(r->get_decl(), head_args, node_id, to_wf, to_refine_cand_info);
-            to_refine_cand_info.insert(r->get_decl(), head_args);
+            mk_core_tree_wf(fdecl, args, node_id, to_wf, to_refine_cand_info);
+            to_refine_cand_info.insert(fdecl, args);
 
-            expr_ref bound_sol(m);
-            expr_ref decrease_sol(m);
-            if (well_founded(head_args, to_wf, bound_sol, decrease_sol)) {
+            expr_ref bound(m);
+            expr_ref decrease(m);
+            if (well_founded(args, to_wf, bound, decrease)) {
                 vector<refine_pred_info> interpolants;
-                interpolants.push_back(refine_pred_info(bound_sol, get_all_vars(bound_sol)));
-                interpolants.push_back(refine_pred_info(decrease_sol, get_all_vars(decrease_sol)));
+                interpolants.push_back(refine_pred_info(bound, get_all_vars(bound)));
+                interpolants.push_back(refine_pred_info(decrease, get_all_vars(decrease)));
                 for (unsigned i = 0; i < interpolants.size(); i++) {
                     STRACE("predabst", tout << "Interpolant " << i << ":"; interpolants.get(i).display(tout););
                 }
                 return refine_preds(to_refine_cand_info, interpolants);
             }
 
-            expr_ref cs = mk_leaf(head_args, node_id);
+            expr_ref cs = mk_leaf(args, node_id);
             expr_ref_vector cs_vars(get_all_vars(cs));
 
             app_ref_vector q_vars(m);
             for (unsigned j = 0; j < cs_vars.size(); j++) {
-                if (!head_args.contains(cs_vars.get(j))) {
+                if (!args.contains(cs_vars.get(j))) {
                     q_vars.push_back(to_app(cs_vars.get(j)));
                 }
             }
@@ -1053,7 +1051,7 @@ namespace datalog {
             ql1(q_vars, cs);
             expr_ref bound_cs(m);
             expr_ref decrease_cs(m);
-            well_founded_cs(head_args, bound_cs, decrease_cs);
+            well_founded_cs(args, bound_cs, decrease_cs);
             expr_ref to_solve(m.mk_or(m.mk_not(cs), m.mk_and(bound_cs, decrease_cs)), m);
             return m_template.constrain_template(to_solve);
         }

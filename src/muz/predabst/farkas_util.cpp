@@ -601,6 +601,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref sol
             model_ref modref;
             solver.get_model(modref);
             if (modref->eval(bound, sol_bound) && modref->eval(decrease, sol_decrease)) {
+                STRACE("predabst", tout << "Formula is well-founded: bound " << mk_pp(sol_bound, m) << "; decrease " << mk_pp(sol_decrease, m) << "\n";);
                 return true;
             }
             return false; // when does it happen?

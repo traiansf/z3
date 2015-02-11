@@ -94,10 +94,18 @@ namespace datalog {
         typedef vector<unsigned> node_vector;
         typedef uint_set node_set;
         //typedef uint_set rule_set; // rule_set has another meaning; use node_id_set/rule_id_set?
-        typedef std::pair<expr_ref_vector*, expr_ref_vector*> vars_preds;
-        typedef obj_map<func_decl, vars_preds> func_decl2vars_preds;
-        typedef obj_map<func_decl, uint_set> func_decl2rule_set;
-        typedef obj_map<func_decl, node_set> func_decl2node_set;
+
+        struct func_decl_info {
+            expr_ref_vector m_vars;
+            expr_ref_vector m_preds;
+            uint_set        m_rules;
+            node_set        m_max_reach_nodes;
+            bool            m_is_output_predicate;
+            func_decl_info(expr_ref_vector const& vars, bool is_output_predicate) :
+                m_vars(vars),
+                m_preds(vars.m()),
+                m_is_output_predicate(is_output_predicate) {}
+        };
 
         struct rule_info {
             func_decl*              m_func_decl;
@@ -145,15 +153,12 @@ namespace datalog {
         volatile bool          m_cancel;      // Boolean flag to track external cancelation.
         stats                  m_stats;       // statistics information specific to the predabst module.
 
-        rel_template_suit      m_template;
-        func_decl_ref_vector   m_func_decls;
-        func_decl2vars_preds   m_func_decl2vars_preds;
-        func_decl2rule_set     m_func_decl2rules;
-
-        func_decl2node_set     m_func_decl2max_reach_node_set;
-        vector<rule_info>      m_rule2info;
-        vector<node_info>      m_node2info;
-        node_set               m_node_worklist;
+        rel_template_suit                   m_template;
+        func_decl_ref_vector                m_func_decls;
+        obj_map<func_decl, func_decl_info*> m_func_decl2info;
+        vector<rule_info>                   m_rule2info;
+        vector<node_info>                   m_node2info;
+        node_set                            m_node_worklist;
 
         typedef enum { reached_query, not_wf } acr_error_kind;
 
@@ -196,10 +201,9 @@ namespace datalog {
         }
 
         ~imp() {
-            for (func_decl2vars_preds::iterator it = m_func_decl2vars_preds.begin(),
-                end = m_func_decl2vars_preds.end(); it != end; ++it) {
-                dealloc(it->m_value.first);
-                dealloc(it->m_value.second);
+            for (obj_map<func_decl, func_decl_info*>::iterator it = m_func_decl2info.begin(),
+                end = m_func_decl2info.end(); it != end; ++it) {
+                dealloc(it->m_value);
             }
         }
 
@@ -265,9 +269,8 @@ namespace datalog {
                 func_decl* fdecl = m_func_decls[i];
                 if (!rules.is_output_predicate(fdecl)) {
                     // output predicates are ignored; other predicates are concretized
-                    node_set const& nodes = m_func_decl2max_reach_node_set[fdecl];
-                    vars_preds const& vp = m_func_decl2vars_preds[fdecl];
-                    expr_ref_vector const& preds = *vp.second;
+                    node_set const& nodes = m_func_decl2info[fdecl]->m_max_reach_nodes;
+                    expr_ref_vector const& preds = m_func_decl2info[fdecl]->m_preds;
                     expr_ref_vector disj(m);
                     for (node_set::iterator it_node = nodes.begin(),
                         end_node = nodes.end(); it_node != end_node;
@@ -354,11 +357,11 @@ namespace datalog {
         }
 
         // Returns a vector of variables of the right type to be arguments to fdecl.
-        expr_ref_vector* get_arg_vars(func_decl* fdecl) const {
-            expr_ref_vector* arg_vars = alloc(expr_ref_vector, m);
-            arg_vars->reserve(fdecl->get_arity());
+        expr_ref_vector get_arg_vars(func_decl* fdecl) const {
+            expr_ref_vector arg_vars(m);
+            arg_vars.reserve(fdecl->get_arity());
             for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
-                (*arg_vars)[i] = m.mk_var(i, fdecl->get_domain(i)); // >>> do I need to construct a fresh variable name?
+                arg_vars[i] = m.mk_var(i, fdecl->get_domain(i)); // >>> do I need to construct a fresh variable name?
             }
             return arg_vars;
         }
@@ -463,23 +466,20 @@ namespace datalog {
                 rule* r = rules.get_rule(i);
                 if (is_regular_rule(r)) {
                     for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
-                        process_func_decl(r->get_decl(j));
-                        m_func_decl2rules[r->get_decl(j)].insert(r_id);
+                        process_func_decl(rules, r->get_decl(j));
+                        m_func_decl2info[r->get_decl(j)]->m_rules.insert(r_id);
                     }
-                    process_func_decl(r->get_decl());
+                    process_func_decl(rules, r->get_decl());
                     r_id++;
                 }
             }
         }
 
-        void process_func_decl(func_decl *fdecl) {
-            if (!m_func_decl2vars_preds.contains(fdecl)) {
+        void process_func_decl(rule_set const& rules, func_decl *fdecl) {
+            if (!m_func_decl2info.contains(fdecl)) {
                 m_func_decls.push_back(fdecl);
-                expr_ref_vector* vars = get_arg_vars(fdecl);
-                expr_ref_vector* preds = alloc(expr_ref_vector, m);
-                m_func_decl2vars_preds.insert(fdecl, std::make_pair(vars, preds));
-                m_func_decl2rules.insert(fdecl, uint_set());
-                m_func_decl2max_reach_node_set.insert(fdecl, node_set());
+                expr_ref_vector vars = get_arg_vars(fdecl);
+                m_func_decl2info.insert(fdecl, alloc(func_decl_info, vars, rules.is_output_predicate(fdecl)));
             }
         }
 
@@ -516,7 +516,7 @@ namespace datalog {
                 head_decl->get_arity(),
                 head_decl->get_domain(),
                 head_decl->get_range());
-            if (!m_func_decl2vars_preds.contains(suffix_decl)) {
+            if (!m_func_decl2info.contains(suffix_decl)) {
                 STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol " << suffix << "\n";);
                 throw default_exception("found predicate list for non-existent query symbol " + suffix.str());
             }
@@ -526,10 +526,9 @@ namespace datalog {
                 throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
             }
 
-            // Add p1..pN to m_func_decl2vars_preds[SUFFIX]
-            vars_preds const& vp = m_func_decl2vars_preds[suffix_decl];
-            expr_ref_vector& vars = *vp.first;
-            expr_ref_vector& preds = *vp.second;
+            // Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
+            expr_ref_vector& vars = m_func_decl2info[suffix_decl]->m_vars;
+            expr_ref_vector& preds = m_func_decl2info[suffix_decl]->m_preds;
             expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(r->get_tail(i), m) << "\n";);
@@ -600,7 +599,7 @@ namespace datalog {
                 new_arity,
                 head_decl->get_domain(),
                 head_decl->get_range());
-            if (!m_func_decl2vars_preds.contains(suffix_decl)) {
+            if (!m_func_decl2info.contains(suffix_decl)) {
                 STRACE("predabst", tout << "Error: found template for non-existent query symbol " << suffix << "\n";);
                 throw default_exception("found template for non-existent query symbol " + suffix.str());
             }
@@ -637,16 +636,16 @@ namespace datalog {
 
             // The only things that change on subsequent iterations of this loop are
             // the predicate lists
-            // (m_func_decl2vars_preds) and m_template.  The latter can have an
+            // (m_func_decl2info::m_preds) and m_template.  The latter can have an
             // effect on the execution of the algorithm via the initial nodes
-            // set up by initialize_abs_templates.
+            // set up by initialize_abs.
             for (unsigned acr_count = 0;; ++acr_count) {
                 STRACE("predabst", tout << "=====================================\n";);
                 STRACE("predabst", tout << "ACR step : " << acr_count << "\n";);
                 STRACE("predabst", tout << "=====================================\n";);
 
                 for (unsigned i = 0; i < m_func_decls.size(); ++i) {
-                    m_func_decl2max_reach_node_set[m_func_decls.get(i)].reset();
+                    m_func_decl2info[m_func_decls.get(i)]->m_max_reach_nodes.reset();
                 }
                 m_rule2info.reset();
                 m_node2info.reset();
@@ -787,9 +786,8 @@ namespace datalog {
 
         // instantiate each predicate by replacing its free variables with (grounded) arguments of gappl
         expr_ref_vector app_inst_preds(app* gappl) {
-            vars_preds const& vp = m_func_decl2vars_preds[gappl->get_decl()];
-            expr_ref_vector const& vars = *vp.first;
-            expr_ref_vector const& preds = *vp.second;
+            expr_ref_vector const& vars = m_func_decl2info[gappl->get_decl()]->m_vars;
+            expr_ref_vector const& preds = m_func_decl2info[gappl->get_decl()]->m_preds;
             // instantiation maps preds variables to head arguments
             expr_ref_vector inst = build_subst(vars, gappl->get_args());
             // preds instantiates to inst_preds
@@ -809,12 +807,12 @@ namespace datalog {
             STRACE("predabst", tout << "Performing inference from node " << current_id << "\n";);
             func_decl* current_func_decl = m_node2info[current_id].m_func_decl;
             // Find all rules whose body contains the func_decl of the new node.
-            uint_set const& current_rules = m_func_decl2rules[current_func_decl];
+            uint_set const& current_rules = m_func_decl2info[current_func_decl]->m_rules;
             for (uint_set::iterator r_id = current_rules.begin(), r_id_end = current_rules.end(); r_id != r_id_end; ++r_id) {
                 STRACE("predabst", tout << "Attempting to apply rule " << *r_id << "\n";);
                 // Find all positions in the body of this rule at which the
                 // func_decl appears.
-                rule* r = rules.get_rule(*r_id);
+                rule* r = m_rule2info[*r_id].m_rule;
                 uint_set current_poss = get_rule_body_positions(r, current_func_decl);
                 for (uint_set::iterator current_pos = current_poss.begin(), current_pos_end = current_poss.end(); current_pos != current_pos_end; ++current_pos) {
                     STRACE("predabst-cprod", tout << "Using this node in position " << *current_pos << "\n";);
@@ -834,7 +832,7 @@ namespace datalog {
         }
 
         uint_set get_rule_body_positions(rule* r, func_decl* fdecl) {
-            // XXX we could precompute this set and store it in m_func_decl2rules
+            // XXX we could precompute this set and store it in m_func_decl2info::m_rules
             uint_set positions;
             for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
                 if (r->get_decl(i) == fdecl) {
@@ -853,7 +851,7 @@ namespace datalog {
 
             // grow node combinations as cartesian product with nodes at pos
             for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
-                node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2max_reach_node_set[r->get_decl(pos)];
+                node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes;
                 STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
                 if (pos_nodes.num_elems() == 0) {
                     // The Cartesian product with an empty set is the empty set.
@@ -936,9 +934,8 @@ namespace datalog {
             func_decl* fdecl = m_node2info[id].m_func_decl;
             cube_t cube = m_node2info[id].m_cube;
 
-            vars_preds const& vp = m_func_decl2vars_preds[fdecl];
-            expr_ref_vector const& vars = *vp.first;
-            expr_ref_vector const& preds = *vp.second;
+            expr_ref_vector const& vars = m_func_decl2info[fdecl]->m_vars;
+            expr_ref_vector const& preds = m_func_decl2info[fdecl]->m_preds;
             expr_ref expr = cube_to_formula(cube, preds);
             expr_ref_vector args = get_fresh_args(fdecl, "s");
             expr_ref to_rank = apply_subst(expr, build_subst(vars, args));
@@ -955,7 +952,7 @@ namespace datalog {
 
         unsigned add_node(func_decl* sym, cube_t const& cube, unsigned r_id, node_vector const& nodes = node_vector()) {
             // first fixpoint check combined with maximality maintainance
-            node_set& sym_nodes = m_func_decl2max_reach_node_set[sym];
+            node_set& sym_nodes = m_func_decl2info[sym]->m_max_reach_nodes;
             node_vector old_lt_nodes;
             for (node_set::iterator it = sym_nodes.begin(), end = sym_nodes.end(); it != end; ++it) {
                 cube_t& old_cube = m_node2info[*it].m_cube;
@@ -1046,9 +1043,8 @@ namespace datalog {
                     for (unsigned j = 0; j < m_func_decls.size(); j++) {
                         func_decl *fd = m_func_decls.get(j);
                         if (allrels_info.get_info(i).first == fd) {
-                            vars_preds const& vp = m_func_decl2vars_preds[fd];
-                            expr_ref_vector const& vars = *vp.first;
-                            expr_ref_vector& preds = *vp.second;
+                            expr_ref_vector const& vars = m_func_decl2info[fd]->m_vars;
+                            expr_ref_vector& preds = m_func_decl2info[fd]->m_preds;
                             vector<expr_ref_vector> rel_info = allrels_info.get_info(i).second;
                             for (unsigned k = 0; k < rel_info.size(); k++) {
                                 new_preds_added += get_interpolant_pred(rel_info.get(k), vars, interpolants, preds);
@@ -1404,11 +1400,10 @@ namespace datalog {
 
         void print_predabst_state(std::ostream& out) const {
             out << "collected predicates:" << std::endl;
-            for (func_decl2vars_preds::iterator it = m_func_decl2vars_preds.begin(),
-                     end = m_func_decl2vars_preds.end(); it != end; ++it) {
-                out << "preds " << it->m_key->get_name() << " "
-                    << it->m_value.second->size() << " :";
-                print_expr_ref_vector(out, *(it->m_value.second));
+            for (obj_map<func_decl, func_decl_info*>::iterator it = m_func_decl2info.begin(),
+                     end = m_func_decl2info.end(); it != end; ++it) {
+                out << "preds " << it->m_key->get_name() << " :";
+                print_expr_ref_vector(out, it->m_value->m_preds);
             }
             out << "instantiated predicates" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {
@@ -1423,10 +1418,10 @@ namespace datalog {
                 }
             }
             out << "rule dependency" << std::endl;
-            for (func_decl2rule_set::iterator it = m_func_decl2rules.begin(),
-                     end = m_func_decl2rules.end(); it != end; ++it) {
+            for (obj_map<func_decl, func_decl_info*>::iterator it = m_func_decl2info.begin(),
+                end = m_func_decl2info.end(); it != end; ++it) {
                 out << it->m_key->get_name() << ": "
-                    << it->m_value << std::endl;
+                    << it->m_value->m_rules << std::endl;
             }
         }
 
@@ -1443,12 +1438,10 @@ namespace datalog {
             for (unsigned i = 0; i < m_node2info.size(); ++i) {
                 print_node(out, i);
             }
-            for (func_decl2node_set::iterator
-                it = m_func_decl2max_reach_node_set.begin(),
-                end = m_func_decl2max_reach_node_set.end();
-                it != end; ++it) {
+            for (obj_map<func_decl, func_decl_info*>::iterator it = m_func_decl2info.begin(),
+                end = m_func_decl2info.end(); it != end; ++it) {
                 out << "max reached nodes " << it->m_key->get_name() << ": "
-                    << it->m_value << std::endl;
+                    << it->m_value->m_max_reach_nodes << std::endl;
             }
             out << "worklist " << m_node_worklist << std::endl;
         }

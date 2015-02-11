@@ -479,6 +479,7 @@ namespace datalog {
                 expr_ref_vector* preds = alloc(expr_ref_vector, m);
                 m_func_decl2vars_preds.insert(fdecl, std::make_pair(vars, preds));
                 m_func_decl2rules.insert(fdecl, uint_set());
+                m_func_decl2max_reach_node_set.insert(fdecl, node_set());
             }
         }
 
@@ -644,11 +645,9 @@ namespace datalog {
                 STRACE("predabst", tout << "ACR step : " << acr_count << "\n";);
                 STRACE("predabst", tout << "=====================================\n";);
 
-                m_func_decl2max_reach_node_set.reset();
                 for (unsigned i = 0; i < m_func_decls.size(); ++i) {
-                    m_func_decl2max_reach_node_set.insert(m_func_decls.get(i), node_set());
+                    m_func_decl2max_reach_node_set[m_func_decls.get(i)].reset();
                 }
-
                 m_rule2info.reset();
                 m_node2info.reset();
                 m_node_worklist.reset();

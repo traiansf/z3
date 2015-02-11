@@ -334,7 +334,7 @@ namespace datalog {
 
         // Returns a substitution vector that maps each variable in vars to the
         // corresponding expression in exprs.
-        expr_ref_vector build_subst(unsigned n, expr* const* vars, expr* const* exprs) {
+        expr_ref_vector build_subst(unsigned n, expr* const* vars, expr* const* exprs) const {
             expr_ref_vector inst(m);
             inst.reserve(n); // note that this is not necessarily the final size of inst
             for (unsigned i = 0; i < n; ++i) {
@@ -348,18 +348,133 @@ namespace datalog {
             return inst;
         }
 
-        expr_ref_vector build_subst(expr* const* vars, expr_ref_vector const& exprs) {
+        expr_ref_vector build_subst(expr* const* vars, expr_ref_vector const& exprs) const {
             return build_subst(exprs.size(), vars, exprs.c_ptr());
         }
 
 
-        expr_ref_vector build_subst(expr_ref_vector const& vars, expr* const* exprs) {
+        expr_ref_vector build_subst(expr_ref_vector const& vars, expr* const* exprs) const {
             return build_subst(vars.size(), vars.c_ptr(), exprs);
         }
 
-        expr_ref_vector build_subst(expr_ref_vector const& vars, expr_ref_vector const& exprs) {
+        expr_ref_vector build_subst(expr_ref_vector const& vars, expr_ref_vector const& exprs) const {
             CASSERT("predabst", vars.size() == exprs.size());
             return build_subst(vars.size(), vars.c_ptr(), exprs.c_ptr());
+        }
+
+        // Returns a vector of fresh constants of the right type to be the first n arguments to fdecl.
+        expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix, unsigned n) const {
+            expr_ref_vector head_args(m);
+            head_args.reserve(n);
+            for (unsigned i = 0; i < n; ++i) {
+                head_args[i] = m.mk_fresh_const(prefix, fdecl->get_domain(i));
+            }
+            return head_args;
+        }
+
+        // Returns a vector of fresh constants of the right type to be arguments to fdecl.
+        expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix) const {
+            return get_fresh_args(fdecl, prefix, fdecl->get_arity());
+        }
+
+        // Returns a vector of variables of the right type to be arguments to fdecl.
+        expr_ref_vector* get_arg_vars(func_decl* fdecl) const {
+            expr_ref_vector* arg_vars = alloc(expr_ref_vector, m);
+            arg_vars->reserve(fdecl->get_arity());
+            for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
+                (*arg_vars)[i] = m.mk_var(i, fdecl->get_domain(i)); // >>> do I need to construct a fresh variable name?
+            }
+            return arg_vars;
+        }
+
+        // Returns a substitution vector (i.e. a vector indexed by variable
+        // number) covering all the variables used by r, which maps the variables
+        // used as head arguments to hvars, and maps all variables that do not
+        // appear in the head to fresh contants.
+        // >>> Seems like this ought to be able to be written as a combination of build_subst and get_subst_vect_fresh.
+        expr_ref_vector get_subst_vect(rule const* r, expr_ref_vector const& hvars, char const* prefix) const {
+            CASSERT("predabst", hvars.size() == r->get_decl()->get_arity());
+
+            used_vars used;
+            // The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
+            used.process(r->get_head());
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                used.process(r->get_tail(i));
+            }
+
+            expr_ref_vector rule_subst(m);
+            rule_subst.reserve(used.get_max_found_var_idx_plus_1());
+
+            for (unsigned i = 0; i < r->get_decl()->get_arity(); ++i) {
+                CASSERT("predabst", is_var(r->get_head()->get_arg(i)));
+                unsigned idx = to_var(r->get_head()->get_arg(i))->get_idx();
+                CASSERT("predabst", idx < rule_subst.size());
+                rule_subst[idx] = hvars.get(i);
+            }
+
+            for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
+                if (!rule_subst.get(i)) {
+                    sort* s = used.get(i);
+                    if (s) {
+                        app *c = m.mk_fresh_const(prefix, s);
+                        STRACE("predabst", tout << "  substituting " << mk_pp(c, m) << " for var " << i << " of type " << mk_pp(s, m) << "\n";);
+                        rule_subst[i] = c;
+                    }
+                }
+            }
+
+            return rule_subst;
+        }
+
+        // Returns a substitution vector mapping each variable used in r to a
+        // fresh constant.
+        expr_ref_vector get_subst_vect_free(rule const* r, char const* prefix) const {
+            used_vars used;
+            // The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
+            used.process(r->get_head());
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                used.process(r->get_tail(i));
+            }
+
+            expr_ref_vector rule_subst(m);
+            rule_subst.reserve(used.get_max_found_var_idx_plus_1());
+            for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
+                sort* s = used.get(i);
+                if (s) {
+                    app *c = m.mk_fresh_const(prefix, s);
+                    STRACE("predabst", tout << "  substituting " << mk_pp(c, m) << " for var " << i << " of type " << mk_pp(s, m) << "\n";);
+                    rule_subst[i] = c;
+                }
+            }
+
+            return rule_subst;
+        }
+
+        // Returns whether c1 implies c2, or in other words, whether the set
+        // represented by c1 is a (non-strict) subset of that represented by c2.
+        static bool cube_leq(cube_t const& c1, cube_t const& c2) {
+            CASSERT("predabst", c1.size() == c2.size());
+            unsigned size = c1.size();
+            for (unsigned i = 0; i < size; ++i) {
+                if (c2[i] && !c1[i]) {
+                    return false;
+                }
+            }
+            // This algorithm is sufficient because cubes are not arbitrary
+            // subsets of the predicate list: if a predicate in the list is
+            // implied by the other predicates in the cube, then it must also be
+            // in the cube.
+            return true;
+        }
+
+        expr_ref cube_to_formula(cube_t const& cube, expr_ref_vector const& preds) const {
+            expr_ref_vector es(m);
+            for (unsigned i = 0; i < cube.size(); i++) {
+                if (cube[i]) {
+                    es.push_back(preds[i]);
+                }
+            }
+            return mk_conj(es);
         }
 
         static bool is_regular_rule(rule const* r) {
@@ -849,16 +964,6 @@ namespace datalog {
             return pred->get_name() == "__wf__";
         }
 
-        expr_ref cube_to_formula(cube_t const& cube, expr_ref_vector const& preds) const {
-            expr_ref_vector es(m);
-            for (unsigned i = 0; i < cube.size(); i++) {
-                if (cube[i]) {
-                    es.push_back(preds[i]);
-                }
-            }
-            return mk_conj(es);
-        }
-
         void check_well_founded(unsigned id) {
             func_decl* fdecl = m_node2info[id].m_func_decl;
             cube_t cube = m_node2info[id].m_cube;
@@ -920,23 +1025,6 @@ namespace datalog {
             m_node2info.push_back(node_info(sym, cube, r_id, nodes));
             STRACE("predabst", tout << "Added "; print_node(tout, added_id););
             return added_id;
-        }
-
-        // Returns whether c1 implies c2, or in other words, whether the set
-        // represented by c1 is a (non-strict) subset of that represented by c2.
-        static bool cube_leq(cube_t const& c1, cube_t const& c2) {
-            CASSERT("predabst", c1.size() == c2.size());
-            unsigned size = c1.size();
-            for (unsigned i = 0; i < size; ++i) {
-                if (c2[i] && !c1[i]) {
-                    return false;
-                }
-            }
-            // This algorithm is sufficient because cubes are not arbitrary
-            // subsets of the predicate list: if a predicate in the list is
-            // implied by the other predicates in the cube, then it must also be
-            // in the cube.
-            return true;
         }
 
         bool refine_unreachable(core_tree_info const& core_info) {
@@ -1300,94 +1388,6 @@ namespace datalog {
                     mk_leaf(qs_i_vars, node.m_parent_nodes.get(i), cs);
                 }
             }
-        }
-
-        // Returns a vector of fresh constants of the right type to be the first n arguments to fdecl.
-        expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix, unsigned n) {
-            expr_ref_vector head_args(m);
-            head_args.reserve(n);
-            for (unsigned i = 0; i < n; ++i) {
-                head_args[i] = m.mk_fresh_const(prefix, fdecl->get_domain(i));
-            }
-            return head_args;
-        }
-        
-        // Returns a vector of fresh constants of the right type to be arguments to fdecl.
-        expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix) {
-            return get_fresh_args(fdecl, prefix, fdecl->get_arity());
-        }
-
-        // Returns a vector of variables of the right type to be arguments to fdecl.
-        expr_ref_vector* get_arg_vars(func_decl* fdecl) {
-            expr_ref_vector* arg_vars = alloc(expr_ref_vector, m);
-            arg_vars->reserve(fdecl->get_arity());
-            for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
-                (*arg_vars)[i] = m.mk_var(i, fdecl->get_domain(i)); // >>> do I need to construct a fresh variable name?
-            }
-            return arg_vars;
-        }
-
-        // Returns a substitution vector (i.e. a vector indexed by variable
-        // number) covering all the variables used by r, which maps the variables
-        // used as head arguments to hvars, and maps all variables that do not
-        // appear in the head to fresh contants.
-        // >>> Seems like this ought to be able to be written as a combination of build_subst and get_subst_vect_fresh.
-        expr_ref_vector get_subst_vect(rule const* r, expr_ref_vector const& hvars, char const* prefix) {
-            CASSERT("predabst", hvars.size() == r->get_decl()->get_arity());
-
-            used_vars used;
-            // The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
-            used.process(r->get_head());
-            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                used.process(r->get_tail(i));
-            }
-
-            expr_ref_vector rule_subst(m);
-            rule_subst.reserve(used.get_max_found_var_idx_plus_1());
-
-            for (unsigned i = 0; i < r->get_decl()->get_arity(); ++i) {
-                CASSERT("predabst", is_var(r->get_head()->get_arg(i)));
-                unsigned idx = to_var(r->get_head()->get_arg(i))->get_idx();
-                CASSERT("predabst", idx < rule_subst.size());
-                rule_subst[idx] = hvars.get(i);
-            }
-
-            for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
-                if (!rule_subst.get(i)) {
-                    sort* s = used.get(i);
-                    if (s) {
-                        app *c = m.mk_fresh_const(prefix, s);
-                        STRACE("predabst", tout << "  substituting " << mk_pp(c, m) << " for var " << i << " of type " << mk_pp(s, m) << "\n";);
-                        rule_subst[i] = c;
-                    }
-                }
-            }
-
-            return rule_subst;
-        }
-
-        // Returns a substitution vector mapping each variable used in r to a
-        // fresh constant.
-        expr_ref_vector get_subst_vect_free(rule const* r, char const* prefix) {
-            used_vars used;
-            // The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
-            used.process(r->get_head());
-            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                used.process(r->get_tail(i));
-            }
-
-            expr_ref_vector rule_subst(m);
-            rule_subst.reserve(used.get_max_found_var_idx_plus_1());
-            for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
-                sort* s = used.get(i);
-                if (s) {
-                    app *c = m.mk_fresh_const(prefix, s);
-                    STRACE("predabst", tout << "  substituting " << mk_pp(c, m) << " for var " << i << " of type " << mk_pp(s, m) << "\n";);
-                    rule_subst[i] = c;
-                }
-            }
-
-            return rule_subst;
         }
 
         void print_trace(std::ostream& out, unsigned n_id) {

@@ -274,27 +274,19 @@ namespace datalog {
                         md->register_decl(fdecl, m.mk_true());
                     }
                     else {
-                        expr_ref e(m);
                         vars_preds vp;
                         bool found = m_func_decl2vars_preds.find(fdecl, vp);
                         CASSERT("predabst", found);
-                        expr_ref_vector disj(m);
                         expr_ref_vector const& preds = *vp.second;
+                        expr_ref_vector disj(m);
                         for (node_set::iterator it_node = nodes.begin(),
                             end_node = nodes.end(); it_node != end_node;
                             ++it_node) {
                             cube_t const& cube = m_node2info[*it_node].m_cube;
-                            expr_ref_vector conj(m);
-                            for (unsigned i = 0; i < cube.size(); ++i) {
-                                if (cube[i]) {
-                                    conj.push_back(preds[i]);
-                                }
-                            }
-                            disj.push_back(mk_conj(conj));
+                            disj.push_back(cube_to_formula(cube, preds));
                         }
-                        e = mk_disj(disj);
                         func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
-                        fi->set_else(e);
+                        fi->set_else(mk_disj(disj));
                         md->register_decl(fdecl, fi);
                     }
                 }
@@ -857,31 +849,28 @@ namespace datalog {
             return pred->get_name() == "__wf__";
         }
 
-        expr_ref cube_to_formula(func_decl* fdecl, cube_t const& cube, expr_ref_vector const& args) {
-            vars_preds vp;
-            bool found = m_func_decl2vars_preds.find(fdecl, vp);
-            CASSERT("predabst", found);
-            expr_ref_vector const& vars = *vp.first;
-            expr_ref_vector const& preds = *vp.second;
-            expr_ref expr(m.mk_true(), m);
+        expr_ref cube_to_formula(cube_t const& cube, expr_ref_vector const& preds) const {
+            expr_ref_vector es(m);
             for (unsigned i = 0; i < cube.size(); i++) {
                 if (cube[i]) {
-                    expr = mk_conj(expr, expr_ref(preds[i], m)); // >>> this builds a deep one-sided expression tree; does this matter?  see also other uses of mk_conj
-                    STRACE("predabst", tout << "check_well_founded: used cube " << mk_pp(preds[i], m) << "\n";);
-                }
-                else {
-                    STRACE("predabst", tout << "check_well_founded: did not use cube " << mk_pp(preds[i], m) << "\n";);
+                    es.push_back(preds[i]);
                 }
             }
-            return apply_subst(expr, build_subst(vars, args));
+            return mk_conj(es);
         }
 
         void check_well_founded(unsigned id) {
             func_decl* fdecl = m_node2info[id].m_func_decl;
             cube_t cube = m_node2info[id].m_cube;
 
+            vars_preds vp;
+            bool found = m_func_decl2vars_preds.find(fdecl, vp);
+            CASSERT("predabst", found);
+            expr_ref_vector const& vars = *vp.first;
+            expr_ref_vector const& preds = *vp.second;
+            expr_ref expr = cube_to_formula(cube, preds);
             expr_ref_vector args = get_fresh_args(fdecl, "s");
-            expr_ref to_rank = cube_to_formula(fdecl, cube, args);
+            expr_ref to_rank = apply_subst(expr, build_subst(vars, args));
 
             expr_ref bound(m);
             expr_ref decrease(m);

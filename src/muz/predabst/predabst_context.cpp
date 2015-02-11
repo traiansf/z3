@@ -101,10 +101,12 @@ namespace datalog {
             uint_set        m_rules;
             node_set        m_max_reach_nodes;
             bool            m_is_output_predicate;
-            func_decl_info(expr_ref_vector const& vars, bool is_output_predicate) :
+            bool            m_is_wf_predicate;
+            func_decl_info(expr_ref_vector const& vars, bool is_output_predicate, bool is_wf_predicate) :
                 m_vars(vars),
                 m_preds(vars.m()),
-                m_is_output_predicate(is_output_predicate) {}
+                m_is_output_predicate(is_output_predicate),
+                m_is_wf_predicate(is_wf_predicate) {}
         };
 
         struct rule_info {
@@ -214,7 +216,7 @@ namespace datalog {
             rule_set& rules = m_ctx.get_rules();
             rm.mk_query(query, rules);
 
-            process_regular_rules(rules);
+            find_all_func_decls(rules);
 
             // Some of the rules are actually declarations of predicate lists,
             // templates and extra constraints on templates.  Find these, and
@@ -225,7 +227,7 @@ namespace datalog {
             process_special_rules(rules, is_template_extra, &imp::collect_template_extra);
             process_special_rules(rules, is_template, &imp::collect_template);
 
-            m_template.init_template_instantiate();
+            find_rule_uses(rules);
 
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
@@ -466,17 +468,14 @@ namespace datalog {
             return !is_predicate_list(r) && !is_template_extra(r) && !is_template(r);
         }
 
-        void process_regular_rules(rule_set const& rules) {
-            unsigned r_id = 0;
-            for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
+        void find_all_func_decls(rule_set const& rules) {
+            for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
                 if (is_regular_rule(r)) {
                     for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
                         process_func_decl(rules, r->get_decl(j));
-                        m_func_decl2info[r->get_decl(j)]->m_rules.insert(r_id);
                     }
                     process_func_decl(rules, r->get_decl());
-                    r_id++;
                 }
             }
         }
@@ -485,13 +484,17 @@ namespace datalog {
             if (!m_func_decl2info.contains(fdecl)) {
                 m_func_decls.push_back(fdecl);
                 expr_ref_vector vars = get_arg_vars(fdecl);
-                m_func_decl2info.insert(fdecl, alloc(func_decl_info, vars, rules.is_output_predicate(fdecl)));
+                m_func_decl2info.insert(fdecl, alloc(func_decl_info, vars, rules.is_output_predicate(fdecl), is_wf_predicate(fdecl)));
             }
+        }
+
+        bool is_wf_predicate(func_decl const* pred) const {
+            return pred->get_name() == "__wf__";
         }
 
         void process_special_rules(rule_set& rules, bool(*p)(rule const*), void (imp::*f)(rule const*)) {
             ptr_vector<rule> to_delete;
-            for (unsigned i = 0; !m_cancel && i < rules.get_num_rules(); ++i) {
+            for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
                 if (p(r)) {
                     (this->*f)(r);
@@ -499,7 +502,7 @@ namespace datalog {
                 }
             }
 
-            for (unsigned i = 0; !m_cancel && i < to_delete.size(); ++i) {
+            for (unsigned i = 0; i < to_delete.size(); ++i) {
                 rules.del_rule(to_delete[i]);
             }
         }
@@ -647,8 +650,20 @@ namespace datalog {
             m_template.process_template(suffix_decl, rel_template(orig_head, expr_ref(orig_body, m)), rel_template(head, expr_ref(body, m)));
         }
 
+        void find_rule_uses(rule_set const& rules) {
+            for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
+                rule* r = rules.get_rule(i);
+                CASSERT("predabst", is_regular_rule(r));
+                for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
+                    m_func_decl2info[r->get_decl(j)]->m_rules.insert(i);
+                }
+            }
+        }
+
         lbool abstract_check_refine() {
             STRACE("predabst", print_initial_state(tout););
+
+            m_template.init_template_instantiate();
 
             // The only things that change on subsequent iterations of this loop are
             // the predicate lists
@@ -824,6 +839,7 @@ namespace datalog {
                 // func_decl appears.
                 rule* r = m_rule2info[*r_id].m_rule;
                 uint_set current_poss = get_rule_body_positions(r, fdecl);
+                CASSERT("predabst", current_poss.num_elems() != 0);
                 for (uint_set::iterator current_pos = current_poss.begin(), current_pos_end = current_poss.end(); current_pos != current_pos_end; ++current_pos) {
                     STRACE("predabst-cprod", tout << "Using this node in position " << *current_pos << "\n";);
                     // Find all possible combinations of nodes that can be used
@@ -926,17 +942,15 @@ namespace datalog {
         }
 
         void check_node_property(unsigned id) {
-            if (id != NON_NODE && m_func_decl2info[m_node2info[id].m_func_decl]->m_is_output_predicate) {
-                STRACE("predabst", tout << "Reached query symbol " << m_node2info[id].m_func_decl->get_name() << "\n";);
-                throw acr_error(id, reached_query);
+            if (id != NON_NODE) {
+                if (m_func_decl2info[m_node2info[id].m_func_decl]->m_is_output_predicate) {
+                    STRACE("predabst", tout << "Reached query symbol " << m_node2info[id].m_func_decl->get_name() << "\n";);
+                    throw acr_error(id, reached_query);
+                }
+                if (m_func_decl2info[m_node2info[id].m_func_decl]->m_is_wf_predicate) {
+                    check_well_founded(id);
+                }
             }
-            if (id != NON_NODE && is_wf_predicate(m_node2info[id].m_func_decl)) {
-                check_well_founded(id);
-            }
-        }
-
-        bool is_wf_predicate(func_decl const* pred) const {
-            return pred->get_name() == "__wf__";
         }
 
         void check_well_founded(unsigned id) {

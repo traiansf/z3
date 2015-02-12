@@ -150,14 +150,17 @@ namespace datalog {
         };
 
         struct core_tree_info {
-            unsigned            m_root_id;
+            unsigned            m_root_name;
+            expr_ref_vector     m_root_args;
             unsigned            m_last_name;
             unsigned            m_last_node_id;
             unsigned            m_pos;
             core_tree           m_core;
-            core_tree_info() {}
-            core_tree_info(unsigned root_id, unsigned last_name, unsigned last_node_id, unsigned pos, core_tree const& core) :
-                m_root_id(root_id),
+            core_tree_info(ast_manager& m) :
+                m_root_args(m) {}
+            core_tree_info(unsigned root_name, expr_ref_vector const& root_args, unsigned last_name, unsigned last_node_id, unsigned pos, core_tree const& core) :
+                m_root_name(root_name),
+                m_root_args(root_args),
                 m_last_name(last_name),
                 m_last_node_id(last_node_id),
                 m_pos(pos),
@@ -368,10 +371,16 @@ namespace datalog {
             rule_subst.reserve(used.get_max_found_var_idx_plus_1());
 
             for (unsigned i = 0; i < r->get_decl()->get_arity(); ++i) {
-                CASSERT("predabst", is_var(r->get_head()->get_arg(i)));
-                unsigned idx = to_var(r->get_head()->get_arg(i))->get_idx();
-                CASSERT("predabst", idx < rule_subst.size());
-                rule_subst[idx] = hvars.get(i);
+                if (is_var(r->get_head()->get_arg(i))) {
+                    unsigned idx = to_var(r->get_head()->get_arg(i))->get_idx();
+                    CASSERT("predabst", idx < rule_subst.size());
+                    rule_subst[idx] = hvars.get(i);
+                }
+                else {
+                    STRACE("predabst", tout << "Need to unify non-variable " << mk_pp(r->get_head()->get_arg(i), m) << " with " << mk_pp(hvars.get(i), m) << " -- help!\n";);
+                    CASSERT("predabst", false);
+                    // >>> not clear what we have to do in this case: might be OK if r->get_head()->get_arg(i) and hvargs.get(i) are syntactically equal, but I this is not (always) the case
+                }
             }
 
             for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
@@ -695,7 +704,7 @@ namespace datalog {
                 catch (acr_error const& exc) {
                     // Our attempt to find a solution failed.
                     unsigned node_id = exc.m_node;
-                    core_tree_info core_info;
+                    core_tree_info core_info(m);
                     if (mk_core_tree(node_id, core_info)) {
                         // The result didn't hold up without abstraction.  We
                         // need to refine the predicates and retry.
@@ -1079,8 +1088,9 @@ namespace datalog {
             smt_params new_param;
             smt::kernel solver(m, new_param);
             core_tree& core = core_info.m_core;
+            unsigned& root_name = core_info.m_root_name;
+            expr_ref_vector& root_args = core_info.m_root_args;
             unsigned count = 0;
-            unsigned root_name = count++;
 
             struct todo_item {
                 unsigned        m_name;
@@ -1093,7 +1103,9 @@ namespace datalog {
             };
             vector<todo_item> todo;
 
-            todo.push_back(todo_item(root_name, get_fresh_args(m_node2info[node_id].m_func_decl, "r"), node_id));
+            root_name = count++;
+            root_args.append(get_fresh_args(m_node2info[node_id].m_func_decl, "r"));
+            todo.push_back(todo_item(root_name, root_args, node_id));
 
             while (!todo.empty()) {
                 todo_item item = todo.back();
@@ -1119,7 +1131,6 @@ namespace datalog {
                     for (unsigned i = 0; i < inst_body_terms.size(); ++i) {
                         solver.assert_expr(inst_body_terms.get(i));
                         if (solver.check() == l_false) {
-                            core_info.m_root_id = root_name;
                             core_info.m_last_name = hname;
                             core_info.m_last_node_id = n_id;
                             core_info.m_pos = i;
@@ -1136,7 +1147,6 @@ namespace datalog {
                         app_ref as = apply_subst(r->get_tail(i), rule_subst);
                         solver.assert_expr(as);
                         if (solver.check() == l_false) {
-                            core_info.m_root_id = root_name;
                             core_info.m_last_name = hname;
                             core_info.m_last_node_id = n_id;
                             core_info.m_pos = i;
@@ -1210,7 +1220,7 @@ namespace datalog {
         core_clauses mk_core_clauses(core_tree_info const& core_info, refine_cand_info &allrels_info) {
             expr_ref_vector last_vars(m);
             core_clauses clauses;
-            mk_core_clauses_internal(core_info.m_root_id, expr_ref_vector(m), core_info.m_last_name, core_info.m_core, last_vars, clauses, allrels_info);
+            mk_core_clauses_internal(core_info.m_root_name, core_info.m_root_args, core_info.m_last_name, core_info.m_core, last_vars, clauses, allrels_info);
             expr_ref body = last_clause_body(last_vars, core_info.m_pos, core_info.m_last_node_id);
             STRACE("predabst", tout << "mk_core_clauses: adding final clause " << core_info.m_last_name << "("; print_expr_ref_vector(tout, last_vars, false); tout << "); " << mk_pp(body, m) << "\n";);
             clauses.insert(std::make_pair(core_info.m_last_name, std::make_pair(last_vars, std::make_pair(body, expr_ref_vector(m)))));

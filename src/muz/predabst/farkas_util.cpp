@@ -536,7 +536,7 @@ static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& 
     return true;
 }
 
-bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref sol_bound, expr_ref sol_decrease) {
+bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& sol_bound, expr_ref& sol_decrease) {
     ast_manager& m = lhs.get_manager();
     if (m.is_true(lhs) || !m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1 || (vsws.size() % 2) != 0) {
         return false;
@@ -611,7 +611,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref sol
     return false; //unsat lambda
 }
 
-void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decrease) {
+expr_ref well_founded_cs(expr_ref_vector const& vsws) {
     ast_manager& m = vsws.get_manager();
     arith_util arith(m);
 
@@ -639,11 +639,13 @@ void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decre
     expr_ref delta0(m.mk_const(symbol("delta0"), arith.mk_int()), m);
     params.push_back(delta0);
 
-    bound = arith.mk_ge(sum_psvs, delta0);
-    decrease = arith.mk_lt(sum_psws, sum_psvs);
+    expr_ref bound(arith.mk_ge(sum_psvs, delta0), m);
+    expr_ref decrease(arith.mk_lt(sum_psws, sum_psvs), m);
 
     STRACE("predabst", tout << "bound: " << mk_pp(bound, m) << "\n";);
     STRACE("predabst", tout << "decrease: " << mk_pp(decrease, m) << "\n";);
+
+    return expr_ref(m.mk_and(bound, decrease), m);
 }
 
 static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m) {

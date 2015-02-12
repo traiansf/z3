@@ -986,23 +986,23 @@ namespace datalog {
         }
 
         bool refine_unreachable(core_tree_info const& core_info) {
-            refine_cand_info allrels_info;
-            core_clauses clauses = mk_core_clauses(core_info, allrels_info);
+            refine_cand_info refine_info;
+            core_clauses clauses = mk_core_clauses(core_info, refine_info);
             vector<refine_pred_info> interpolants = solve_clauses(clauses, m);
-            return refine_preds(allrels_info, interpolants);
+            return refine_preds(refine_info, interpolants);
         }
 
         bool refine_t_reach(unsigned node_id) {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "l");
             expr_ref cs = mk_leaf(args, node_id);
-            expr_ref imp(m.mk_not(cs), m);
-            return m_template.constrain_template(imp);
+            expr_ref to_solve(m.mk_not(cs), m);
+            return m_template.constrain_template(to_solve);
         }
 
         bool refine_t_wf(unsigned node_id) {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "s");
-            refine_cand_info to_refine_cand_info;
-            expr_ref to_wf = mk_core_tree_wf(args, node_id, to_refine_cand_info);
+            refine_cand_info refine_info;
+            expr_ref to_wf = mk_core_tree_wf(args, node_id, refine_info);
 
             expr_ref bound(m);
             expr_ref decrease(m);
@@ -1013,7 +1013,7 @@ namespace datalog {
                 for (unsigned i = 0; i < interpolants.size(); ++i) {
                     STRACE("predabst", tout << "Interpolant " << i << ":"; interpolants.get(i).display(tout););
                 }
-                return refine_preds(to_refine_cand_info, interpolants);
+                return refine_preds(refine_info, interpolants);
             }
 
             expr_ref cs = mk_leaf(args, node_id);
@@ -1028,18 +1028,15 @@ namespace datalog {
 
             qe_lite ql1(m);
             ql1(q_vars, cs);
-            expr_ref bound_cs(m);
-            expr_ref decrease_cs(m);
-            well_founded_cs(args, bound_cs, decrease_cs);
-            expr_ref to_solve(m.mk_or(m.mk_not(cs), m.mk_and(bound_cs, decrease_cs)), m);
+            expr_ref to_solve(m.mk_or(m.mk_not(cs), well_founded_cs(args)), m);
             return m_template.constrain_template(to_solve);
         }
 
-        bool refine_preds(refine_cand_info const& allrels_info, vector<refine_pred_info> const& interpolants) {
+        bool refine_preds(refine_cand_info const& refine_info, vector<refine_pred_info> const& interpolants) {
             unsigned new_preds_added = 0;
             for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                 func_decl *fdecl = m_func_decls.get(i);
-                vector<expr_ref_vector> rel_info = allrels_info.get(fdecl);
+                vector<expr_ref_vector> rel_info = refine_info.get(fdecl);
                 for (unsigned j = 0; j < rel_info.size(); ++j) {
                     for (unsigned k = 0; k < interpolants.size(); ++k) {
                         new_preds_added += get_interpolant_pred(fdecl, rel_info.get(j), interpolants.get(k));
@@ -1160,7 +1157,7 @@ namespace datalog {
             return false;
         }
 
-        expr_ref mk_core_tree_wf(expr_ref_vector hargs, unsigned n_id, refine_cand_info& refine_cand_info_set) {
+        expr_ref mk_core_tree_wf(expr_ref_vector root_args, unsigned root_n_id, refine_cand_info& refine_info) {
             struct todo_item {
                 expr_ref_vector m_hargs;
                 unsigned        m_node_id;
@@ -1170,8 +1167,8 @@ namespace datalog {
             };
             vector<todo_item> todo;
 
-            refine_cand_info_set.insert(m_node2info[n_id].m_func_decl, hargs);
-            todo.push_back(todo_item(hargs, n_id));
+            refine_info.insert(m_node2info[root_n_id].m_func_decl, root_args);
+            todo.push_back(todo_item(root_args, root_n_id));
 
             expr_ref_vector to_wfs(m);
 
@@ -1195,7 +1192,7 @@ namespace datalog {
                     for (unsigned i = 0; i < usz; ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        refine_cand_info_set.insert(qs_i->get_decl(), qargs);
+                        refine_info.insert(qs_i->get_decl(), qargs);
                         todo.push_back(todo_item(qargs, node.m_parent_nodes.get(i)));
                     }
                 }
@@ -1218,8 +1215,7 @@ namespace datalog {
             return mk_conj(to_wfs);
         }
 
-        // The last parameter builds up information that will ultimately be passed to refine_preds.
-        core_clauses mk_core_clauses(core_tree_info const& core_info, refine_cand_info &refine_cand_info_set) {
+        core_clauses mk_core_clauses(core_tree_info const& core_info, refine_cand_info &refine_info) {
             core_clauses clauses;
 
             unsigned root_name = core_info.m_root_name;
@@ -1272,7 +1268,7 @@ namespace datalog {
                     for (unsigned i = 0; i < names.size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        refine_cand_info_set.insert(qs_i->get_decl(), qargs);
+                        refine_info.insert(qs_i->get_decl(), qargs);
                         cl_bs.push_back(qs_i);
                         todo.push_back(todo_item(names.get(i), qargs));
                     }

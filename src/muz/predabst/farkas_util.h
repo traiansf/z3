@@ -40,9 +40,9 @@ struct refine_pred_info {
     void display(std::ostream& out) const;
 };
 
-bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref bound, expr_ref decrease);
+bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref& bound, expr_ref& decrease);
 
-void well_founded_cs(expr_ref_vector const& vsws, expr_ref bound, expr_ref decrease);
+expr_ref well_founded_cs(expr_ref_vector const& vsws);
 
 vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager& m);
 

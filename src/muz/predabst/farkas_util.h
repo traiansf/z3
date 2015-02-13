@@ -56,7 +56,7 @@ struct rel_template {
 };
 
 class rel_template_suit {
-    ast_manager& m_rel_manager;
+    ast_manager& m;
     var_subst m_var_subst;
 
     vector<func_decl*> m_names;
@@ -77,12 +77,12 @@ class rel_template_suit {
 public:
 
     rel_template_suit(ast_manager& m) :
-        m_rel_manager(m),
-        m_var_subst(m_rel_manager, false),
-        m_params(m_rel_manager),
-        m_extras(m_rel_manager),
-        m_extra_sol(m_rel_manager),
-        m_acc(expr_ref(m_rel_manager.mk_true(), m_rel_manager)) {}
+        m(m),
+        m_var_subst(m, false),
+        m_params(m),
+        m_extras(m),
+        m_extra_sol(m),
+        m_acc(expr_ref(m.mk_true(), m)) {}
 
     void process_template_extra(expr_ref_vector& t_params, expr_ref const& extras) {
         CASSERT("predabst", m_params.size() == 0);

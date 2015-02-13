@@ -107,7 +107,7 @@ class farkas_pred {
     expr_ref m_const;
 
     bool m_has_params;
-    ast_manager& m_pred_manager;
+    ast_manager& m;
 
 public:
 
@@ -117,7 +117,7 @@ public:
         m_const(vars.get_manager()),
         m_op(1),
         m_has_params(false),
-        m_pred_manager(vars.get_manager()) {
+        m(vars.get_manager()) {
     }
 
     farkas_pred(expr_ref_vector vars, expr_ref_vector coeffs, unsigned op, expr_ref const_) :
@@ -126,7 +126,7 @@ public:
         m_const(const_),
         m_op(op),
         m_has_params(false),
-        m_pred_manager(vars.get_manager()) {
+        m(vars.get_manager()) {
     }
 
     void put(expr_ref term) {
@@ -152,7 +152,7 @@ public:
     }
 
     expr_ref get_coeffs(unsigned i) {
-        return expr_ref(m_coeffs.get(i), m_pred_manager);
+        return expr_ref(m_coeffs.get(i), m);
     }
 
     unsigned get_op() {
@@ -170,10 +170,10 @@ public:
     void display(std::ostream& out) const {
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             if (i == 0) {
-                out << mk_pp(m_coeffs[i], m_pred_manager) << " * " << mk_pp(m_vars[i], m_pred_manager);
+                out << mk_pp(m_coeffs[i], m) << " * " << mk_pp(m_vars[i], m);
             }
             else {
-                out << " + " << mk_pp(m_coeffs[i], m_pred_manager) << " * " << mk_pp(m_vars[i], m_pred_manager);
+                out << " + " << mk_pp(m_coeffs[i], m) << " * " << mk_pp(m_vars[i], m);
             }
         }
         switch (m_op) {
@@ -196,7 +196,7 @@ public:
             out << " Unknown relation! ";
             break;
         }
-        out << mk_pp(m_const, m_pred_manager) << "\n";
+        out << mk_pp(m_const, m) << "\n";
         out << "Params? : " << (m_has_params ? "TRUE" : "FALSE") << "\n";
     }
 
@@ -231,9 +231,9 @@ private:
     }
 
     void set(expr_ref& term) {
-        arith_util arith(m_pred_manager);
+        arith_util arith(m);
         rewrite_pred(term);
-        expr_ref_vector p_coeffs(m_pred_manager), p_vars(m_pred_manager), p_const_facts(m_pred_manager), add_facts(m_pred_manager);
+        expr_ref_vector p_coeffs(m), p_vars(m), p_const_facts(m), add_facts(m);
         if (arith.is_add(term)) {
             add_facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
         }
@@ -241,8 +241,8 @@ private:
             add_facts.push_back(term);
         }
         for (unsigned i = 0; i < add_facts.size(); ++i) {
-            expr_ref_vector mul_facts(m_pred_manager), var_mul_facts(m_pred_manager), const_mul_facts(m_pred_manager);
-            expr_ref mul_term(add_facts.get(i), m_pred_manager);
+            expr_ref_vector mul_facts(m), var_mul_facts(m), const_mul_facts(m);
+            expr_ref mul_term(add_facts.get(i), m);
             get_all_terms(mul_term, m_vars, var_mul_facts, const_mul_facts, m_has_params);
             CASSERT("predabst", var_mul_facts.size() <= 1);
             if (var_mul_facts.size() == 0) {
@@ -270,7 +270,7 @@ private:
         else {
             m_const = arith.mk_uminus(arith.mk_add(p_const_facts.size(), p_const_facts.c_ptr()));
         }
-        th_rewriter rw(m_pred_manager);
+        th_rewriter rw(m);
         rw(m_const);
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             for (unsigned j = 0; j < p_vars.size(); ++j) {
@@ -292,19 +292,19 @@ class farkas_conj {
     vector<expr_ref> m_set_const;
 
     unsigned m_param_pred_count;
-    mutable ast_manager m_conj_manager;
+    mutable ast_manager m;
 
 public:
     farkas_conj(expr_ref_vector const& vars) :
         m_vars(vars),
         m_param_pred_count(0),
-        m_conj_manager(vars.get_manager()) {
+        m(vars.get_manager()) {
     }
 
     void add(farkas_pred& f_pred) {
         if (m_set_coeffs.size() == 0) {
             for (unsigned i = 0; i < m_vars.size(); ++i) {
-                expr_ref_vector init_coeff(m_conj_manager);
+                expr_ref_vector init_coeff(m);
                 init_coeff.push_back(f_pred.get_coeffs(i));
                 m_set_coeffs.push_back(init_coeff);
             }
@@ -334,11 +334,11 @@ public:
     }
 
     expr_ref get_conj_coeffs(unsigned i, unsigned j) {
-        return expr_ref(m_set_coeffs.get(i).get(j), m_conj_manager);
+        return expr_ref(m_set_coeffs.get(i).get(j), m);
     }
 
     expr_ref get_conj_const(unsigned i) {
-        return expr_ref(m_set_const.get(i), m_conj_manager);
+        return expr_ref(m_set_const.get(i), m);
     }
 
     unsigned get_ops(unsigned i) {
@@ -355,14 +355,14 @@ public:
 
     void display(std::ostream& out) const {
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            out << mk_pp(m_vars[i], m_conj_manager) << "   ";
+            out << mk_pp(m_vars[i], m) << "   ";
         }
         out << "\n";
         for (unsigned i = 0; i < m_set_coeffs[0].size(); ++i) {
             for (unsigned j = 0; j < m_vars.size(); ++j) {
-                out << mk_pp(m_set_coeffs[j][i], m_conj_manager) << "   ";
+                out << mk_pp(m_set_coeffs[j][i], m) << "   ";
             }
-            out << m_set_op[i] << "   " << mk_pp(m_set_const[i], m_conj_manager) << "\n";
+            out << m_set_op[i] << "   " << mk_pp(m_set_const[i], m) << "\n";
         }
     }
 };
@@ -378,7 +378,7 @@ class farkas_imp {
     vector<lambda_kind> m_lambda_kinds;
     bool m_mk_lambda_kinds;
 
-    ast_manager& m_imp_manager;
+    ast_manager& m;
 
 public:
     farkas_imp(expr_ref_vector const& vars, bool mk_lambda_kinds = false) :
@@ -389,15 +389,15 @@ public:
         m_solutions(vars.get_manager()),
         m_constraints((vars.get_manager()).mk_true(), vars.get_manager()),
         m_mk_lambda_kinds(mk_lambda_kinds),
-        m_imp_manager(vars.get_manager()) {
+        m(vars.get_manager()) {
     }
 
     void set(expr_ref lhs_term, expr_ref rhs_term) {
-        expr_ref_vector conjs(m_imp_manager);
+        expr_ref_vector conjs(m);
         conjs.append(to_app(lhs_term)->get_num_args(), to_app(lhs_term)->get_args());
         for (unsigned i = 0; i < conjs.size(); ++i) {
             farkas_pred f_pred(m_vars);
-            f_pred.put(expr_ref(conjs.get(i), m_imp_manager));
+            f_pred.put(expr_ref(conjs.get(i), m));
             m_lhs.add(f_pred);
         }
         m_rhs.put(rhs_term);
@@ -406,12 +406,12 @@ public:
 
     bool solve_constraint() {
         smt_params new_param;;
-        smt::kernel solver(m_imp_manager, new_param);
+        smt::kernel solver(m, new_param);
         solver.assert_expr(m_constraints);
         if (solver.check() == l_true) {
             model_ref modref;
             solver.get_model(modref);
-            expr_ref solution(m_imp_manager);
+            expr_ref solution(m);
             for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
                 if (modref->eval(m_lambdas.get(j), solution, true)) {
                     m_solutions.push_back(solution);
@@ -442,7 +442,6 @@ public:
     }
 
     void display(std::ostream& out) const {
-        ast_manager m = m_vars.get_manager();
         out << "LHS: \n";
         m_lhs.display(out);
         out << "RHS: \n";
@@ -459,18 +458,18 @@ public:
 private:
 
     void set_constraint() {
-        arith_util arith(m_imp_manager);
+        arith_util arith(m);
         CASSERT("predabst", m_lhs.get_param_pred_count() > 0);
 
         for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
-            m_lambdas.push_back(expr_ref(m_imp_manager.mk_fresh_const("t", arith.mk_int()), m_imp_manager));
+            m_lambdas.push_back(expr_ref(m.mk_fresh_const("t", arith.mk_int()), m));
             if (m_lhs.get_ops(i) == 1) {
-                m_constraints = m_imp_manager.mk_and(m_constraints, arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
+                m_constraints = m.mk_and(m_constraints, arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
             }
         }
 
         if (m_lhs.get_param_pred_count() == 1 && m_lhs.get_ops(0) != 0) {
-            m_constraints = m_imp_manager.mk_and(m_constraints, m_imp_manager.mk_eq(m_lambdas.get(0), arith.mk_numeral(rational(1), true)));
+            m_constraints = m.mk_and(m_constraints, m.mk_eq(m_lambdas.get(0), arith.mk_numeral(rational(1), true)));
         }
 
         if (m_mk_lambda_kinds) {
@@ -478,34 +477,34 @@ private:
         }
 
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            expr_ref sum(arith.mk_numeral(rational(0), true), m_imp_manager);
+            expr_ref sum(arith.mk_numeral(rational(0), true), m);
             for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
                 sum = arith.mk_add(sum, arith.mk_mul(m_lambdas.get(j), m_lhs.get_conj_coeffs(i, j)));
             }
-            m_constraints = m_imp_manager.mk_and(m_constraints, m_imp_manager.mk_eq(sum, m_rhs.get_coeffs(i)));
+            m_constraints = m.mk_and(m_constraints, m.mk_eq(sum, m_rhs.get_coeffs(i)));
         }
 
-        expr_ref sum_const(arith.mk_numeral(rational(0), true), m_imp_manager);
+        expr_ref sum_const(arith.mk_numeral(rational(0), true), m);
         for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
             sum_const = arith.mk_add(sum_const, arith.mk_mul(m_lambdas.get(j), m_lhs.get_conj_const(j)));
         }
-        m_constraints = m_imp_manager.mk_and(m_constraints, arith.mk_le(sum_const, m_rhs.get_const()));
+        m_constraints = m.mk_and(m_constraints, arith.mk_le(sum_const, m_rhs.get_const()));
     }
 
     void set_lambda_kinds() {
-        arith_util arith(m_imp_manager);
+        arith_util arith(m);
         if (m_lhs.get_param_pred_count() == 1) {
             if (m_lhs.get_ops(0) == 0) {
-                m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(0), m_imp_manager), bilin_sing, m_lhs.get_ops(0)));
+                m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(0), m), bilin_sing, m_lhs.get_ops(0)));
             }
         }
         else {
             for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
                 if (i < m_lhs.get_param_pred_count()) {
-                    m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m_imp_manager), bilin, m_lhs.get_ops(i)));
+                    m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get_ops(i)));
                 }
                 else {
-                    m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m_imp_manager), lin, m_lhs.get_ops(i)));
+                    m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), lin, m_lhs.get_ops(i)));
                 }
             }
         }
@@ -707,34 +706,34 @@ static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses
 }
 
 expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) {
-    expr_ref_vector new_fmls(m_rel_manager);
+    expr_ref_vector new_fmls(m);
     for (unsigned i = 0; i < fmls.size(); ++i) {
-        new_fmls.push_back(subst_template_body(expr_ref(fmls.get(i), m_rel_manager), rel_templates, args_coll));
+        new_fmls.push_back(subst_template_body(expr_ref(fmls.get(i), m), rel_templates, args_coll));
     }
     return new_fmls;
 }
 
 expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) {
-    app_ref a(to_app(fml), m_rel_manager);
-    if (m_rel_manager.is_and(fml)) {
-        expr_ref_vector sub_formulas(m_rel_manager, a->get_num_args(), a->get_args());
+    app_ref a(to_app(fml), m);
+    if (m.is_and(fml)) {
+        expr_ref_vector sub_formulas(m, a->get_num_args(), a->get_args());
         expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, rel_templates, args_coll);
-        return expr_ref(m_rel_manager.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m_rel_manager);
+        return expr_ref(m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
     }
-    else if (m_rel_manager.is_or(fml)) {
-        expr_ref_vector sub_formulas(m_rel_manager, a->get_num_args(), a->get_args());
+    else if (m.is_or(fml)) {
+        expr_ref_vector sub_formulas(m, a->get_num_args(), a->get_args());
         expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, rel_templates, args_coll);
-        return expr_ref(m_rel_manager.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m_rel_manager);
+        return expr_ref(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
     }
-    else if (m_rel_manager.is_not(fml)) {
+    else if (m.is_not(fml)) {
         CASSERT("predabst", a->get_num_args() == 1);
-        return expr_ref(m_rel_manager.mk_not(subst_template_body(expr_ref(a->get_arg(0), m_rel_manager), rel_templates, args_coll)), m_rel_manager);
+        return expr_ref(m.mk_not(subst_template_body(expr_ref(a->get_arg(0), m), rel_templates, args_coll)), m);
     }
     else if (m_names.contains(a->get_decl())) {
         for (unsigned i = 0; i < rel_templates.size(); i++) {
             if (a->get_decl() == rel_templates.get(i).m_head->get_decl()) {
                 expr_ref cs(m_rel_templates_orig.get(i).m_body);
-                expr_ref_vector args(m_rel_manager, a->get_num_args(), a->get_args());
+                expr_ref_vector args(m, a->get_num_args(), a->get_args());
                 args_coll.append(args);
                 args.append(m_params);
                 args.reverse();
@@ -842,7 +841,7 @@ static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym
 
 void rel_template_suit::init_template_instantiate() {
     smt_params new_param;
-    smt::kernel solver(m_rel_manager, new_param);
+    smt::kernel solver(m, new_param);
     if (m_extras) {
         solver.assert_expr(m_extras);
     }
@@ -850,7 +849,7 @@ void rel_template_suit::init_template_instantiate() {
     if (solver.check() == l_true) {
         solver.get_model(m_modref);
         for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-            expr_ref instance(m_rel_manager);
+            expr_ref instance(m);
             if (m_modref->eval(m_rel_templates[i].m_body, instance)) {
                 m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
             }
@@ -864,21 +863,21 @@ bool rel_template_suit::constrain_template(expr_ref const& fml) {
     }
     m_rel_template_instances.reset();
     STRACE("predabst", tout << "constrain_template begin\n"; display(tout););
-    if (!m_rel_manager.is_true(fml)) {
-        m_acc = m_rel_manager.mk_and(fml, m_acc);
+    if (!m.is_true(fml)) {
+        m_acc = m.mk_and(fml, m_acc);
     }
-    expr_ref_vector args_coll(m_rel_manager);
+    expr_ref_vector args_coll(m);
     expr_ref c1 = subst_template_body(m_acc, m_rel_templates, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
-    expr_ref constraint_st(m_rel_manager.mk_true(), m_rel_manager);
+    expr_ref constraint_st(m.mk_true(), m);
     vector<lambda_kind> all_lambda_kinds;
     if (mk_exists_forall_farkas(c1, args_coll, constraint_st, true, all_lambda_kinds)) {
         int max_lambda = 2;
-        expr_ref lambda_cs = mk_bilin_lambda_constraint(all_lambda_kinds, max_lambda, m_rel_manager);
+        expr_ref lambda_cs = mk_bilin_lambda_constraint(all_lambda_kinds, max_lambda, m);
 
         smt_params new_param;
-        smt::kernel solver(m_rel_manager, new_param);
+        smt::kernel solver(m, new_param);
         solver.assert_expr(constraint_st);
         solver.assert_expr(lambda_cs);
         if (m_extras) {
@@ -888,9 +887,9 @@ bool rel_template_suit::constrain_template(expr_ref const& fml) {
             model_ref modref;
             solver.get_model(modref);
             for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-                expr_ref instance(m_rel_manager);
+                expr_ref instance(m);
                 if (modref->eval(m_rel_templates[i].m_body, instance)) {
-                    STRACE("predabst", tout << "instance  : " << mk_pp(instance, m_rel_manager) << "\n";);
+                    STRACE("predabst", tout << "instance  : " << mk_pp(instance, m) << "\n";);
                     m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
 
                 }
@@ -910,27 +909,27 @@ void rel_template_suit::display(std::ostream& out) const {
     out << "templates: " << m_rel_templates.size() << "\n";
     for (unsigned i = 0; i < m_rel_templates.size(); i++) {
         out << "template " << i << " : " << m_rel_templates[i].m_head->get_decl()->get_name() << " / " << m_rel_templates[i].m_head->get_decl()->get_arity() << "\n";
-        out << "template body : " << mk_pp(m_rel_templates[i].m_body, m_rel_manager) << "\n";
-        out << "template head : " << mk_pp(m_rel_templates[i].m_head, m_rel_manager) << "\n";
+        out << "template body : " << mk_pp(m_rel_templates[i].m_body, m) << "\n";
+        out << "template head : " << mk_pp(m_rel_templates[i].m_head, m) << "\n";
     }
     out << "instances: " << m_rel_template_instances.size() << "\n";
     for (unsigned i = 0; i < m_rel_template_instances.size(); i++) {
         out << "instance " << i << " : " << m_rel_template_instances[i].m_head->get_decl()->get_name() << " / " << m_rel_template_instances[i].m_head->get_decl()->get_arity() << "\n";
-        out << "instance body : " << mk_pp(m_rel_template_instances[i].m_body, m_rel_manager) << "\n";
-        out << "instance head : " << mk_pp(m_rel_template_instances[i].m_head, m_rel_manager) << "\n";
+        out << "instance body : " << mk_pp(m_rel_template_instances[i].m_body, m) << "\n";
+        out << "instance head : " << mk_pp(m_rel_template_instances[i].m_head, m) << "\n";
 
         expr_ref_vector inst_body_terms = get_conj_terms(m_rel_template_instances[i].m_body);
         out << "inst_body_terms: " << inst_body_terms.size() << "\n";
         for (unsigned j = 0; j < inst_body_terms.size(); j++) {
-            out << "inst_body_terms : " << mk_pp(inst_body_terms.get(j), m_rel_manager) << "\n";
+            out << "inst_body_terms : " << mk_pp(inst_body_terms.get(j), m) << "\n";
         }
     }
 
     out << "orig templates: " << m_rel_templates_orig.size() << "\n";
     for (unsigned i = 0; i < m_rel_templates_orig.size(); i++) {
         out << "orig template " << i << " : " << m_rel_templates_orig[i].m_head->get_decl()->get_name() << " / " << m_rel_templates_orig[i].m_head->get_decl()->get_arity() << "\n";
-        out << "orig template body : " << mk_pp(m_rel_templates_orig[i].m_body, m_rel_manager) << "\n";
-        out << "orig template head : " << mk_pp(m_rel_templates_orig[i].m_head, m_rel_manager) << "\n";
+        out << "orig template body : " << mk_pp(m_rel_templates_orig[i].m_body, m) << "\n";
+        out << "orig template head : " << mk_pp(m_rel_templates_orig[i].m_head, m) << "\n";
     }
 }
 

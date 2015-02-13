@@ -25,7 +25,6 @@ Revision History:
 #include "substitution.h"
 #include "smt_kernel.h"
 #include "dl_transforms.h"
-#include <map>
 
 namespace datalog {
 
@@ -36,12 +35,27 @@ namespace datalog {
             m_node_id(node_id) {}
     };
 
+    struct core_clause {
+        unsigned        m_name;
+        expr_ref_vector m_one;
+        expr_ref        m_two;
+        expr_ref_vector m_three;
+        core_clause(unsigned name, expr_ref_vector const& one, expr_ref const& two, expr_ref_vector const& three) :
+            m_name(name),
+            m_one(one),
+            m_two(two),
+            m_three(three) {}
+    };
+
     typedef vector<core_tree_node> core_tree;
-    typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
+    typedef vector<core_clause> core_clauses; // just a sequence; the index has no meaning
 
     struct refine_cand_info {
+    private:
+        static vector<expr_ref_vector>               m_empty;
+
+    public:
         obj_map<func_decl, vector<expr_ref_vector> > m_allrels_info;
-        vector<expr_ref_vector>                      m_empty;
 
         void insert(func_decl* fdecl, expr_ref_vector const& args) {
             if (!m_allrels_info.contains(fdecl)) {
@@ -59,6 +73,8 @@ namespace datalog {
             }
         }
     };
+
+    vector<expr_ref_vector> refine_cand_info::m_empty;
 
     struct refine_pred_info {
         expr_ref        m_pred;
@@ -1195,7 +1211,6 @@ namespace datalog {
                 unsigned name = item.m_name;
                 expr_ref_vector const& args = item.m_args;
 
-
                 if (name == last_name) {
                     found_last = true;
                 }
@@ -1249,7 +1264,7 @@ namespace datalog {
 
                 if (args.size() > 0 || !m.is_true(cs)) {
                     STRACE("predabst", tout << "Adding core clause " << name << "("; print_expr_ref_vector(tout, args, false); tout << "); " << mk_pp(cs, m) << "; "; print_expr_ref_vector(tout, cl_bs););
-                    clauses.insert(std::make_pair(name, std::make_pair(args, std::make_pair(cs, cl_bs))));
+                    clauses.push_back(core_clause(name, args, cs, cl_bs));
                 }
             }
 
@@ -1267,16 +1282,16 @@ namespace datalog {
 
                 expr_ref fmlA(m.mk_true(), m);
                 for (; j >= i; j--, end2--) {
-                    fmlA = mk_conj(fmlA, end2->second.second.first);
+                    fmlA = mk_conj(fmlA, end2->m_two);
                 }
 
                 core_clauses::const_iterator end4 = end2;
                 end4++;
-                expr_ref_vector vars(end4->second.first);
+                expr_ref_vector vars(end4->m_one);
 
                 expr_ref fmlB(m.mk_true(), m);
                 for (; j >= 0; j--, end2--) {
-                    fmlB = mk_conj(fmlB, end2->second.second.first);
+                    fmlB = mk_conj(fmlB, end2->m_two);
                 }
 
                 expr_ref fmlQ_sol(m);
@@ -1546,13 +1561,13 @@ namespace datalog {
         core_clauses::const_iterator st = clauses.begin();
         core_clauses::const_iterator end = clauses.end();
         for (; st != end; st++) {
-            out << "clause --> " << st->first << " [";
-            for (unsigned i = 0; i < st->second.first.size(); i++) {
-                out << mk_pp(st->second.first.get(i), m) << " ";
+            out << "clause --> " << st->m_name << " [";
+            for (unsigned i = 0; i < st->m_one.size(); i++) {
+                out << mk_pp(st->m_one.get(i), m) << " ";
             }
-            out << "] : " << mk_pp(st->second.second.first, m) << " [";
-            for (unsigned i = 0; i < st->second.second.second.size(); i++) {
-                out << mk_pp(st->second.second.second.get(i), m) << " ";
+            out << "] : " << mk_pp(st->m_two, m) << " [";
+            for (unsigned i = 0; i < st->m_three.size(); i++) {
+                out << mk_pp(st->m_three.get(i), m) << " ";
             }
             out << "]\n";
         }

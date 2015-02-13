@@ -686,7 +686,7 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_
         CASSERT("predabst", a->get_num_args() == 1);
         return expr_ref(m.mk_not(subst_template_body(expr_ref(a->get_arg(0), m), rel_templates, args_coll)), m);
     }
-    else if (m_names.contains(a->get_decl())) {
+    else if (has_template(a->get_decl())) {
         for (unsigned i = 0; i < rel_templates.size(); i++) {
             if (a->get_decl() == rel_templates.get(i).m_head->get_decl()) {
                 expr_ref cs(m_rel_templates_orig.get(i).m_body);

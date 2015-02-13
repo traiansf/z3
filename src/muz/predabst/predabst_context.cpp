@@ -106,15 +106,17 @@ namespace datalog {
         struct func_decl_info {
             expr_ref_vector m_vars;
             expr_ref_vector m_preds;
-            uint_set        m_rules;
+            uint_set        m_users;
             node_set        m_max_reach_nodes;
             bool            m_is_output_predicate;
             bool            m_is_wf_predicate;
+            bool            m_has_template;
             func_decl_info(expr_ref_vector const& vars, bool is_output_predicate, bool is_wf_predicate) :
                 m_vars(vars),
                 m_preds(vars.m()),
                 m_is_output_predicate(is_output_predicate),
-                m_is_wf_predicate(is_wf_predicate) {}
+                m_is_wf_predicate(is_wf_predicate),
+                m_has_template(false) {}
         };
 
         struct rule_info {
@@ -232,8 +234,8 @@ namespace datalog {
                 rule* r = rules.get_rule(i);
                 m_rule2info.push_back(rule_info(r->get_decl(), r, 0, m));
             }
-            for (unsigned i = 0; i < m_template.get_templates().size(); ++i) {
-                m_rule2info.push_back(rule_info(m_template.get_templates().get(i).m_head->get_decl(), nullptr, i, m));
+            for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
+                m_rule2info.push_back(rule_info(m_template.get_orig_template(i).m_head->get_decl(), nullptr, i, m));
             }
 
             return abstract_check_refine();
@@ -623,10 +625,12 @@ namespace datalog {
                 throw default_exception("found template for non-existent query symbol " + suffix.str());
             }
 
-            if (m_template.get_names().contains(suffix_decl)) {
+            if (m_func_decl2info[suffix_decl]->m_has_template) {
                 STRACE("predabst", tout << "Error: found multiple templates for " << suffix << "\n";);
                 throw default_exception("found multiple templates for " + suffix.str());
             }
+
+            m_func_decl2info[suffix_decl]->m_has_template = true;
 
             if (r->get_uninterpreted_tail_size() != 0) {
                 STRACE("predabst", tout << "Error: template has an uninterpreted tail\n";);
@@ -659,8 +663,14 @@ namespace datalog {
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
                 CASSERT("predabst", is_regular_rule(r));
+
+                if (m_func_decl2info[r->get_decl()]->m_has_template) {
+                    STRACE("predabst", tout << "Rule exists for " << r->get_decl()->get_name() << ", which also has a template\n";);
+                    throw default_exception("both rule and template for " + r->get_decl()->get_name().str());
+                }
+
                 for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
-                    m_func_decl2info[r->get_decl(j)]->m_rules.insert(i);
+                    m_func_decl2info[r->get_decl(j)]->m_users.insert(i);
                 }
             }
         }
@@ -809,7 +819,7 @@ namespace datalog {
         // Sets up m_rule2info for this iteration of the abstract_check_refine loop.
         void instantiate_template_rule(unsigned t_id, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating template " << t_id << " (rule " << r_id << ")\n";);
-            rel_template const& instance = m_template.get_template_instances().get(t_id);
+            rel_template const& instance = m_template.get_template_instance(t_id);
 
             rule_info& info = m_rule2info[r_id];
             info.m_body = instance.m_body;
@@ -839,7 +849,7 @@ namespace datalog {
         void inference_step(unsigned node_id) {
             // Find all rules whose body contains the func_decl of the new node.
             func_decl* fdecl = m_node2info[node_id].m_func_decl;
-            uint_set const& rules = m_func_decl2info[fdecl]->m_rules;
+            uint_set const& rules = m_func_decl2info[fdecl]->m_users;
             STRACE("predabst", tout << "Performing inference from node " << node_id << " using rules " << rules << "\n";);
             for (uint_set::iterator r_id = rules.begin(), r_id_end = rules.end(); r_id != r_id_end; ++r_id) {
                 STRACE("predabst-cprod", tout << "Attempting to apply rule " << *r_id << "\n";);
@@ -866,7 +876,7 @@ namespace datalog {
         }
 
         uint_set get_rule_body_positions(rule* r, func_decl* fdecl) {
-            // XXX we could precompute this set and store it in m_func_decl2info::m_rules
+            // XXX we could precompute this set and store it in m_func_decl2info::m_users
             uint_set positions;
             for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
                 if (r->get_decl(i) == fdecl) {
@@ -1469,7 +1479,7 @@ namespace datalog {
                 if (it->m_value->m_is_output_predicate) {
                     out << " (output predicate)";
                 }
-                out << " is used by rules " << it->m_value->m_rules << std::endl;
+                out << " is used by rules " << it->m_value->m_users << std::endl;
             }
             out << "  Rules:" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {
@@ -1481,11 +1491,11 @@ namespace datalog {
                 }
             }
             out << "  Templates:" << std::endl;
-            for (unsigned i = 0; i < m_template.get_orig_templates().size(); ++i) {
+            for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
                 out << "    " << i << ": " << std::endl;
-                rel_template const& orig = m_template.get_orig_templates().get(i);
+                rel_template const& orig = m_template.get_orig_template(i);
                 out << "          orig: " << orig.m_head << " <- " << orig.m_body << std::endl;
-                rel_template const& temp = m_template.get_templates().get(i);
+                rel_template const& temp = m_template.get_template(i);
                 out << "          temp: " << temp.m_head << " <- " << temp.m_body << std::endl;
             }
             out << "=====================================\n";
@@ -1507,9 +1517,9 @@ namespace datalog {
                 print_expr_ref_vector(out, it->m_value->m_preds);
             }
             out << "  Template instances:" << std::endl;
-            for (unsigned i = 0; i < m_template.get_template_instances().size(); ++i) {
+            for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
                 out << "    " << i << ": " << std::endl;
-                rel_template const& instance = m_template.get_template_instances().get(i);
+                rel_template const& instance = m_template.get_template_instance(i);
                 out << "          inst: " << instance.m_head << " <- " << instance.m_body << std::endl;
             }
             out << "  Instantiated rules:" << std::endl;

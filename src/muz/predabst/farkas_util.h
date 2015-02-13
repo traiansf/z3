@@ -41,19 +41,28 @@ class rel_template_suit {
     ast_manager& m;
     mutable var_subst m_var_subst;
 
-    vector<func_decl*> m_names;
+    expr_ref_vector m_params;
+    expr_ref m_extras;
+
     vector<rel_template> m_rel_templates_orig;
     vector<rel_template> m_rel_templates;
     vector<rel_template> m_rel_template_instances;
 
-    expr_ref_vector m_params;
-    expr_ref m_extras;
     expr_ref m_acc;
 
     model_ref m_modref;
 
     expr_ref_vector subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const;
     expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args) const;
+
+    bool has_template(func_decl* fdecl) const {
+        for (unsigned i = 0; i < m_rel_templates.size(); ++i) {
+            if (m_rel_templates[i].m_head->get_decl() == fdecl) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     bool instantiate_templates(expr_ref const& constraint);
 
@@ -74,7 +83,6 @@ public:
     }
 
     void process_template(func_decl* head_name, rel_template const& orig_temp, rel_template const& temp) {
-        m_names.push_back(head_name);
         m_rel_templates_orig.push_back(orig_temp);
         m_rel_templates.push_back(temp);
     }
@@ -85,35 +93,35 @@ public:
         m_acc = mk_conj(fml, m_acc);
     }
 
-    vector<func_decl*> const& get_names() {
-        return m_names;
+    unsigned get_num_templates() const {
+        return m_rel_templates.size();
     }
 
-    vector<rel_template> const& get_orig_templates() const {
-        return m_rel_templates_orig;
+    rel_template const& get_orig_template(unsigned i) const {
+        return m_rel_templates_orig.get(i);
     }
 
-    vector<rel_template> const& get_templates() const {
-        return m_rel_templates;
+    rel_template const& get_template(unsigned i) const {
+        return m_rel_templates.get(i);
     }
 
-    vector<rel_template> const& get_template_instances() const {
-        return m_rel_template_instances;
+    rel_template const& get_template_instance(unsigned i) const {
+        return m_rel_template_instances.get(i);
     }
 
-    void rel_template_suit::get_orig_template(unsigned i, expr_ref& body, expr_ref_vector& vars) {
+    void rel_template_suit::get_orig_template(unsigned i, expr_ref& body, expr_ref_vector& vars) const {
         rel_template const& orig = m_rel_templates_orig[i];
         body = orig.m_body;
         vars.append(orig.m_head->get_num_args(), orig.m_head->get_args());
     }
 
-    void rel_template_suit::get_template_instance(unsigned i, expr_ref& body, expr_ref_vector& vars) {
+    void rel_template_suit::get_template_instance(unsigned i, expr_ref& body, expr_ref_vector& vars) const {
         rel_template const& instance = m_rel_template_instances[i];
         body = instance.m_body;
         vars.append(instance.m_head->get_num_args(), instance.m_head->get_args());
     }
 
-    expr_ref_vector const& get_params() {
+    expr_ref_vector const& get_params() const {
         return m_params;
     }
 

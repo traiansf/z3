@@ -127,7 +127,7 @@ namespace datalog {
         rule_manager&          rm;            // context with utilities for fixedpoint rules.
         smt_params             m_fparams;     // parameters specific to smt solving
         smt::kernel            m_solver;      // basic SMT solver class
-        var_subst              m_var_subst;   // substitution object. It gets updated and reset.
+        mutable var_subst      m_var_subst;   // substitution object. It gets updated and reset.
         volatile bool          m_cancel;      // Boolean flag to track external cancelation.
         stats                  m_stats;       // statistics information specific to the predabst module.
 
@@ -270,14 +270,14 @@ namespace datalog {
     private:
 
         // Apply a substitution vector to an expression, returning the result.
-        expr_ref apply_subst(expr* expr, expr_ref_vector const& subst) {
+        expr_ref apply_subst(expr* expr, expr_ref_vector const& subst) const {
             expr_ref expr2(m);
             m_var_subst(expr, subst.size(), subst.c_ptr(), expr2);
             return expr2;
         }
 
         // Apply a substitution vector to an application expression, returning the result.
-        app_ref apply_subst(app* app, expr_ref_vector const& subst) {
+        app_ref apply_subst(app* app, expr_ref_vector const& subst) const {
             expr_ref expr2(m);
             m_var_subst(app, subst.size(), subst.c_ptr(), expr2);
             return app_ref(to_app(expr2), m);
@@ -644,7 +644,7 @@ namespace datalog {
         lbool abstract_check_refine() {
             STRACE("predabst", print_initial_state(tout););
 
-            m_template.init_template_instantiate();
+            m_template.instantiate_templates();
 
             // The only things that change on subsequent iterations of this loop are
             // the predicate lists
@@ -996,7 +996,8 @@ namespace datalog {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "l");
             expr_ref cs = mk_leaf(node_id, args);
             expr_ref to_solve(m.mk_not(cs), m);
-            return m_template.constrain_template(to_solve);
+            m_template.constrain_templates(to_solve);
+            return m_template.instantiate_templates_2();
         }
 
         bool refine_t_wf(unsigned node_id) {
@@ -1026,7 +1027,8 @@ namespace datalog {
             qe_lite ql1(m);
             ql1(q_vars, cs);
             expr_ref to_solve(m.mk_or(m.mk_not(cs), well_founded_cs(args)), m);
-            return m_template.constrain_template(to_solve);
+            m_template.constrain_templates(to_solve);
+            return m_template.instantiate_templates_2();
         }
 
         bool refine_preds(refine_cand_info const& refine_info, vector<refine_pred_info> const& interpolants) {

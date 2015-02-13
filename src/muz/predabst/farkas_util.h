@@ -57,7 +57,7 @@ struct rel_template {
 
 class rel_template_suit {
     ast_manager& m;
-    var_subst m_var_subst;
+    mutable var_subst m_var_subst;
 
     vector<func_decl*> m_names;
     vector<rel_template> m_rel_templates_orig;
@@ -71,8 +71,8 @@ class rel_template_suit {
 
     model_ref m_modref;
 
-    expr_ref_vector subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll);
-    expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args);
+    expr_ref_vector subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const;
+    expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args) const;
 
 public:
 
@@ -97,8 +97,12 @@ public:
         m_rel_templates.push_back(temp);
     }
 
-    void init_template_instantiate();
-    bool constrain_template(expr_ref const& fml);
+    bool instantiate_templates(expr* constraint = nullptr);
+    bool instantiate_templates_2();
+
+    void constrain_templates(expr_ref const& fml) {
+        m_acc = mk_conj(fml, m_acc);
+    }
 
     vector<func_decl*> const& get_names() {
         return m_names;

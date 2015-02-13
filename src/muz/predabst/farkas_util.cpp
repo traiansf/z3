@@ -44,7 +44,7 @@ struct lambda_kind {
     }
 };
 
-static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref& constraint_st, bool mk_lambda_kinds, vector<lambda_kind>& all_lambda_kinds);
+static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, bool mk_lambda_kinds, expr_ref& constraint_st, vector<lambda_kind>& all_lambda_kinds);
 static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m);
 static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
 
@@ -60,22 +60,6 @@ static void push_front(ref_vector<T, TManager>& v, obj_ref<T, TManager> const& e
     v.reverse();
     v.push_back(e);
     v.reverse();
-}
-
-static expr_ref_vector get_all_terms(expr_ref const& term) {
-    ast_manager& m = term.m();
-    expr_ref_vector all_facts(m);
-    if (!arith_util(m).is_mul(term)) {
-        all_facts.push_back(term);
-    }
-    else {
-        expr_ref_vector facts(m);
-        facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
-        for (unsigned i = 0; i < facts.size(); ++i) {
-            all_facts.append(get_all_terms(expr_ref(facts.get(i), m)));
-        }
-    }
-    return all_facts;
 }
 
 static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, expr_ref_vector& var_facts, expr_ref_vector& const_facts, bool& has_params) {
@@ -533,22 +517,19 @@ static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_r
     return true;
 }
 
-static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref& constraint_st, bool mk_lambda_kinds, vector<lambda_kind>& all_lambda_kinds) {
+static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref& constraint_st, vector<lambda_kind>& all_lambda_kinds) {
     ast_manager& m = fml.m();
+    constraint_st = m.mk_true();
     expr_ref norm_fml = neg_and_2dnf(fml);
     CASSERT("predabst", m.is_or(norm_fml));
-    expr_ref_vector disjs(m);
-    disjs.append(to_app(norm_fml)->get_num_args(), to_app(norm_fml)->get_args());
-    for (unsigned i = 0; i < disjs.size(); ++i) {
-        farkas_imp f_imp(vars, mk_lambda_kinds);
-        f_imp.set(expr_ref(disjs.get(i), m), expr_ref(m.mk_false(), m));
-        if (f_imp.solve_constraint()) {
-            constraint_st = m.mk_and(constraint_st, f_imp.get_constraints());
-            all_lambda_kinds.append(f_imp.get_lambda_kinds());
-        }
-        else {
+    for (unsigned i = 0; i < to_app(norm_fml)->get_num_args(); ++i) {
+        farkas_imp f_imp(vars, true);
+        f_imp.set(expr_ref(to_app(norm_fml)->get_arg(i), m), expr_ref(m.mk_false(), m));
+        if (!f_imp.solve_constraint()) {
             return false;
         }
+        constraint_st = m.mk_and(constraint_st, f_imp.get_constraints());
+        all_lambda_kinds.append(f_imp.get_lambda_kinds());
     }
     return true;
 }
@@ -708,7 +689,7 @@ static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses
     }
 }
 
-expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) {
+expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const {
     expr_ref_vector new_fmls(m);
     for (unsigned i = 0; i < fmls.size(); ++i) {
         new_fmls.push_back(subst_template_body(expr_ref(fmls.get(i), m), rel_templates, args_coll));
@@ -716,7 +697,7 @@ expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fm
     return new_fmls;
 }
 
-expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) {
+expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const {
     app_ref a(to_app(fml), m);
     if (m.is_and(fml)) {
         expr_ref_vector sub_formulas(m, a->get_num_args(), a->get_args());
@@ -842,70 +823,52 @@ static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym
     out << "]) \n";
 }
 
-void rel_template_suit::init_template_instantiate() {
+bool rel_template_suit::instantiate_templates(expr* constraint) {
     smt_params new_param;
     smt::kernel solver(m, new_param);
     if (m_extras) {
         solver.assert_expr(m_extras);
     }
-    //STRACE("predabst", solver.display(tout); tout << std::endl;);
-    if (solver.check() == l_true) {
-        solver.get_model(m_modref);
-        for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-            expr_ref instance(m);
-            if (m_modref->eval(m_rel_templates[i].m_body, instance)) {
-                m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
-            }
-        }
+    if (constraint) {
+        solver.assert_expr(constraint);
     }
+    //STRACE("predabst", solver.display(tout); tout << std::endl;);
+    if (solver.check() != l_true) {
+        return false;
+    }
+    solver.get_model(m_modref);
+    m_rel_template_instances.reset();
+    for (unsigned i = 0; i < m_rel_templates.size(); i++) {
+        expr_ref instance(m);
+        if (!m_modref->eval(m_rel_templates[i].m_body, instance)) {
+            return false;
+        }
+        STRACE("predabst", tout << "instance  : " << mk_pp(instance, m) << "\n";);
+        m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
+    }
+    return true;
 }
 
-bool rel_template_suit::constrain_template(expr_ref const& fml) {
+bool rel_template_suit::instantiate_templates_2() {
     if (m_rel_templates.size() == 0) { // XXX remove this check eventually
         return false;
     }
-    m_rel_template_instances.reset();
-    STRACE("predabst", tout << "constrain_template begin\n"; display(tout););
-    if (!m.is_true(fml)) {
-        m_acc = m.mk_and(fml, m_acc);
-    }
+
     expr_ref_vector args_coll(m);
     expr_ref c1 = subst_template_body(m_acc, m_rel_templates, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
-    expr_ref constraint_st(m.mk_true(), m);
+    expr_ref constraint_st(m);
     vector<lambda_kind> all_lambda_kinds;
-    if (mk_exists_forall_farkas(c1, args_coll, constraint_st, true, all_lambda_kinds)) {
-        int max_lambda = 2;
-        expr_ref lambda_cs = mk_bilin_lambda_constraint(all_lambda_kinds, max_lambda, m);
-
-        smt_params new_param;
-        smt::kernel solver(m, new_param);
-        solver.assert_expr(constraint_st);
-        solver.assert_expr(lambda_cs);
-        if (m_extras) {
-            solver.assert_expr(m_extras);
-        }
-        if (solver.check() == l_true) {
-            model_ref modref;
-            solver.get_model(modref);
-            for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-                expr_ref instance(m);
-                if (modref->eval(m_rel_templates[i].m_body, instance)) {
-                    STRACE("predabst", tout << "instance  : " << mk_pp(instance, m) << "\n";);
-                    m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
-
-                }
-                else {
-                    // at least one template can't have a satisfying instance
-                    return false;
-                }
-            }
-            // each template has a satisfying instance
-            return true;
-        }
+    if (!mk_exists_forall_farkas(c1, args_coll, constraint_st, all_lambda_kinds)) {
+        return false;
     }
-    return false;
+
+    int max_lambda = 2;
+    expr_ref lambda_cs = mk_bilin_lambda_constraint(all_lambda_kinds, max_lambda, m);
+
+    expr_ref constraint(m.mk_and(constraint_st, lambda_cs), m);
+    return instantiate_templates(constraint.get());
 }
 
 void rel_template_suit::display(std::ostream& out) const {

@@ -27,15 +27,16 @@ Revision History:
 #include "qe_lite.h"
 
 typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
+typedef enum { op_eq, op_le, op_ge, op_lt, op_gt } rel_op;
 
 struct lambda_kind {
     expr_ref m_lambda;
     lambda_kind_sort m_kind;
-    unsigned m_op;
+    rel_op m_op;
     int m_lower_bound;
     int m_upper_bound;
 
-    lambda_kind(expr_ref lambda, lambda_kind_sort kind, unsigned op) :
+    lambda_kind(expr_ref lambda, lambda_kind_sort kind, rel_op op) :
         m_lambda(lambda),
         m_kind(kind),
         m_op(op),
@@ -89,7 +90,7 @@ static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, exp
 class farkas_pred {
     expr_ref_vector m_vars;
     expr_ref_vector m_coeffs;
-    unsigned m_op;
+    rel_op m_op;
     expr_ref m_const;
 
     bool m_has_params;
@@ -101,16 +102,7 @@ public:
         m_vars(vars),
         m_coeffs(vars.get_manager()),
         m_const(vars.get_manager()),
-        m_op(1),
-        m_has_params(false),
-        m(vars.get_manager()) {
-    }
-
-    farkas_pred(expr_ref_vector vars, expr_ref_vector coeffs, unsigned op, expr_ref const_) :
-        m_vars(vars),
-        m_coeffs(coeffs),
-        m_const(const_),
-        m_op(op),
+        m_op(op_le),
         m_has_params(false),
         m(vars.get_manager()) {
     }
@@ -121,11 +113,11 @@ public:
             m_coeffs.push_back(arith.mk_numeral(rational(0), true));
         }
         if (m.is_true(term)) {
-            m_op = 1;
+            m_op = op_le;
             m_const = arith.mk_numeral(rational(0), true);
         }
         else if (m.is_false(term)) {
-            m_op = 1;
+            m_op = op_le;
             m_const = arith.mk_numeral(rational(-1), true);
         }
         else {
@@ -141,7 +133,7 @@ public:
         return expr_ref(m_coeffs.get(i), m);
     }
 
-    unsigned get_op() {
+    rel_op get_op() {
         return m_op;
     }
 
@@ -163,24 +155,24 @@ public:
             }
         }
         switch (m_op) {
-        case 0:
+        case op_eq:
             out << " = ";
             break;
-        case 1:
-            out << " =< ";
+        case op_le:
+            out << " <= ";
             break;
-        case 2:
+        case op_ge:
             out << " >= ";
             break;
-        case 3:
+        case op_lt:
             out << " < ";
             break;
-        case 4:
+        case op_gt:
             out << " > ";
             break;
         default:
             out << " Unknown relation! ";
-            break;
+            UNREACHABLE();
         }
         out << mk_pp(m_const, m) << "\n";
         out << "Params? : " << (m_has_params ? "TRUE" : "FALSE") << "\n";
@@ -194,7 +186,7 @@ private:
         expr *e2;
         if (m.is_eq(term, e1, e2)) {
             term = arith.mk_sub(e1, e2);
-            m_op = 0;
+            m_op = op_eq;
         }
         else if (arith.is_le(term, e1, e2)) {
             term = arith.mk_sub(e1, e2);
@@ -274,7 +266,7 @@ private:
 class farkas_conj {
     expr_ref_vector m_vars;
     vector<expr_ref_vector> m_set_coeffs;
-    vector<unsigned> m_set_op;
+    vector<rel_op> m_set_op;
     vector<expr_ref> m_set_const;
 
     unsigned m_param_pred_count;
@@ -327,8 +319,8 @@ public:
         return expr_ref(m_set_const.get(i), m);
     }
 
-    unsigned get_ops(unsigned i) {
-        return  m_set_op.get(i);
+    rel_op get_ops(unsigned i) {
+        return m_set_op.get(i);
     }
 
     unsigned conj_size() {
@@ -367,7 +359,7 @@ class farkas_imp {
     ast_manager& m;
 
 public:
-    farkas_imp(expr_ref_vector const& vars, bool mk_lambda_kinds = false) :
+    farkas_imp(expr_ref_vector const& vars, bool mk_lambda_kinds) :
         m_vars(vars),
         m_lhs(vars),
         m_rhs(vars),
@@ -450,12 +442,12 @@ private:
 
         for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
             m_lambdas.push_back(expr_ref(m.mk_fresh_const("t", arith.mk_int()), m));
-            if (m_lhs.get_ops(i) == 1) {
+            if (m_lhs.get_ops(i) == op_le) {
                 m_constraints = m.mk_and(m_constraints, arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
             }
         }
 
-        if (m_lhs.get_param_pred_count() == 1 && m_lhs.get_ops(0) != 0) {
+        if (m_lhs.get_param_pred_count() == 1 && m_lhs.get_ops(0) != op_eq) {
             m_constraints = m.mk_and(m_constraints, m.mk_eq(m_lambdas.get(0), arith.mk_numeral(rational(1), true)));
         }
 
@@ -481,7 +473,7 @@ private:
     void set_lambda_kinds() {
         arith_util arith(m);
         if (m_lhs.get_param_pred_count() == 1) {
-            if (m_lhs.get_ops(0) == 0) {
+            if (m_lhs.get_ops(0) == op_eq) {
                 m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(0), m), bilin_sing, m_lhs.get_ops(0)));
             }
         }
@@ -508,7 +500,7 @@ static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_r
         app_ref_vector q_vars_disj(q_vars);
         qe_lite ql1(m);
         ql1(q_vars_disj, disj);
-        farkas_imp f_imp(vars);
+        farkas_imp f_imp(vars, false);
         f_imp.set(disj, expr_ref(m.mk_false(), m));
         if (!f_imp.solve_constraint()) {
             return false;
@@ -661,8 +653,8 @@ static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kin
             cons = m.mk_and(cons, m.mk_or(m.mk_eq(lambda_kinds[i].m_lambda, nminus1), m.mk_eq(lambda_kinds[i].m_lambda, n1)));
         }
         else if (lambda_kinds[i].m_kind == bilin) {
-            if (lambda_kinds[i].m_op != 0) {
-                min_lambda = 0; // operator not equality
+            if (lambda_kinds[i].m_op != op_eq) {
+                min_lambda = 0;
             }
             expr_ref bilin_disj(m.mk_true(), m);
             for (int j = min_lambda; j <= max_lambda; j++) {

@@ -25,12 +25,23 @@ Revision History:
 #include "substitution.h"
 #include "smt_kernel.h"
 #include "dl_transforms.h"
+#include <map>
 
 namespace datalog {
 
+    struct core_tree_node {
+        unsigned         m_node_id;
+        vector<unsigned> m_names;
+        core_tree_node(unsigned node_id) :
+            m_node_id(node_id) {}
+    };
+
+    typedef vector<core_tree_node> core_tree;
+    typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
+
     struct refine_cand_info {
         obj_map<func_decl, vector<expr_ref_vector> > m_allrels_info;
-        vector<expr_ref_vector> m_empty;
+        vector<expr_ref_vector>                      m_empty;
 
         void insert(func_decl* fdecl, expr_ref_vector const& args) {
             if (!m_allrels_info.contains(fdecl)) {
@@ -47,6 +58,16 @@ namespace datalog {
                 return m_empty;
             }
         }
+    };
+
+    struct refine_pred_info {
+        expr_ref        m_pred;
+        expr_ref_vector m_pred_vars;
+        refine_pred_info(expr_ref const& pred, expr_ref_vector const& pred_vars) :
+            m_pred(pred),
+            m_pred_vars(pred_vars) {}
+
+        void display(std::ostream& out) const;
     };
 
     class predabst::imp {
@@ -110,15 +131,6 @@ namespace datalog {
                 m_parent_rule(parent_rule),
                 m_parent_nodes(parent_nodes) {}
         };
-
-        struct core_tree_node {
-            unsigned         m_node_id;
-            vector<unsigned> m_names;
-            core_tree_node(unsigned node_id) :
-                m_node_id(node_id) {}
-        };
-
-        typedef vector<core_tree_node> core_tree;
 
         static const unsigned NON_NODE = UINT_MAX;
 
@@ -988,7 +1000,7 @@ namespace datalog {
         bool refine_unreachable(core_tree_info const& core_info) {
             refine_cand_info refine_info;
             core_clauses clauses = mk_core_clauses(core_info, refine_info);
-            vector<refine_pred_info> interpolants = solve_clauses(clauses, m);
+            vector<refine_pred_info> interpolants = solve_core_clauses(clauses);
             return refine_preds(refine_info, interpolants);
         }
 
@@ -1244,6 +1256,38 @@ namespace datalog {
             return clauses;
         }
 
+        vector<refine_pred_info> solve_core_clauses(core_clauses const& clauses) {
+            vector<refine_pred_info> interpolants;
+
+            core_clauses::const_iterator end = clauses.end();
+            end--;
+            for (int i = clauses.size() - 1; i >= 1; i--) {
+                int j = clauses.size() - 1;
+                core_clauses::const_iterator end2 = end;
+
+                expr_ref fmlA(m.mk_true(), m);
+                for (; j >= i; j--, end2--) {
+                    fmlA = mk_conj(fmlA, end2->second.second.first);
+                }
+
+                core_clauses::const_iterator end4 = end2;
+                end4++;
+                expr_ref_vector vars(end4->second.first);
+
+                expr_ref fmlB(m.mk_true(), m);
+                for (; j >= 0; j--, end2--) {
+                    fmlB = mk_conj(fmlB, end2->second.second.first);
+                }
+
+                expr_ref fmlQ_sol(m);
+                if (interpolate(vars, fmlA, fmlB, fmlQ_sol)) {
+                    interpolants.push_back(refine_pred_info(fmlQ_sol, get_all_vars(fmlQ_sol)));
+                }
+            }
+
+            return interpolants;
+        }
+
         expr_ref mk_core_tree_wf(unsigned root_n_id, expr_ref_vector root_args, refine_cand_info& refine_info) {
             expr_ref_vector to_wfs(m);
 
@@ -1497,6 +1541,34 @@ namespace datalog {
             }
         }
     };
+
+    static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses const& clauses) {
+        core_clauses::const_iterator st = clauses.begin();
+        core_clauses::const_iterator end = clauses.end();
+        for (; st != end; st++) {
+            out << "clause --> " << st->first << " [";
+            for (unsigned i = 0; i < st->second.first.size(); i++) {
+                out << mk_pp(st->second.first.get(i), m) << " ";
+            }
+            out << "] : " << mk_pp(st->second.second.first, m) << " [";
+            for (unsigned i = 0; i < st->second.second.second.size(); i++) {
+                out << mk_pp(st->second.second.second.get(i), m) << " ";
+            }
+            out << "]\n";
+        }
+    }
+
+    void refine_pred_info::display(std::ostream& out) const {
+        ast_manager& m = m_pred.m();
+        out << "pred: " << mk_pp(m_pred, m) << ", pred_vars: (";
+        for (unsigned i = 0; i < m_pred_vars.size(); i++) {
+            if (i != 0) {
+                out << ", ";
+            }
+            out << mk_pp(m_pred_vars.get(i), m);
+        }
+        out << ")\n";
+    }
 
     predabst::predabst(context& ctx):
         engine_base(ctx.get_manager(), "predabst"),

@@ -21,30 +21,12 @@ Revision History:
 
 #include "model.h"
 #include "var_subst.h"
-#include <map>
 
-typedef std::map<unsigned, std::pair<expr_ref_vector, std::pair<expr_ref, expr_ref_vector> > > core_clauses;
-
-struct refine_pred_info {
-    expr_ref        m_pred;
-    expr_ref_vector m_pred_vars;
-
-    refine_pred_info(expr_ref const& pred, expr_ref_vector const& pred_vars) :
-        m_pred(pred),
-        m_pred_vars(pred_vars) {}
-
-    bool has_var(expr_ref const& arg) const {
-        return m_pred_vars.contains(arg);
-    }
-
-    void display(std::ostream& out) const;
-};
+bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
 
 bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref& bound, expr_ref& decrease);
 
 expr_ref well_founded_cs(expr_ref_vector const& vsws);
-
-vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager& m);
 
 struct rel_template {
     app* m_head;

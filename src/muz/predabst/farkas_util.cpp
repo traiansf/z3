@@ -45,10 +45,6 @@ struct lambda_kind {
     }
 };
 
-static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, bool mk_lambda_kinds, expr_ref& constraint_st, vector<lambda_kind>& all_lambda_kinds);
-static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m);
-static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
-
 template<class T>
 static void push_front(vector<T>& v, T const& e) {
     v.reverse();
@@ -666,22 +662,6 @@ static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kin
     return cons;
 }
 
-static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses const& clauses) {
-    core_clauses::const_iterator st = clauses.begin();
-    core_clauses::const_iterator end = clauses.end();
-    for (; st != end; st++) {
-        out << "clause --> " << st->first << " [";
-        for (unsigned i = 0; i < st->second.first.size(); i++) {
-            out << mk_pp(st->second.first.get(i), m) << " ";
-        }
-        out << "] : " << mk_pp(st->second.second.first, m) << " [";
-        for (unsigned i = 0; i < st->second.second.second.size(); i++) {
-            out << mk_pp(st->second.second.second.get(i), m) << " ";
-        }
-        out << "]\n";
-    }
-}
-
 expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const {
     expr_ref_vector new_fmls(m);
     for (unsigned i = 0; i < fmls.size(); ++i) {
@@ -735,7 +715,7 @@ static void interpolate_helper(expr_ref_vector const& vars, expr_ref &fml) {
     ql(q_vars, fml);
 }
 
-static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
+bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
     interpolate_helper(vars, fmlA);
     interpolate_helper(vars, fmlB);
 
@@ -770,38 +750,6 @@ static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fml
         }
     }
     return false;
-}
-
-vector<refine_pred_info> solve_clauses(core_clauses const& clauses, ast_manager& m) {
-    vector<refine_pred_info> interpolants;
-        
-    core_clauses::const_iterator end = clauses.end();
-    end--;
-    for (int i = clauses.size() - 1; i >= 1; i--) {
-        int j = clauses.size() - 1;
-        core_clauses::const_iterator end2 = end;
-
-        expr_ref fmlA(m.mk_true(), m);
-        for (; j >= i; j--, end2--) {
-            fmlA = mk_conj(fmlA, end2->second.second.first);
-        }
-
-        core_clauses::const_iterator end4 = end2;
-        end4++;
-        expr_ref_vector vars(end4->second.first);
-
-        expr_ref fmlB(m.mk_true(), m);
-        for (; j >= 0; j--, end2--) {
-            fmlB = mk_conj(fmlB, end2->second.second.first);
-        }
-
-        expr_ref fmlQ_sol(m);
-        if (interpolate(vars, fmlA, fmlB, fmlQ_sol)) {
-            interpolants.push_back(refine_pred_info(fmlQ_sol, get_all_vars(fmlQ_sol)));
-        }
-    }
-
-    return interpolants;
 }
 
 static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym, vector<bool> const& cube, unsigned r_id, vector<unsigned> const& parent_nodes) {
@@ -886,16 +834,4 @@ void rel_template_suit::display(std::ostream& out) const {
         out << "orig template body : " << mk_pp(m_rel_templates_orig[i].m_body, m) << "\n";
         out << "orig template head : " << mk_pp(m_rel_templates_orig[i].m_head, m) << "\n";
     }
-}
-
-void refine_pred_info::display(std::ostream& out) const {
-    ast_manager& m = m_pred.m();
-    out << "pred: " << mk_pp(m_pred, m) << ", pred_vars: (";
-    for (unsigned i = 0; i < m_pred_vars.size(); i++) {
-        if (i != 0) {
-            out << ", ";
-        }
-        out << mk_pp(m_pred_vars.get(i), m);
-    }
-    out << ")\n";
 }

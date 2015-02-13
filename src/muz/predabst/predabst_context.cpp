@@ -668,7 +668,10 @@ namespace datalog {
         lbool abstract_check_refine() {
             STRACE("predabst", print_initial_state(tout););
 
-            m_template.instantiate_templates();
+            if (!m_template.instantiate_templates()) {
+                STRACE("predabst", tout << "Initial template refinement unsuccessful: result is UNSAT\n";);
+                return l_true;
+            }
 
             // The only things that change on subsequent iterations of this loop are
             // the predicate lists
@@ -1021,7 +1024,7 @@ namespace datalog {
             expr_ref cs = mk_leaf(node_id, args);
             expr_ref to_solve(m.mk_not(cs), m);
             m_template.constrain_templates(to_solve);
-            return m_template.instantiate_templates_2();
+            return m_template.instantiate_templates();
         }
 
         bool refine_t_wf(unsigned node_id) {
@@ -1052,7 +1055,7 @@ namespace datalog {
             ql1(q_vars, cs);
             expr_ref to_solve(m.mk_or(m.mk_not(cs), well_founded_cs(args)), m);
             m_template.constrain_templates(to_solve);
-            return m_template.instantiate_templates_2();
+            return m_template.instantiate_templates();
         }
 
         bool refine_preds(refine_cand_info const& refine_info, vector<refine_pred_info> const& interpolants) {
@@ -1604,7 +1607,9 @@ inline std::ostream& operator<<(std::ostream& out, vector<T> const& v) {
     unsigned size = v.size();
     if (size > 0) {
         out << v[0];
-        for (unsigned i = 1; i < size; ++i) out << "," << v[i];
+        for (unsigned i = 1; i < size; ++i) {
+            out << "," << v[i];
+        }
     }
     return out;
 }

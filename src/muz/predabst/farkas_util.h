@@ -55,6 +55,8 @@ class rel_template_suit {
     expr_ref_vector subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const;
     expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args) const;
 
+    bool instantiate_templates(expr_ref const& constraint);
+
 public:
 
     rel_template_suit(ast_manager& m) :
@@ -77,8 +79,7 @@ public:
         m_rel_templates.push_back(temp);
     }
 
-    bool instantiate_templates(expr* constraint = nullptr);
-    bool instantiate_templates_2();
+    bool instantiate_templates();
 
     void constrain_templates(expr_ref const& fml) {
         m_acc = mk_conj(fml, m_acc);

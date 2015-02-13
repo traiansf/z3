@@ -764,7 +764,7 @@ static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym
     out << "]) \n";
 }
 
-bool rel_template_suit::instantiate_templates(expr* constraint) {
+bool rel_template_suit::instantiate_templates(expr_ref const& constraint) {
     smt_params new_param;
     smt::kernel solver(m, new_param);
     if (m_extras) {
@@ -790,7 +790,7 @@ bool rel_template_suit::instantiate_templates(expr* constraint) {
     return true;
 }
 
-bool rel_template_suit::instantiate_templates_2() {
+bool rel_template_suit::instantiate_templates() {
     expr_ref_vector args_coll(m);
     expr_ref c1 = subst_template_body(m_acc, m_rel_templates, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
@@ -805,7 +805,7 @@ bool rel_template_suit::instantiate_templates_2() {
     expr_ref lambda_cs = mk_bilin_lambda_constraint(all_lambda_kinds, max_lambda, m);
 
     expr_ref constraint(m.mk_and(constraint_st, lambda_cs), m);
-    return instantiate_templates(constraint.get());
+    return instantiate_templates(constraint);
 }
 
 void rel_template_suit::display(std::ostream& out) const {

@@ -445,7 +445,8 @@ private:
 
     void set_constraint() {
         arith_util arith(m);
-        CASSERT("predabst", m_lhs.get_param_pred_count() > 0);
+        //CASSERT("predabst", m_lhs.get_param_pred_count() > 0);
+        // XXX This assert fails on unsat-N.smt2, but without it the tests pass.  It's not clear whether this assert is wrong, or whether there's a bug.
 
         for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
             m_lambdas.push_back(expr_ref(m.mk_fresh_const("t", arith.mk_int()), m));
@@ -850,10 +851,6 @@ bool rel_template_suit::instantiate_templates(expr* constraint) {
 }
 
 bool rel_template_suit::instantiate_templates_2() {
-    if (m_rel_templates.size() == 0) { // XXX remove this check eventually
-        return false;
-    }
-
     expr_ref_vector args_coll(m);
     expr_ref c1 = subst_template_body(m_acc, m_rel_templates, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more

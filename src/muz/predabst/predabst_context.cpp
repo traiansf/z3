@@ -169,6 +169,7 @@ namespace datalog {
         struct acr_error {
             unsigned       m_node;
             acr_error_kind m_kind;
+            acr_error() {}
             acr_error(unsigned node, acr_error_kind kind) :
                 m_node(node),
                 m_kind(kind) {}
@@ -675,12 +676,14 @@ namespace datalog {
             }
         }
 
+#define RETURN_CHECK_CANCELLED(result) return m_cancel ? l_undef : result;
+
         lbool abstract_check_refine() {
             STRACE("predabst", print_initial_state(tout););
 
             if (!m_template.instantiate_templates()) {
                 STRACE("predabst", tout << "Initial template refinement unsuccessful: result is UNSAT\n";);
-                return l_true;
+                RETURN_CHECK_CANCELLED(l_true);
             }
 
             // The only things that change on subsequent iterations of this loop are
@@ -693,58 +696,29 @@ namespace datalog {
                 for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                     m_func_decl2info[m_func_decls.get(i)]->m_max_reach_nodes.reset();
                 }
-                m_node2info.reset();
-                m_node_worklist.reset();
 
+                // Set up m_rule2info for this iteration:
                 // for each rule: ground body and instantiate predicates for applications
                 for (unsigned r_id = 0; !m_cancel && r_id < m_rule2info.size(); ++r_id) {
-                    rule* r = m_rule2info[r_id].m_rule;
-                    if (r) {
-                        instantiate_rule(r, r_id);
-                    }
-                    else {
-                        instantiate_template_rule(m_rule2info[r_id].m_template_id, r_id);
-                    }
+                    instantiate_rule(r_id);
                 }
 
                 STRACE("predabst", print_refinement_state(tout, refine_count););
 
-                try {
-                    // initial abstract inference
-                    STRACE("predabst", tout << "Performing initial inference\n";);
-                    for (unsigned r_id = 0; !m_cancel && r_id < m_rule2info.size(); ++r_id) {
-                        if (m_rule2info[r_id].m_body_preds.size() == 0) {
-                            initialize_abs(r_id);
-                        }
-                    }
-                    // process worklist
-                    unsigned infer_count = 0;
-                    while (!m_cancel && !m_node_worklist.empty()) {
-                        STRACE("predabst", print_inference_state(tout, refine_count, infer_count););
-                        unsigned current_id = *m_node_worklist.begin();
-                        m_node_worklist.remove(current_id);
-                        inference_step(current_id);
-                        infer_count++;
-                    }
-                    if (m_cancel) {
-                        STRACE("predabst", tout << "Cancelled: result is UNKNOWN\n";);
-                        return l_undef;
-                    }
-
-                    // We managed to find a solution.
-                    STRACE("predabst", tout << "Worklist empty: result is SAT\n";);
-                    return l_false;
+                acr_error error;
+                if (find_solution(refine_count, error)) {
+                    STRACE("predabst", tout << "Solution found: result is SAT\n";);
+                    RETURN_CHECK_CANCELLED(l_false);
                 }
-                catch (acr_error const& exc) {
+                else {
                     // Our attempt to find a solution failed.
-                    unsigned node_id = exc.m_node;
                     core_tree_info core_info(m);
-                    if (mk_core_tree(node_id, core_info)) {
+                    if (mk_core_tree(error.m_node, core_info)) {
                         // The result didn't hold up without abstraction.  We
                         // need to refine the predicates and retry.
-                        if (!refine_unreachable(core_info)) {
+                        if (!refine_predicates(core_info)) {
                             STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
-                            return l_undef;
+                            RETURN_CHECK_CANCELLED(l_undef);
                         }
 
                         STRACE("predabst", tout << "Predicate refinement successful: retrying\n";);
@@ -753,20 +727,9 @@ namespace datalog {
                         // The result held up even without abstraction.  Unless
                         // we can refine the templates, we have a proof of
                         // unsatisfiability.
-                        bool result;
-                        if (exc.m_kind == reached_query) {
-                            STRACE("predabst", tout << "Refining templates (reachable)\n";);
-                            result = refine_t_reach(node_id);
-                        }
-                        else {
-                            CASSERT("predabst", exc.m_kind == not_wf);
-                            STRACE("predabst", tout << "Refining templates (WF)\n";);
-                            result = refine_t_wf(node_id);
-                        }
-
-                        if (!result) {
+                        if (!refine_templates(error)) {
                             STRACE("predabst", tout << "Template refinement unsuccessful: result is UNSAT\n";);
-                            return l_true;
+                            RETURN_CHECK_CANCELLED(l_true);
                         }
 
                         STRACE("predabst", tout << "Template refinement successful: retrying\n";);
@@ -777,8 +740,17 @@ namespace datalog {
             }
         }
 
-        // Sets up m_rule2info for this iteration of the abstract_check_refine loop.
-        void instantiate_rule(rule* r, unsigned r_id) {
+        void instantiate_rule(unsigned r_id) {
+            rule* r = m_rule2info[r_id].m_rule;
+            if (r) {
+                instantiate_regular_rule(r, r_id);
+            }
+            else {
+                instantiate_template_rule(m_rule2info[r_id].m_template_id, r_id);
+            }
+        }
+
+        void instantiate_regular_rule(rule* r, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating rule " << r_id << "\n";);
 
             // conjoin constraints in rule body
@@ -816,7 +788,6 @@ namespace datalog {
 
         }
 
-        // Sets up m_rule2info for this iteration of the abstract_check_refine loop.
         void instantiate_template_rule(unsigned t_id, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating template " << t_id << " (rule " << r_id << ")\n";);
             rel_template const& instance = m_template.get_template_instance(t_id);
@@ -837,6 +808,39 @@ namespace datalog {
             expr_ref_vector inst = build_subst(vars, gappl->get_args());
             // preds instantiates to inst_preds
             return apply_subst(preds, inst);
+        }
+
+        bool find_solution(unsigned refine_count, acr_error& error) {
+            m_node2info.reset();
+            m_node_worklist.reset();
+
+            try {
+                // initial abstract inference
+                STRACE("predabst", tout << "Performing initial inference\n";);
+                for (unsigned r_id = 0; !m_cancel && r_id < m_rule2info.size(); ++r_id) {
+                    if (m_rule2info[r_id].m_body_preds.size() == 0) {
+                        initialize_abs(r_id);
+                    }
+                }
+
+                // process worklist
+                unsigned infer_count = 0;
+                while (!m_cancel && !m_node_worklist.empty()) {
+                    STRACE("predabst", print_inference_state(tout, refine_count, infer_count););
+                    unsigned current_id = *m_node_worklist.begin();
+                    m_node_worklist.remove(current_id);
+                    inference_step(current_id);
+                    infer_count++;
+                }
+
+                // We managed to find a solution.
+                return true;
+            }
+            catch (acr_error const& error2) {
+                // We failed to find a solution.
+                error = error2;
+                return false;
+            }
         }
 
         void initialize_abs(unsigned r_id) {
@@ -886,7 +890,7 @@ namespace datalog {
             return positions;
         }
 
-        vector<node_vector> build_cartesian_product(rule* r, unsigned node, unsigned current_pos) {
+        vector<node_vector> build_cartesian_product(rule* r, unsigned node, unsigned current_pos) const {
             vector<node_vector> nodes_set;
             nodes_set.push_back(node_vector()); // XXX reserve space in this vector, for efficiency?
 
@@ -1022,14 +1026,26 @@ namespace datalog {
             return added_id;
         }
 
-        bool refine_unreachable(core_tree_info const& core_info) {
+        bool refine_predicates(core_tree_info const& core_info) {
             refine_cand_info refine_info;
             core_clauses clauses = mk_core_clauses(core_info, refine_info);
             vector<refine_pred_info> interpolants = solve_core_clauses(clauses);
             return refine_preds(refine_info, interpolants);
         }
 
-        bool refine_t_reach(unsigned node_id) {
+        bool refine_templates(acr_error error) {
+            if (error.m_kind == reached_query) {
+                STRACE("predabst", tout << "Refining templates (reached query)\n";);
+                return refine_t_reached_query(error.m_node);
+            }
+            else {
+                CASSERT("predabst", error.m_kind == not_wf);
+                STRACE("predabst", tout << "Refining templates (not well-founded)\n";);
+                return refine_t_not_wf(error.m_node);
+            }
+        }
+
+        bool refine_t_reached_query(unsigned node_id) {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "l");
             expr_ref cs = mk_leaf(node_id, args);
             expr_ref to_solve(m.mk_not(cs), m);
@@ -1037,7 +1053,7 @@ namespace datalog {
             return m_template.instantiate_templates();
         }
 
-        bool refine_t_wf(unsigned node_id) {
+        bool refine_t_not_wf(unsigned node_id) {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "s");
             refine_cand_info refine_info;
             expr_ref to_wf = mk_core_tree_wf(node_id, args, refine_info);

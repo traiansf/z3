@@ -35,8 +35,10 @@ struct lambda_kind {
     int m_lower_bound;
     int m_upper_bound;
 
-    lambda_kind(expr_ref in_lambda, lambda_kind_sort in_kind, unsigned in_op) :
-        m_lambda(in_lambda), m_kind(in_kind), m_op(in_op),
+    lambda_kind(expr_ref lambda, lambda_kind_sort kind, unsigned op) :
+        m_lambda(lambda),
+        m_kind(kind),
+        m_op(op),
         m_lower_bound(0),
         m_upper_bound(0) {
     }
@@ -47,14 +49,14 @@ static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kin
 static bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
 
 template<class T>
-static void push_front(vector<T>& v, T e) {
+static void push_front(vector<T>& v, T const& e) {
     v.reverse();
     v.push_back(e);
     v.reverse();
 }
 
 template<class T, class TManager>
-static void push_front(ref_vector<T, TManager>& v, obj_ref<T, TManager> e) {
+static void push_front(ref_vector<T, TManager>& v, obj_ref<T, TManager> const& e) {
     v.reverse();
     v.push_back(e);
     v.reverse();
@@ -76,6 +78,7 @@ static expr_ref_vector get_all_terms(expr_ref const& term) {
 }
 
 static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, expr_ref_vector& var_facts, expr_ref_vector& const_facts, bool& has_params) {
+    // XXX do we need to assign has_params = false here?
     if (!arith_util(term.m()).is_mul(term)) {
         if (vars.contains(term)) {
             var_facts.push_back(term);
@@ -108,14 +111,21 @@ class farkas_pred {
 
 public:
 
-    farkas_pred(expr_ref_vector vars) : m_vars(vars), m_coeffs(vars.get_manager()),
-        m_const(vars.get_manager()), m_op(1), m_has_params(false),
+    farkas_pred(expr_ref_vector const& vars) :
+        m_vars(vars),
+        m_coeffs(vars.get_manager()),
+        m_const(vars.get_manager()),
+        m_op(1),
+        m_has_params(false),
         m_pred_manager(vars.get_manager()) {
     }
 
-    farkas_pred(expr_ref_vector vars, expr_ref_vector in_coeffs, unsigned in_op, expr_ref in_const) :
-        m_vars(vars), m_coeffs(in_coeffs),
-        m_const(in_const), m_op(in_op), m_has_params(false),
+    farkas_pred(expr_ref_vector vars, expr_ref_vector coeffs, unsigned op, expr_ref const_) :
+        m_vars(vars),
+        m_coeffs(coeffs),
+        m_const(const_),
+        m_op(op),
+        m_has_params(false),
         m_pred_manager(vars.get_manager()) {
     }
 
@@ -284,10 +294,11 @@ class farkas_conj {
     unsigned m_param_pred_count;
     mutable ast_manager m_conj_manager;
 
-
 public:
-    farkas_conj(expr_ref_vector vars) :
-        m_vars(vars), m_param_pred_count(0), m_conj_manager(vars.get_manager()) {
+    farkas_conj(expr_ref_vector const& vars) :
+        m_vars(vars),
+        m_param_pred_count(0),
+        m_conj_manager(vars.get_manager()) {
     }
 
     void add(farkas_pred& f_pred) {
@@ -370,8 +381,12 @@ class farkas_imp {
     ast_manager& m_imp_manager;
 
 public:
-    farkas_imp(expr_ref_vector vars, bool mk_lambda_kinds = false) : m_vars(vars), m_lhs(vars), m_rhs(vars),
-        m_lambdas(vars.get_manager()), m_solutions(vars.get_manager()),
+    farkas_imp(expr_ref_vector const& vars, bool mk_lambda_kinds = false) :
+        m_vars(vars),
+        m_lhs(vars),
+        m_rhs(vars),
+        m_lambdas(vars.get_manager()),
+        m_solutions(vars.get_manager()),
         m_constraints((vars.get_manager()).mk_true(), vars.get_manager()),
         m_mk_lambda_kinds(mk_lambda_kinds),
         m_imp_manager(vars.get_manager()) {
@@ -691,56 +706,44 @@ static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses
     }
 }
 
-// XXX use print_expr_ref_vector instead
-static void display_expr_ref_vector(std::ostream& out, expr_ref_vector const& vect) {
-    out << "expr vect --> [";
-    for (unsigned i = 0; i < vect.size(); i++) {
-        out << mk_pp(vect.get(i), vect.m()) << " ";
+expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) {
+    expr_ref_vector new_fmls(m_rel_manager);
+    for (unsigned i = 0; i < fmls.size(); ++i) {
+        new_fmls.push_back(subst_template_body(expr_ref(fmls.get(i), m_rel_manager), rel_templates, args_coll));
     }
-    out << "]\n";
+    return new_fmls;
 }
 
 expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) {
-    ast_manager& m = fml.get_manager();
-    expr_ref new_formula(m);
-    expr_ref_vector sub_formulas(m);
-    expr_ref_vector new_sub_formulas(m);
-    if (m.is_and(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(subst_template_body(expr_ref(sub_formulas.get(i), m), rel_templates, args_coll));
-        }
-        new_formula = m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr());
+    app_ref a(to_app(fml), m_rel_manager);
+    if (m_rel_manager.is_and(fml)) {
+        expr_ref_vector sub_formulas(m_rel_manager, a->get_num_args(), a->get_args());
+        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, rel_templates, args_coll);
+        return expr_ref(m_rel_manager.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m_rel_manager);
     }
-    else if (m.is_or(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(subst_template_body(expr_ref(sub_formulas.get(i), m), rel_templates, args_coll));
-        }
-        new_formula = m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr());
-
+    else if (m_rel_manager.is_or(fml)) {
+        expr_ref_vector sub_formulas(m_rel_manager, a->get_num_args(), a->get_args());
+        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, rel_templates, args_coll);
+        return expr_ref(m_rel_manager.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m_rel_manager);
     }
-    else if (m.is_not(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        new_formula = m.mk_not(subst_template_body(expr_ref(sub_formulas.get(0), m), rel_templates, args_coll));
+    else if (m_rel_manager.is_not(fml)) {
+        CASSERT("predabst", a->get_num_args() == 1);
+        return expr_ref(m_rel_manager.mk_not(subst_template_body(expr_ref(a->get_arg(0), m_rel_manager), rel_templates, args_coll)), m_rel_manager);
     }
-    else {
-        if (m_names.contains(to_app(fml)->get_decl())) {
-            for (unsigned i = 0; i < rel_templates.size(); i++) {
-                if (to_app(fml)->get_decl() == rel_templates.get(i).m_head->get_decl()) {
-                    expr_ref cs(m_rel_templates_orig.get(i).m_body);
-                    expr_ref_vector args(m, to_app(fml)->get_decl()->get_arity(), to_app(fml)->get_args());
-                    args_coll.append(args);
-                    args.append(m_params);
-                    args.reverse();
-                    m_var_subst(cs, args.size(), args.c_ptr(), cs);
-                    return cs;
-                }
+    else if (m_names.contains(a->get_decl())) {
+        for (unsigned i = 0; i < rel_templates.size(); i++) {
+            if (a->get_decl() == rel_templates.get(i).m_head->get_decl()) {
+                expr_ref cs(m_rel_templates_orig.get(i).m_body);
+                expr_ref_vector args(m_rel_manager, a->get_num_args(), a->get_args());
+                args_coll.append(args);
+                args.append(m_params);
+                args.reverse();
+                m_var_subst(cs, args.size(), args.c_ptr(), cs);
+                return cs;
             }
         }
-        return fml;
     }
-    return new_formula;
+    return fml;
 }
 
 static void interpolate_helper(expr_ref_vector const& vars, expr_ref &fml) {
@@ -855,40 +858,17 @@ void rel_template_suit::init_template_instantiate() {
     }
 }
 
-bool rel_template_suit::get_orig_template(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars) {
-    for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-        rel_template const& orig = m_rel_templates_orig[i];
-        if (orig.m_head->get_decl() == fdecl) {
-            body = orig.m_body;
-            return true;
-        }
-    }
-    return false;
-}
-
-bool rel_template_suit::get_template_instance(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars) {
-    for (unsigned i = 0; i < m_rel_template_instances.size(); i++) {
-        rel_template const& instance = m_rel_template_instances[i];
-        if (instance.m_head->get_decl() == fdecl) {
-            body = instance.m_body;
-            vars.append(instance.m_head->get_num_args(), instance.m_head->get_args());
-            return true;
-        }
-    }
-    return false;
-}
-
 bool rel_template_suit::constrain_template(expr_ref const& fml) {
     if (m_rel_templates.size() == 0) { // XXX remove this check eventually
         return false;
     }
-    reset();
+    m_rel_template_instances.reset();
     STRACE("predabst", tout << "constrain_template begin\n"; display(tout););
-    if (!fml.m().is_true(fml)) {
-        m_acc = fml.m().mk_and(fml, m_acc);
+    if (!m_rel_manager.is_true(fml)) {
+        m_acc = m_rel_manager.mk_and(fml, m_acc);
     }
     expr_ref_vector args_coll(m_rel_manager);
-    expr_ref c1(subst_template_body(m_acc, m_rel_templates, args_coll), m_rel_manager);
+    expr_ref c1 = subst_template_body(m_acc, m_rel_templates, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
     expr_ref constraint_st(m_rel_manager.mk_true(), m_rel_manager);
@@ -955,9 +935,12 @@ void rel_template_suit::display(std::ostream& out) const {
 }
 
 void refine_pred_info::display(std::ostream& out) const {
-    out << "pred: " << mk_pp(m_pred, m_pred.m()) << ", pred_vars: [";
+    out << "pred: " << mk_pp(m_pred, m_pred.m()) << ", pred_vars: (";
     for (unsigned i = 0; i < m_pred_vars.size(); i++) {
-        out << " " << mk_pp(m_pred_vars.get(i), m_pred.m());
+        if (i != 0) {
+            out << ", ";
+        }
+        out << mk_pp(m_pred_vars.get(i), m_pred.m());
     }
-    out << "]\n";
+    out << ")\n";
 }

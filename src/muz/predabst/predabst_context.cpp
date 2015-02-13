@@ -118,7 +118,7 @@ namespace datalog {
                 m_node_id(node_id) {}
         };
 
-        typedef std::map<unsigned, core_tree_node> core_tree;
+        typedef vector<core_tree_node> core_tree;
 
         static const unsigned NON_NODE = UINT_MAX;
 
@@ -517,7 +517,7 @@ namespace datalog {
             }
 
             // Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
-            expr_ref_vector& vars = m_func_decl2info[suffix_decl]->m_vars;
+            expr_ref_vector const& vars = m_func_decl2info[suffix_decl]->m_vars;
             expr_ref_vector& preds = m_func_decl2info[suffix_decl]->m_preds;
             expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
@@ -897,7 +897,7 @@ namespace datalog {
             CASSERT("predabst", body_preds_vector.size() == nodes.size());
             // load abstract states for nodes
             for (unsigned pos = 0; pos < nodes.size(); ++pos) {
-                cube_t& pos_cube = m_node2info[nodes[pos]].m_cube;
+                cube_t const& pos_cube = m_node2info[nodes[pos]].m_cube;
                 expr_ref_vector const& body_preds = body_preds_vector[pos];
                 for (unsigned i = 0; i < body_preds.size(); ++i) {
                     if (pos_cube[i]) {
@@ -939,7 +939,7 @@ namespace datalog {
 
         bool is_well_founded(unsigned id) {
             func_decl* fdecl = m_node2info[id].m_func_decl;
-            cube_t cube = m_node2info[id].m_cube;
+            cube_t const& cube = m_node2info[id].m_cube;
 
             expr_ref_vector const& vars = m_func_decl2info[fdecl]->m_vars;
             expr_ref_vector const& preds = m_func_decl2info[fdecl]->m_preds;
@@ -957,7 +957,7 @@ namespace datalog {
             node_set& sym_nodes = m_func_decl2info[sym]->m_max_reach_nodes;
             node_vector old_lt_nodes;
             for (node_set::iterator it = sym_nodes.begin(), end = sym_nodes.end(); it != end; ++it) {
-                cube_t& old_cube = m_node2info[*it].m_cube;
+                cube_t const& old_cube = m_node2info[*it].m_cube;
                 // if cube implies existing cube then nothing to add
                 if (cube_leq(cube, old_cube)) {
                     STRACE("predabst", tout << "New node is subsumed by node " << *it << " with cube [" << old_cube << "]\n";);
@@ -1010,9 +1010,6 @@ namespace datalog {
                 vector<refine_pred_info> interpolants;
                 interpolants.push_back(refine_pred_info(bound, get_all_vars(bound)));
                 interpolants.push_back(refine_pred_info(decrease, get_all_vars(decrease)));
-                for (unsigned i = 0; i < interpolants.size(); ++i) {
-                    STRACE("predabst", tout << "Interpolant " << i << ":"; interpolants.get(i).display(tout););
-                }
                 return refine_preds(refine_info, interpolants);
             }
 
@@ -1033,6 +1030,9 @@ namespace datalog {
         }
 
         bool refine_preds(refine_cand_info const& refine_info, vector<refine_pred_info> const& interpolants) {
+            for (unsigned i = 0; i < interpolants.size(); ++i) {
+                STRACE("predabst", tout << "Interpolant " << i << ": "; interpolants.get(i).display(tout););
+            }
             unsigned new_preds_added = 0;
             for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                 func_decl *fdecl = m_func_decls.get(i);
@@ -1082,22 +1082,20 @@ namespace datalog {
             unsigned& root_name = core_info.m_root_name;
             expr_ref_vector& root_args = core_info.m_root_args;
             core_tree& core = core_info.m_core;
-            unsigned count = 0;
 
             struct todo_item {
                 unsigned        m_name;
                 expr_ref_vector m_args;
-                unsigned        m_node_id;
-                todo_item(unsigned name, expr_ref_vector const& args, unsigned node_id) :
+                todo_item(unsigned name, expr_ref_vector const& args) :
                     m_name(name),
-                    m_args(args),
-                    m_node_id(node_id) {}
+                    m_args(args) {}
             };
             vector<todo_item> todo;
 
-            root_name = count++;
             root_args.append(get_fresh_args(m_node2info[node_id].m_func_decl, "r"));
-            todo.push_back(todo_item(root_name, root_args, node_id));
+            root_name = core.size();
+            core.push_back(core_tree_node(node_id));
+            todo.push_back(todo_item(root_name, root_args));
 
             while (!todo.empty()) {
                 todo_item item = todo.back();
@@ -1105,11 +1103,8 @@ namespace datalog {
 
                 unsigned name = item.m_name;
                 expr_ref_vector const& args = item.m_args;
-                unsigned n_id = item.m_node_id;
 
-                core.insert(std::make_pair(name, core_tree_node(n_id)));
-                vector<unsigned>& names = core.at(name).m_names;
-
+                unsigned n_id = core[name].m_node_id;
                 node_info const& node = m_node2info[n_id];
                 rule* r = m_rule2info[node.m_parent_rule].m_rule;
                 if (r) {
@@ -1129,17 +1124,17 @@ namespace datalog {
                     for (unsigned i = 0; i < usz; ++i) { // Each iteration corresponds to an in-arrow to this node.
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        unsigned qname = count++;
-                        names.push_back(qname);
-                        todo.push_back(todo_item(qname, qargs, node.m_parent_nodes.get(i)));
+                        unsigned qname = core.size();
+                        core.push_back(core_tree_node(node.m_parent_nodes.get(i)));
+                        todo.push_back(todo_item(qname, qargs));
+                        core[name].m_names.push_back(qname);
                     }
                 }
                 else {
                     STRACE("predabst", tout << "mk_core_tree: node " << n_id << "; " << name << "("; print_expr_ref_vector(tout, args, false); tout << ") was generated by a template\n";);
                     expr_ref orig_temp_body(m);
                     expr_ref_vector orig_temp_vars(m);
-                    bool found = m_template.get_orig_template(node.m_func_decl, orig_temp_body, orig_temp_vars);
-                    CASSERT("predabst", found);
+                    m_template.get_orig_template(m_rule2info[node.m_parent_rule].m_template_id, orig_temp_body, orig_temp_vars);
                     expr_ref_vector temp_subst = build_subst(orig_temp_vars, args); // >>> should we also be substituting the current chosen values for the extra template parameters?
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst);
                     expr_ref_vector inst_body_terms = get_conj_terms(orig_temp_body);
@@ -1194,8 +1189,8 @@ namespace datalog {
                 expr_ref cs(m);
                 expr_ref_vector cl_bs(m);
 
-                node_info const& node = m_node2info[core.at(name).m_node_id];
-                vector<unsigned> const& names = core.at(name).m_names;
+                node_info const& node = m_node2info[core[name].m_node_id];
+                vector<unsigned> const& names = core[name].m_names;
                 refine_info.insert(node.m_func_decl, args);
 
                 rule* r = m_rule2info[node.m_parent_rule].m_rule;
@@ -1222,16 +1217,14 @@ namespace datalog {
                     if (found_last) {
                         expr_ref inst_body(m);
                         expr_ref_vector inst_vars(m);
-                        bool found = m_template.get_template_instance(node.m_func_decl, inst_body, inst_vars); // >>> why using instance, not orig, here?  why no use of hvars in this branch?
-                        CASSERT("predabst", found);
+                        m_template.get_template_instance(m_rule2info[node.m_parent_rule].m_template_id, inst_body, inst_vars); // >>> why using instance, not orig, here?  why no use of hvars in this branch?
                         expr_ref_vector inst_body_terms = get_conj_terms(inst_body);
                         cs = mk_conj(expr_ref_vector(m, last_pos + 1, inst_body_terms.c_ptr()));
                     }
                     else {
                         expr_ref orig_temp_body(m);
                         expr_ref_vector orig_temp_vars(m);
-                        bool found = m_template.get_orig_template(node.m_func_decl, orig_temp_body, orig_temp_vars);
-                        CASSERT("predabst", found);
+                        m_template.get_orig_template(m_rule2info[node.m_parent_rule].m_template_id, orig_temp_body, orig_temp_vars);
                         expr_ref_vector temp_subst = build_subst(orig_temp_vars, args);
                         orig_temp_body = apply_subst(orig_temp_body, temp_subst);
                         expr_ref inst_body(m);
@@ -1293,8 +1286,7 @@ namespace datalog {
                     STRACE("predabst", tout << "mk_core_tree_wf: node " << n_id << "; " << "("; print_expr_ref_vector(tout, args, false); tout << ") was generated by a template\n";);
                     expr_ref orig_temp_body(m);
                     expr_ref_vector orig_temp_vars(m);
-                    bool found = m_template.get_orig_template(node.m_func_decl, orig_temp_body, orig_temp_vars);
-                    CASSERT("predabst", found);
+                    m_template.get_orig_template(m_rule2info[node.m_parent_rule].m_template_id, orig_temp_body, orig_temp_vars);
                     expr_ref_vector temp_subst = build_subst(orig_temp_vars, args); // >>> see comment above
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst);
                     expr_ref inst_body(m);
@@ -1369,9 +1361,9 @@ namespace datalog {
 
         void print_core_tree(std::ostream& out, core_tree const& core) {
             for (unsigned i = 0; i < core.size(); ++i) {
-                out << "core_name: " << core.find(i)->first << ", core_id: " << core.find(i)->second.m_node_id << ", core_ids: [";
-                for (unsigned j = 0; j < core.find(i)->second.m_names.size(); ++j) {
-                    out << " " << core.find(i)->second.m_names.get(j);
+                out << "core_name: " << i << ", core_id: " << core[i].m_node_id << ", core_ids: [";
+                for (unsigned j = 0; j < core[i].m_names.size(); ++j) {
+                    out << " " << core[i].m_names.get(j);
                 }
                 out << "]\n";
             }

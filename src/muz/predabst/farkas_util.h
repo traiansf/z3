@@ -56,11 +56,12 @@ struct rel_template {
 };
 
 class rel_template_suit {
-
     ast_manager& m_rel_manager;
+    var_subst m_var_subst;
 
-    vector<rel_template> m_rel_templates;
+    vector<func_decl*> m_names;
     vector<rel_template> m_rel_templates_orig;
+    vector<rel_template> m_rel_templates;
     vector<rel_template> m_rel_template_instances;
 
     expr_ref_vector m_params;
@@ -68,25 +69,20 @@ class rel_template_suit {
     expr_ref m_extra_sol;
     expr_ref m_acc;
 
-    vector<func_decl*> m_names;
-
-    expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates);
-    expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args);
-
-    var_subst m_var_subst;
-
     model_ref m_modref;
+
+    expr_ref_vector subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll);
+    expr_ref subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args);
 
 public:
 
     rel_template_suit(ast_manager& m) :
         m_rel_manager(m),
+        m_var_subst(m_rel_manager, false),
+        m_params(m_rel_manager),
         m_extras(m_rel_manager),
         m_extra_sol(m_rel_manager),
-        m_acc(expr_ref(m_rel_manager.mk_true(), m_rel_manager)),
-        m_params(m_rel_manager),
-        m_var_subst(m_rel_manager, false) {
-    }
+        m_acc(expr_ref(m_rel_manager.mk_true(), m_rel_manager)) {}
 
     void process_template_extra(expr_ref_vector& t_params, expr_ref const& extras) {
         CASSERT("predabst", m_params.size() == 0);
@@ -104,44 +100,40 @@ public:
     void init_template_instantiate();
     bool constrain_template(expr_ref const& fml);
 
-    vector<rel_template> const& get_templates() const {
-        return m_rel_templates;
+    vector<func_decl*> const& get_names() {
+        return m_names;
     }
 
     vector<rel_template> const& get_orig_templates() const {
         return m_rel_templates_orig;
     }
 
+    vector<rel_template> const& get_templates() const {
+        return m_rel_templates;
+    }
+
     vector<rel_template> const& get_template_instances() const {
         return m_rel_template_instances;
     }
 
-    bool get_orig_template(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars);
+    void rel_template_suit::get_orig_template(unsigned i, expr_ref& body, expr_ref_vector& vars) {
+        rel_template const& orig = m_rel_templates_orig[i];
+        body = orig.m_body;
+        vars.append(orig.m_head->get_num_args(), orig.m_head->get_args());
+    }
 
-    bool get_template_instance(func_decl* fdecl, expr_ref& body, expr_ref_vector& vars);
+    void rel_template_suit::get_template_instance(unsigned i, expr_ref& body, expr_ref_vector& vars) {
+        rel_template const& instance = m_rel_template_instances[i];
+        body = instance.m_body;
+        vars.append(instance.m_head->get_num_args(), instance.m_head->get_args());
+    }
 
     expr_ref_vector const& get_params() {
         return m_params;
     }
 
-    vector<func_decl*> const& get_names() {
-        return m_names;
-    }
-
-    ast_manager& get_rel_manager() {
-        return m_rel_manager;
-    }
-
-    expr_ref get_extras() {
-        return m_extras;
-    }
-
     model_ref get_modref() {
         return m_modref;
-    }
-
-    void reset() {
-        m_rel_template_instances.reset();
     }
 
     void display(std::ostream& out) const;

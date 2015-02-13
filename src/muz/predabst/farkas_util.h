@@ -66,7 +66,6 @@ class rel_template_suit {
 
     expr_ref_vector m_params;
     expr_ref m_extras;
-    expr_ref m_extra_sol;
     expr_ref m_acc;
 
     model_ref m_modref;
@@ -81,7 +80,6 @@ public:
         m_var_subst(m, false),
         m_params(m),
         m_extras(m),
-        m_extra_sol(m),
         m_acc(expr_ref(m.mk_true(), m)) {}
 
     void process_template_extra(expr_ref_vector& t_params, expr_ref const& extras) {

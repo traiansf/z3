@@ -37,14 +37,12 @@ namespace datalog {
 
     struct core_clause {
         unsigned        m_name;
-        expr_ref_vector m_one;
-        expr_ref        m_two;
-        expr_ref_vector m_three;
-        core_clause(unsigned name, expr_ref_vector const& one, expr_ref const& two, expr_ref_vector const& three) :
+        expr_ref_vector m_args;
+        expr_ref        m_body;
+        core_clause(unsigned name, expr_ref_vector const& args, expr_ref const& body) :
             m_name(name),
-            m_one(one),
-            m_two(two),
-            m_three(three) {}
+            m_args(args),
+            m_body(body) {}
     };
 
     typedef vector<core_tree_node> core_tree;
@@ -82,8 +80,6 @@ namespace datalog {
         refine_pred_info(expr_ref const& pred, expr_ref_vector const& pred_vars) :
             m_pred(pred),
             m_pred_vars(pred_vars) {}
-
-        void display(std::ostream& out) const;
     };
 
     class predabst::imp {
@@ -1061,7 +1057,7 @@ namespace datalog {
 
         bool refine_preds(refine_cand_info const& refine_info, vector<refine_pred_info> const& interpolants) {
             for (unsigned i = 0; i < interpolants.size(); ++i) {
-                STRACE("predabst", tout << "Interpolant " << i << ": "; interpolants.get(i).display(tout););
+                STRACE("predabst", tout << "Interpolant " << i << ": "; print_interpolant(tout, interpolants.get(i)););
             }
             unsigned new_preds_added = 0;
             for (unsigned i = 0; i < m_func_decls.size(); ++i) {
@@ -1102,7 +1098,7 @@ namespace datalog {
                     STRACE("predabst", tout << "Predicate " << mk_pp(in_pred2, m) << " for " << fdecl->get_name() << " is already present\n";);
                 }
             }
-            STRACE("predabst", tout << "Found " << new_preds_added << " new predicates for " << fdecl->get_name() << " using "; print_expr_ref_vector(tout, args, false); tout << ", ";  interpolant.display(tout););
+            STRACE("predabst", tout << "Found " << new_preds_added << " new predicates for " << fdecl->get_name() << " using "; print_expr_ref_vector(tout, args, false); tout << ", "; print_interpolant(tout, interpolant););
             return new_preds_added;
         }
 
@@ -1216,7 +1212,6 @@ namespace datalog {
                 }
 
                 expr_ref cs(m);
-                expr_ref_vector cl_bs(m);
 
                 node_info const& node = m_node2info[core[name].m_node_id];
                 vector<unsigned> const& names = core[name].m_names;
@@ -1237,7 +1232,6 @@ namespace datalog {
                     for (unsigned i = 0; i < names.size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        cl_bs.push_back(qs_i);
                         todo.push_back(todo_item(names.get(i), qargs));
                     }
                 }
@@ -1263,8 +1257,8 @@ namespace datalog {
                 }
 
                 if (args.size() > 0 || !m.is_true(cs)) {
-                    STRACE("predabst", tout << "Adding core clause " << name << "("; print_expr_ref_vector(tout, args, false); tout << "); " << mk_pp(cs, m) << "; "; print_expr_ref_vector(tout, cl_bs););
-                    clauses.push_back(core_clause(name, args, cs, cl_bs));
+                    STRACE("predabst", tout << "Adding core clause " << name << "("; print_expr_ref_vector(tout, args, false); tout << "); " << mk_pp(cs, m) << "\n";);
+                    clauses.push_back(core_clause(name, args, cs));
                 }
             }
 
@@ -1282,16 +1276,16 @@ namespace datalog {
 
                 expr_ref fmlA(m.mk_true(), m);
                 for (; j >= i; j--, end2--) {
-                    fmlA = mk_conj(fmlA, end2->m_two);
+                    fmlA = mk_conj(fmlA, end2->m_body);
                 }
 
                 core_clauses::const_iterator end4 = end2;
                 end4++;
-                expr_ref_vector vars(end4->m_one);
+                expr_ref_vector vars(end4->m_args);
 
                 expr_ref fmlB(m.mk_true(), m);
                 for (; j >= 0; j--, end2--) {
-                    fmlB = mk_conj(fmlB, end2->m_two);
+                    fmlB = mk_conj(fmlB, end2->m_body);
                 }
 
                 expr_ref fmlQ_sol(m);
@@ -1430,6 +1424,21 @@ namespace datalog {
             }
         }
 
+        void print_core_clauses(std::ostream& out, core_clauses const& clauses) const {
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                core_clause const& clause = clauses[i];
+                out << "clause --> " << clause.m_name << " (";
+                print_expr_ref_vector(out, clause.m_args, false);
+                out << ") : " << mk_pp(clause.m_body, m) << "\n";
+            }
+        }
+
+        void print_interpolant(std::ostream& out, refine_pred_info const& interpolant) const {
+            out << "pred: " << mk_pp(interpolant.m_pred, m) << ", pred_vars: (";
+            print_expr_ref_vector(out, interpolant.m_pred_vars, false);
+            out << ")\n";
+        }
+
         void print_proof_prolog(std::ostream& out, unsigned id) const {
             node_set todo_nodes;
             todo_nodes.insert(id);
@@ -1556,34 +1565,6 @@ namespace datalog {
             }
         }
     };
-
-    static void display_core_clauses(std::ostream& out, ast_manager& m, core_clauses const& clauses) {
-        core_clauses::const_iterator st = clauses.begin();
-        core_clauses::const_iterator end = clauses.end();
-        for (; st != end; st++) {
-            out << "clause --> " << st->m_name << " [";
-            for (unsigned i = 0; i < st->m_one.size(); i++) {
-                out << mk_pp(st->m_one.get(i), m) << " ";
-            }
-            out << "] : " << mk_pp(st->m_two, m) << " [";
-            for (unsigned i = 0; i < st->m_three.size(); i++) {
-                out << mk_pp(st->m_three.get(i), m) << " ";
-            }
-            out << "]\n";
-        }
-    }
-
-    void refine_pred_info::display(std::ostream& out) const {
-        ast_manager& m = m_pred.m();
-        out << "pred: " << mk_pp(m_pred, m) << ", pred_vars: (";
-        for (unsigned i = 0; i < m_pred_vars.size(); i++) {
-            if (i != 0) {
-                out << ", ";
-            }
-            out << mk_pp(m_pred_vars.get(i), m);
-        }
-        out << ")\n";
-    }
 
     predabst::predabst(context& ctx):
         engine_base(ctx.get_manager(), "predabst"),

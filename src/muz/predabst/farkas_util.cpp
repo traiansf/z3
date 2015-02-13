@@ -63,39 +63,41 @@ static void push_front(ref_vector<T, TManager>& v, obj_ref<T, TManager> const& e
 }
 
 static expr_ref_vector get_all_terms(expr_ref const& term) {
-    expr_ref_vector all_facts(term.m());
-    if (!arith_util(term.m()).is_mul(term)) {
+    ast_manager& m = term.m();
+    expr_ref_vector all_facts(m);
+    if (!arith_util(m).is_mul(term)) {
         all_facts.push_back(term);
     }
     else {
-        expr_ref_vector facts(term.m());
+        expr_ref_vector facts(m);
         facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
         for (unsigned i = 0; i < facts.size(); ++i) {
-            all_facts.append(get_all_terms(expr_ref(facts.get(i), term.m())));
+            all_facts.append(get_all_terms(expr_ref(facts.get(i), m)));
         }
     }
     return all_facts;
 }
 
 static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, expr_ref_vector& var_facts, expr_ref_vector& const_facts, bool& has_params) {
+    ast_manager& m = term.m();
     // XXX do we need to assign has_params = false here?
-    if (!arith_util(term.m()).is_mul(term)) {
+    if (!arith_util(m).is_mul(term)) {
         if (vars.contains(term)) {
             var_facts.push_back(term);
         }
         else {
             const_facts.push_back(term);
             // params check ***
-            if (!arith_util(term.m()).is_numeral(term)) {
+            if (!arith_util(m).is_numeral(term)) {
                 has_params = true;
             }
         }
     }
     else {
-        expr_ref_vector facts(term.m());
+        expr_ref_vector facts(m);
         facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
         for (unsigned i = 0; i < facts.size(); ++i) {
-            get_all_terms(expr_ref(facts.get(i), term.m()), vars, var_facts, const_facts, has_params);
+            get_all_terms(expr_ref(facts.get(i), m), vars, var_facts, const_facts, has_params);
         }
     }
 }
@@ -130,15 +132,15 @@ public:
     }
 
     void put(expr_ref term) {
-        arith_util arith(term.m());
+        arith_util arith(m);
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             m_coeffs.push_back(arith.mk_numeral(rational(0), true));
         }
-        if (term.m().is_true(term)) {
+        if (m.is_true(term)) {
             m_op = 1;
             m_const = arith.mk_numeral(rational(0), true);
         }
-        else if (term.m().is_false(term)) {
+        else if (m.is_false(term)) {
             m_op = 1;
             m_const = arith.mk_numeral(rational(-1), true);
         }
@@ -203,10 +205,10 @@ public:
 private:
 
     void rewrite_pred(expr_ref& term) {
-        arith_util arith(term.m());
+        arith_util arith(m);
         expr *e1;
         expr *e2;
-        if (term.m().is_eq(term, e1, e2)) {
+        if (m.is_eq(term, e1, e2)) {
             term = arith.mk_sub(e1, e2);
             m_op = 0;
         }
@@ -223,10 +225,10 @@ private:
             term = arith.mk_sub(arith.mk_sub(e2, e1), arith.mk_numeral(rational(-1), true));
         }
         else {
-            STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(term, term.m()) << "\n";);
+            STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(term, m) << "\n";);
             UNREACHABLE();
         }
-        th_rewriter rw(term.m());
+        th_rewriter rw(m);
         rw(term);
     }
 
@@ -515,11 +517,11 @@ static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_r
     ast_manager& m = fml.m();
     constraint_st = m.mk_true();
     expr_ref norm_fml = neg_and_2dnf(fml);
-    CASSERT("predabst", fml.m().is_or(norm_fml));
+    CASSERT("predabst", m.is_or(norm_fml));
     for (unsigned i = 0; i < to_app(norm_fml)->get_num_args(); ++i) {
-        expr_ref disj(to_app(norm_fml)->get_arg(i), fml.m());
+        expr_ref disj(to_app(norm_fml)->get_arg(i), m);
         app_ref_vector q_vars_disj(q_vars);
-        qe_lite ql1(fml.m());
+        qe_lite ql1(m);
         ql1(q_vars_disj, disj);
         farkas_imp f_imp(vars);
         f_imp.set(disj, expr_ref(m.mk_false(), m));
@@ -532,15 +534,16 @@ static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_r
 }
 
 static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref& constraint_st, bool mk_lambda_kinds, vector<lambda_kind>& all_lambda_kinds) {
+    ast_manager& m = fml.m();
     expr_ref norm_fml = neg_and_2dnf(fml);
-    CASSERT("predabst", fml.m().is_or(norm_fml));
-    expr_ref_vector disjs(fml.m());
+    CASSERT("predabst", m.is_or(norm_fml));
+    expr_ref_vector disjs(m);
     disjs.append(to_app(norm_fml)->get_num_args(), to_app(norm_fml)->get_args());
     for (unsigned i = 0; i < disjs.size(); ++i) {
         farkas_imp f_imp(vars, mk_lambda_kinds);
-        f_imp.set(expr_ref(disjs.get(i), fml.m()), expr_ref(fml.m().mk_false(), fml.m()));
+        f_imp.set(expr_ref(disjs.get(i), m), expr_ref(m.mk_false(), m));
         if (f_imp.solve_constraint()) {
-            constraint_st = fml.m().mk_and(constraint_st, f_imp.get_constraints());
+            constraint_st = m.mk_and(constraint_st, f_imp.get_constraints());
             all_lambda_kinds.append(f_imp.get_lambda_kinds());
         }
         else {
@@ -934,12 +937,13 @@ void rel_template_suit::display(std::ostream& out) const {
 }
 
 void refine_pred_info::display(std::ostream& out) const {
-    out << "pred: " << mk_pp(m_pred, m_pred.m()) << ", pred_vars: (";
+    ast_manager& m = m_pred.m();
+    out << "pred: " << mk_pp(m_pred, m) << ", pred_vars: (";
     for (unsigned i = 0; i < m_pred_vars.size(); i++) {
         if (i != 0) {
             out << ", ";
         }
-        out << mk_pp(m_pred_vars.get(i), m_pred.m());
+        out << mk_pp(m_pred_vars.get(i), m);
     }
     out << ")\n";
 }

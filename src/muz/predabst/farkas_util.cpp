@@ -693,7 +693,7 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_
                 expr_ref_vector args(m, a->get_num_args(), a->get_args());
                 args_coll.append(args);
                 args.append(m_params);
-                args.reverse();
+                args.reverse(); // >>> bogus
                 m_var_subst(cs, args.size(), args.c_ptr(), cs);
                 return cs;
             }

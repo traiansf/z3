@@ -363,7 +363,7 @@ namespace datalog {
             expr_ref_vector arg_vars(m);
             arg_vars.reserve(fdecl->get_arity());
             for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
-                arg_vars[i] = m.mk_var(i, fdecl->get_domain(i)); // >>> do I need to construct a fresh variable name?
+                arg_vars[i] = m.mk_var(i, fdecl->get_domain(i));
             }
             return arg_vars;
         }
@@ -372,7 +372,6 @@ namespace datalog {
         // number) covering all the variables used by r, which maps the variables
         // used as head arguments to hvars, and maps all variables that do not
         // appear in the head to fresh contants.
-        // >>> Seems like this ought to be able to be written as a combination of build_subst and get_subst_vect_fresh.
         expr_ref_vector get_subst_vect(rule const* r, expr_ref_vector const& hvars, char const* prefix) const {
             CASSERT("predabst", hvars.size() == r->get_decl()->get_arity());
 
@@ -395,7 +394,6 @@ namespace datalog {
                 else {
                     STRACE("predabst", tout << "Need to unify non-variable " << mk_pp(r->get_head()->get_arg(i), m) << " with " << mk_pp(hvars.get(i), m) << " -- help!\n";);
                     CASSERT("predabst", false);
-                    // >>> not clear what we have to do in this case: might be OK if r->get_head()->get_arg(i) and hvargs.get(i) are syntactically equal, but I this is not (always) the case
                 }
             }
 
@@ -872,7 +870,6 @@ namespace datalog {
         }
 
         uint_set get_rule_body_positions(rule* r, func_decl* fdecl) {
-            // XXX we could precompute this set and store it in m_func_decl2info::m_users
             uint_set positions;
             for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
                 if (r->get_decl(i) == fdecl) {
@@ -884,7 +881,7 @@ namespace datalog {
 
         vector<node_vector> build_cartesian_product(rule* r, unsigned node, unsigned current_pos) const {
             vector<node_vector> nodes_set;
-            nodes_set.push_back(node_vector()); // XXX reserve space in this vector, for efficiency?
+            nodes_set.push_back(node_vector());
 
             node_set current_pos_singleton;
             current_pos_singleton.insert(node);
@@ -985,9 +982,9 @@ namespace datalog {
             return well_founded(args, to_rank, bound, decrease);
         }
 
-        unsigned add_node(func_decl* sym, cube_t const& cube, unsigned r_id, node_vector const& nodes = node_vector()) {
+        unsigned add_node(func_decl* fdecl, cube_t const& cube, unsigned r_id, node_vector const& nodes = node_vector()) {
             // first fixpoint check combined with maximality maintainance
-            node_set& sym_nodes = m_func_decl2info[sym]->m_max_reach_nodes;
+            node_set& sym_nodes = m_func_decl2info[fdecl]->m_max_reach_nodes;
             node_vector old_lt_nodes;
             for (node_set::iterator it = sym_nodes.begin(), end = sym_nodes.end(); it != end; ++it) {
                 cube_t const& old_cube = m_node2info[*it].m_cube;
@@ -1013,8 +1010,8 @@ namespace datalog {
             unsigned added_id = m_node2info.size();
             sym_nodes.insert(added_id);
             m_node_worklist.insert(added_id);
-            m_node2info.push_back(node_info(sym, cube, r_id, nodes));
-            STRACE("predabst", tout << "Added node " << added_id << " for " << sym->get_name() << "\n";);
+            m_node2info.push_back(node_info(fdecl, cube, r_id, nodes));
+            STRACE("predabst", tout << "Added node " << added_id << " for " << fdecl->get_name() << "\n";);
             return added_id;
         }
 
@@ -1182,7 +1179,7 @@ namespace datalog {
                     expr_ref orig_temp_body(m);
                     expr_ref_vector orig_temp_vars(m);
                     m_template.get_orig_template(m_rule2info[node.m_parent_rule].m_template_id, orig_temp_body, orig_temp_vars);
-                    expr_ref_vector temp_subst = build_subst(orig_temp_vars, args); // >>> should we also be substituting the current chosen values for the extra template parameters?
+                    expr_ref_vector temp_subst = build_subst(orig_temp_vars, args);
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst);
                     expr_ref_vector inst_body_terms = get_conj_terms(orig_temp_body);
                     for (unsigned i = 0; i < inst_body_terms.size(); ++i) {
@@ -1261,7 +1258,7 @@ namespace datalog {
                     if (found_last) {
                         expr_ref inst_body(m);
                         expr_ref_vector inst_vars(m);
-                        m_template.get_template_instance(m_rule2info[node.m_parent_rule].m_template_id, inst_body, inst_vars); // >>> why using instance, not orig, here?  why no use of hvars in this branch?
+                        m_template.get_template_instance(m_rule2info[node.m_parent_rule].m_template_id, inst_body, inst_vars);
                         expr_ref_vector inst_body_terms = get_conj_terms(inst_body);
                         cs = mk_conj(expr_ref_vector(m, last_pos + 1, inst_body_terms.c_ptr()));
                     }
@@ -1363,7 +1360,7 @@ namespace datalog {
                     expr_ref orig_temp_body(m);
                     expr_ref_vector orig_temp_vars(m);
                     m_template.get_orig_template(m_rule2info[node.m_parent_rule].m_template_id, orig_temp_body, orig_temp_vars);
-                    expr_ref_vector temp_subst = build_subst(orig_temp_vars, args); // >>> see comment above
+                    expr_ref_vector temp_subst = build_subst(orig_temp_vars, args);
                     orig_temp_body = apply_subst(orig_temp_body, temp_subst);
                     expr_ref inst_body(m);
                     m_template.get_modref()->eval(orig_temp_body, inst_body);

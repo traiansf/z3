@@ -489,7 +489,7 @@ namespace datalog {
         }
 
         bool is_wf_predicate(func_decl const* pred) const {
-            return pred->get_name() == "__wf__";
+            return pred->get_name().str().substr(0, 6) == "__wf__";
         }
 
         void process_special_rules(rule_set& rules, bool(*p)(rule const*), void (imp::*f)(rule const*)) {

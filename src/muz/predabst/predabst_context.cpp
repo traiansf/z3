@@ -435,6 +435,34 @@ namespace datalog {
             return rule_subst;
         }
 
+        static bool args_are_distinct_vars(app* a) {
+            vector<bool> used;
+            for (unsigned i = 0; i < a->get_num_args(); ++i) {
+                if (!is_var(a->get_arg(i))) {
+                    return false;
+                }
+                unsigned idx = to_var(a->get_arg(i))->get_idx();
+                if (idx >= used.size()) {
+                    used.resize(idx + 1);
+                }
+                if (used.get(idx)) {
+                    return false;
+                }
+                used[idx] = true;
+            }
+            return true;
+        }
+
+        static bool has_vars(app* a) {
+            for (unsigned i = 0; i < a->get_num_args(); ++i) {
+                if (is_var(a->get_arg(i)) ||
+                    (is_app(a->get_arg(i)) && has_vars(to_app(a->get_arg(i))))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // Returns whether c1 implies c2, or in other words, whether the set
         // represented by c1 is a (non-strict) subset of that represented by c2.
         static bool cube_leq(cube_t const& c1, cube_t const& c2) {
@@ -530,24 +558,6 @@ namespace datalog {
             }
         }
 
-        static bool args_are_distinct_vars(app* a) {
-            vector<bool> used;
-            for (unsigned i = 0; i < a->get_num_args(); ++i) {
-                if (!is_var(a)) {
-                    return false;
-                }
-                unsigned idx = to_var(a)->get_idx();
-                if (idx >= used.size()) {
-                    used.resize(idx + 1);
-                }
-                if (used.get(idx)) {
-                    return false;
-                }
-                used[idx] = true;
-            }
-            return true;
-        }
-
         static bool is_predicate_list(rule const* r) {
             return r->get_decl()->get_name().str().substr(0, 8) == "__pred__";
         }
@@ -586,8 +596,13 @@ namespace datalog {
             expr_ref_vector& preds = m_func_decl2info[suffix_decl]->m_preds;
             expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(r->get_tail(i), m) << "\n";);
-                preds.push_back(apply_subst(r->get_tail(i), subst));
+                app_ref pred = apply_subst(r->get_tail(i), subst);
+                STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
+                if (has_vars(pred)) {
+                    STRACE("predabst", tout << "Error: predicate has free variables\n";);
+                    throw default_exception("predicate for " + suffix.str() + " has free variables");
+                }
+                preds.push_back(pred);
             }
         }
 
@@ -628,6 +643,10 @@ namespace datalog {
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args(), extra_params);
             app_ref extras = apply_subst(r->get_tail(0), extra_subst);
             STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
+            if (has_vars(extras)) {
+                STRACE("predabst", tout << "Error: extra template constraint has free variables\n";);
+                throw default_exception("extra template constraint has free variables");
+            }
             m_template.process_template_extra(extra_params, expr_ref(extras, m));
         }
 
@@ -704,6 +723,11 @@ namespace datalog {
             expr_ref_vector all_subst = build_subst(r->get_head()->get_args(), all_params);
             app_ref body = apply_subst(r->get_tail(0), all_subst);
             STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
+
+            if (has_vars(body)) {
+                STRACE("predabst", tout << "Error: template has free variables\n";);
+                throw default_exception("template for " + suffix.str() + " has free variables");
+            }
 
             m_template.process_template(rel_template(orig_head, expr_ref(orig_body, m)), rel_template(head, expr_ref(body, m)));
         }

@@ -480,9 +480,28 @@ namespace datalog {
 
         void process_func_decl(rule_set const& rules, func_decl *fdecl) {
             if (!m_func_decl2info.contains(fdecl)) {
+                bool is_wf = is_wf_predicate(fdecl);
+                if (is_wf) {
+                    if (fdecl->get_arity() % 2 != 0) {
+                        STRACE("predabst", tout << "WF predicate symbol " << fdecl->get_name() << " has arity " << fdecl->get_arity() << " which is odd\n";);
+                        throw default_exception("found WF predicate symbol " + fdecl->get_name().str() + " with odd arity");
+                    }
+                    for (unsigned i = 0; i < fdecl->get_arity() / 2; ++i) {
+                        unsigned j = fdecl->get_arity() / 2 + i;
+                        if (fdecl->get_domain(i) != fdecl->get_domain(j)) {
+                            STRACE("predabst", tout << "WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " and argument " << j << " of type " << mk_pp(fdecl->get_domain(j), m) << "\n";);
+                            throw default_exception("found WF predicate symbol " + fdecl->get_name().str() + " with mismatching argument types");
+                        }
+                        // The following restriction may be removed in future.
+                        if (fdecl->get_domain(i) != arith_util(m).mk_int()) {
+                            STRACE("predabst", tout << "WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " which is not int\n";);
+                            throw default_exception("found WF predicate symbol " + fdecl->get_name().str() + " with non-integer argument types");
+                        }
+                    }
+                }
                 m_func_decls.push_back(fdecl);
                 expr_ref_vector vars = get_arg_vars(fdecl);
-                m_func_decl2info.insert(fdecl, alloc(func_decl_info, vars, rules.is_output_predicate(fdecl), is_wf_predicate(fdecl)));
+                m_func_decl2info.insert(fdecl, alloc(func_decl_info, vars, rules.is_output_predicate(fdecl), is_wf));
             }
         }
 
@@ -1080,7 +1099,7 @@ namespace datalog {
             unsigned new_preds_added = 0;
             for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                 func_decl *fdecl = m_func_decls.get(i);
-                vector<expr_ref_vector> rel_info = refine_info.get(fdecl);
+                vector<expr_ref_vector> const& rel_info = refine_info.get(fdecl);
                 for (unsigned j = 0; j < rel_info.size(); ++j) {
                     for (unsigned k = 0; k < interpolants.size(); ++k) {
                         new_preds_added += get_interpolant_pred(fdecl, rel_info.get(j), interpolants.get(k));

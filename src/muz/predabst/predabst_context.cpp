@@ -480,25 +480,31 @@ namespace datalog {
 
         void process_func_decl(rule_set const& rules, func_decl *fdecl) {
             if (!m_func_decl2info.contains(fdecl)) {
+                if (fdecl->get_range() != m.mk_bool_sort()) {
+                    STRACE("predabst", tout << "Error: predicate symbol " << fdecl->get_name() << " has return type " << mk_pp(fdecl->get_range(), m) << " which is not bool\n";);
+                    throw default_exception("predicate symbol " + fdecl->get_name().str() + " has non-bool return type");
+                }
+
                 bool is_wf = is_wf_predicate(fdecl);
                 if (is_wf) {
                     if (fdecl->get_arity() % 2 != 0) {
-                        STRACE("predabst", tout << "WF predicate symbol " << fdecl->get_name() << " has arity " << fdecl->get_arity() << " which is odd\n";);
-                        throw default_exception("found WF predicate symbol " + fdecl->get_name().str() + " with odd arity");
+                        STRACE("predabst", tout << "Error: WF predicate symbol " << fdecl->get_name() << " has arity " << fdecl->get_arity() << " which is odd\n";);
+                        throw default_exception("WF predicate symbol " + fdecl->get_name().str() + " has odd arity");
                     }
                     for (unsigned i = 0; i < fdecl->get_arity() / 2; ++i) {
                         unsigned j = fdecl->get_arity() / 2 + i;
                         if (fdecl->get_domain(i) != fdecl->get_domain(j)) {
-                            STRACE("predabst", tout << "WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " and argument " << j << " of type " << mk_pp(fdecl->get_domain(j), m) << "\n";);
-                            throw default_exception("found WF predicate symbol " + fdecl->get_name().str() + " with mismatching argument types");
+                            STRACE("predabst", tout << "Error: WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " and argument " << j << " of type " << mk_pp(fdecl->get_domain(j), m) << "\n";);
+                            throw default_exception("WF predicate symbol " + fdecl->get_name().str() + " has mismatching argument types");
                         }
                         // The following restriction may be removed in future.
                         if (fdecl->get_domain(i) != arith_util(m).mk_int()) {
-                            STRACE("predabst", tout << "WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " which is not int\n";);
-                            throw default_exception("found WF predicate symbol " + fdecl->get_name().str() + " with non-integer argument types");
+                            STRACE("predabst", tout << "Error: WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " which is not int\n";);
+                            throw default_exception("WF predicate symbol " + fdecl->get_name().str() + " has non-integer argument types");
                         }
                     }
                 }
+
                 m_func_decls.push_back(fdecl);
                 expr_ref_vector vars = get_arg_vars(fdecl);
                 m_func_decl2info.insert(fdecl, alloc(func_decl_info, vars, rules.is_output_predicate(fdecl), is_wf));
@@ -524,6 +530,24 @@ namespace datalog {
             }
         }
 
+        static bool args_are_distinct_vars(app* a) {
+            vector<bool> used;
+            for (unsigned i = 0; i < a->get_num_args(); ++i) {
+                if (!is_var(a)) {
+                    return false;
+                }
+                unsigned idx = to_var(a)->get_idx();
+                if (idx >= used.size()) {
+                    used.resize(idx + 1);
+                }
+                if (used.get(idx)) {
+                    return false;
+                }
+                used[idx] = true;
+            }
+            return true;
+        }
+
         static bool is_predicate_list(rule const* r) {
             return r->get_decl()->get_name().str().substr(0, 8) == "__pred__";
         }
@@ -543,12 +567,17 @@ namespace datalog {
                 head_decl->get_domain(),
                 head_decl->get_range());
             if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol " << suffix << "\n";);
+                STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol\n";);
                 throw default_exception("found predicate list for non-existent query symbol " + suffix.str());
             }
 
+            if (!args_are_distinct_vars(r->get_head())) {
+                STRACE("predabst", tout << "Error: predicate list has invalid argument list\n";);
+                throw default_exception("predicate list for " + suffix.str() + " has invalid argument list");
+            }
+
             if (r->get_uninterpreted_tail_size() != 0) {
-                STRACE("predabst", tout << "Error: predicate list for " << suffix << " has an uninterpreted tail\n";);
+                STRACE("predabst", tout << "Error: predicate list has an uninterpreted tail\n";);
                 throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
             }
 
@@ -577,6 +606,11 @@ namespace datalog {
             if (m_template.get_params().size() > 0) {
                 STRACE("predabst", tout << "Error: found multiple extra template constraints\n";);
                 throw default_exception("found multiple extra template constraints");
+            }
+
+            if (!args_are_distinct_vars(r->get_head())) {
+                STRACE("predabst", tout << "Error: extra template constraint has invalid argument list\n";);
+                throw default_exception("extra template constraint has invalid argument list");
             }
 
             if (r->get_uninterpreted_tail_size() != 0) {
@@ -613,14 +647,14 @@ namespace datalog {
             expr_ref_vector const& extra_params = m_template.get_params();
             unsigned num_extras = extra_params.size();
             if (head_decl->get_arity() < num_extras) {
-                STRACE("predabst", tout << "Error: template for " << suffix << " doesn't have enough parameters for the extra template parameters\n";);
+                STRACE("predabst", tout << "Error: template has insufficient parameters for the extra template parameters\n";);
                 throw default_exception("template for " + suffix.str() + " has insufficient parameters");
             }
 
             unsigned new_arity = head_decl->get_arity() - num_extras;
             for (unsigned i = 0; i < num_extras; ++i) {
                 if (head_decl->get_domain(new_arity + i) != to_app(extra_params[i])->get_decl()->get_range()) {
-                    STRACE("predabst", tout << "Error: extra parameter " << i << " to template for " << suffix << " is of wrong type\n";);
+                    STRACE("predabst", tout << "Error: extra template parameter " << i << " is of wrong type\n";);
                     throw default_exception("extra parameter to template for " + suffix.str() + " is of wrong type");
                 }
             }
@@ -631,16 +665,21 @@ namespace datalog {
                 head_decl->get_domain(),
                 head_decl->get_range());
             if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found template for non-existent query symbol " << suffix << "\n";);
+                STRACE("predabst", tout << "Error: found template for non-existent query symbol\n";);
                 throw default_exception("found template for non-existent query symbol " + suffix.str());
             }
 
             if (m_func_decl2info[suffix_decl]->m_has_template) {
-                STRACE("predabst", tout << "Error: found multiple templates for " << suffix << "\n";);
+                STRACE("predabst", tout << "Error: found multiple templates for " << suffix.str() << "\n";);
                 throw default_exception("found multiple templates for " + suffix.str());
             }
 
             m_func_decl2info[suffix_decl]->m_has_template = true;
+
+            if (!args_are_distinct_vars(r->get_head())) {
+                STRACE("predabst", tout << "Error: template for has invalid argument list\n";);
+                throw default_exception("template for " + suffix.str() + " has invalid argument list");
+            }
 
             if (r->get_uninterpreted_tail_size() != 0) {
                 STRACE("predabst", tout << "Error: template has an uninterpreted tail\n";);

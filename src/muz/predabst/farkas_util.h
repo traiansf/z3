@@ -82,7 +82,7 @@ public:
         m_extras = extras;
     }
 
-    void process_template(func_decl* head_name, rel_template const& orig_temp, rel_template const& temp) {
+    void process_template(rel_template const& orig_temp, rel_template const& temp) {
         m_rel_templates_orig.push_back(orig_temp);
         m_rel_templates.push_back(temp);
     }

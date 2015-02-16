@@ -649,7 +649,7 @@ namespace datalog {
             app_ref body = apply_subst(r->get_tail(0), all_subst);
             STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
 
-            m_template.process_template(suffix_decl, rel_template(orig_head, expr_ref(orig_body, m)), rel_template(head, expr_ref(body, m)));
+            m_template.process_template(rel_template(orig_head, expr_ref(orig_body, m)), rel_template(head, expr_ref(body, m)));
         }
 
         void find_rule_uses(rule_set const& rules) {

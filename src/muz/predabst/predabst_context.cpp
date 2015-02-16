@@ -148,9 +148,7 @@ namespace datalog {
 
         static const unsigned NON_NODE = UINT_MAX;
 
-        context&               m_ctx;         // main context where (fixedpoint) constraints are stored.
         ast_manager&           m;             // manager for ASTs. It is used for managing expressions
-        rule_manager&          rm;            // context with utilities for fixedpoint rules.
         smt_params             m_fparams;     // parameters specific to smt solving
         smt::kernel            m_solver;      // basic SMT solver class
         mutable var_subst      m_var_subst;   // substitution object. It gets updated and reset.
@@ -192,10 +190,8 @@ namespace datalog {
         };
 
     public:
-        imp(context& ctx) :
-            m_ctx(ctx),
-            m(ctx.get_manager()),
-            rm(ctx.get_rule_manager()),
+        imp(ast_manager& m) :
+            m(m),
             m_solver(m, m_fparams),
             m_var_subst(m, false),
             m_cancel(false),
@@ -213,11 +209,7 @@ namespace datalog {
             }
         }
 
-        lbool query(expr* query) {
-            m_ctx.ensure_opened();
-            rule_set& rules = m_ctx.get_rules();
-            rm.mk_query(query, rules);
-
+        lbool query(rule_set& rules) {
             find_all_func_decls(rules);
 
             // Some of the rules are actually declarations of predicate lists,
@@ -1595,15 +1587,19 @@ namespace datalog {
         }
     };
 
-    predabst::predabst(context& ctx):
+    predabst::predabst(context& ctx) :
         engine_base(ctx.get_manager(), "predabst"),
-        m_imp(alloc(imp, ctx)) {
+        m_ctx(ctx),
+        m_imp(alloc(imp, ctx.get_manager())) {
     }
     predabst::~predabst() {
         dealloc(m_imp);
     }
     lbool predabst::query(expr* query) {
-        return m_imp->query(query);
+        m_ctx.ensure_opened();
+        rule_set& rules = m_ctx.get_rules();
+        m_ctx.get_rule_manager().mk_query(query, rules);
+        return m_imp->query(rules);
     }
     void predabst::cancel() {
         m_imp->cancel();

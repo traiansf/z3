@@ -30,7 +30,8 @@ namespace datalog {
 
     class predabst : public datalog::engine_base {
         class imp;
-        imp* m_imp;
+        context& m_ctx;
+        imp*     m_imp;
     public:
         predabst(context& ctx);
         ~predabst();

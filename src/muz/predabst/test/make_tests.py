@@ -219,17 +219,112 @@ inpval_tests = [
      "both rule and template for p"),
 ]
 
+norefine_sat_tests = [
+    ("trivial-all-true",
+     """
+(declare-fun p0 () Bool)
+(declare-fun p1 (Int) Bool)
+(declare-fun p2 (Int Int) Bool)
+(assert p0)
+(assert (forall ((x Int)) (p1 x)))
+(assert (forall ((x Int) (y Int)) (p2 x y)))
+""",
+     """
+  (define-fun p0 () Bool
+    true)
+  (define-fun p1 ((x!1 Int)) Bool
+    true)
+  (define-fun p2 ((x!1 Int) (x!2 Int)) Bool
+    true)
+"""),
+
+    ("trivial-some-true",
+     """
+(declare-fun p1 (Int) Bool)
+(declare-fun p2 (Int Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (p1 x))))
+(assert (forall ((x Int) (y Int)) (=> (= x 0) (p2 x y))))
+""",
+     """
+  (define-fun p1 ((x!1 Int)) Bool
+    true)
+  (define-fun p2 ((x!1 Int) (x!2 Int)) Bool
+    true)
+"""),
+
+    ("trivial-some-false",
+     """
+(declare-fun p1 (Int) Bool)
+(declare-fun p2 (Int Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (not (p1 x)))))
+(assert (forall ((x Int) (y Int)) (=> (= x 0) (not (p2 x y)))))
+""",
+     """
+  (define-fun p1 ((x!1 Int)) Bool
+    false)
+  (define-fun p2 ((x!1 Int) (x!2 Int)) Bool
+    false)
+"""),
+
+    ("trivial-all-false",
+     """
+(declare-fun p0 () Bool)
+(declare-fun p1 (Int) Bool)
+(declare-fun p2 (Int Int) Bool)
+(assert (not p0))
+(assert (forall ((x Int)) (not (p1 x))))
+(assert (forall ((x Int) (y Int)) (not (p2 x y))))
+""",
+     """
+  (define-fun p0 () Bool
+    false)
+  (define-fun p1 ((x!1 Int)) Bool
+    false)
+  (define-fun p2 ((x!1 Int) (x!2 Int)) Bool
+    false)
+"""),
+]
+
+def write_test_smt2(testname, code, postsat_code):
+    filename = testname + ".smt2"
+    with open(filename, "w") as f:
+        f.write("(set-logic HORN)\n")
+        f.write(code + "\n")
+        f.write("(check-sat)\n")
+        f.write(postsat_code + "\n")
+
+def write_sat_test_smt2(testname, code):
+    write_test_smt2(testname, code, "(get-model)")
+
+def write_unsat_test_smt2(testname, code):
+    write_test_smt2(testname, code, "(get-proof)")
+
+def write_unknown_test_smt2(testname, code):
+    write_test_smt2(testname, code, "(get-info :reason-unknown)")
+
+def write_test_out(testname, result, postsat_code):
+    filename = testname + ".out"
+    with open(filename, "w") as f:
+        f.write(result + "\n")
+        f.write(postsat_code + "\n")
+
+def write_sat_test_out(testname, model):
+    write_test_out(testname, "sat", "(model " + model + ")")
+
+def write_unsat_test_out(testname, proof):
+    write_test_out(testname, "unsat", "(proof " + proof + "...)")
+
+def write_unknown_test_out(testname, errmsg):
+    write_test_out(testname, "unknown", "(:reason-unknown " + errmsg + ")")
+
 for test in inpval_tests:
     (name, code, errmsg) = test
+    testname = "inpval-" + name
+    write_unknown_test_smt2(testname, code)
+    write_unknown_test_out(testname, errmsg)
 
-    in_filename = "inpval-" + name + ".smt2"
-    with open(in_filename, "w") as f:
-        f.write("(set-logic HORN)\n")
-        f.write(code)
-        f.write("\n(check-sat)\n")
-        f.write("(get-info :reason-unknown)\n")
-
-    out_filename = "inpval-" + name + ".out"
-    with open(out_filename, "w") as f:
-        f.write("unknown\n")
-        f.write("(:reason-unknown " + errmsg + ")\n")
+for test in norefine_sat_tests:
+    (name, code, model) = test
+    testname = "norefine-sat-" + name
+    write_sat_test_smt2(testname, code)
+    write_sat_test_out(testname, model)

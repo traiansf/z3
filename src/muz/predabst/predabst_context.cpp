@@ -490,16 +490,29 @@ namespace datalog {
             return mk_conj(es);
         }
 
-        static bool is_regular_rule(rule const* r) {
-            return !is_predicate_list(r) && !is_template_extra(r) && !is_template(r);
+        static bool is_regular_predicate(func_decl const* fdecl) {
+            return !is_predicate_list(fdecl) && !is_template_extra(fdecl) && !is_template(fdecl);
         }
 
         void find_all_func_decls(rule_set const& rules) {
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
-                if (is_regular_rule(r)) {
+                if (is_regular_predicate(r->get_decl())) {
                     for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
-                        process_func_decl(rules, r->get_decl(j));
+                        func_decl* fdecl = r->get_decl(j);
+                        if (is_predicate_list(fdecl)) {
+                            STRACE("predabst", tout << "Error: found predicate list " << fdecl->get_name() << " in non-head position";);
+                            throw default_exception("found predicate list " + fdecl->get_name().str() + " in non-head position");
+                        }
+                        if (is_template_extra(fdecl)) {
+                            STRACE("predabst", tout << "Error: found extra template constraint in non-head position";);
+                            throw default_exception("found extra template constraint in non-head position");
+                        }
+                        if (is_template(fdecl)) {
+                            STRACE("predabst", tout << "Error: found template " << fdecl->get_name() << " in non-head position";);
+                            throw default_exception("found template " + fdecl->get_name().str() + " in non-head position");
+                        }
+                        process_func_decl(rules, fdecl);
                     }
                     process_func_decl(rules, r->get_decl());
                 }
@@ -507,6 +520,7 @@ namespace datalog {
         }
 
         void process_func_decl(rule_set const& rules, func_decl *fdecl) {
+            CASSERT("predabst", is_regular_predicate(fdecl));
             if (!m_func_decl2info.contains(fdecl)) {
                 if (fdecl->get_range() != m.mk_bool_sort()) {
                     STRACE("predabst", tout << "Error: predicate symbol " << fdecl->get_name() << " has return type " << mk_pp(fdecl->get_range(), m) << " which is not bool\n";);
@@ -543,11 +557,11 @@ namespace datalog {
             return pred->get_name().str().substr(0, 6) == "__wf__";
         }
 
-        void process_special_rules(rule_set& rules, bool(*p)(rule const*), void (imp::*f)(rule const*)) {
+        void process_special_rules(rule_set& rules, bool(*p)(func_decl const*), void (imp::*f)(rule const*)) {
             ptr_vector<rule> to_delete;
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
-                if (p(r)) {
+                if (p(r->get_decl())) {
                     (this->*f)(r);
                     to_delete.push_back(r);
                 }
@@ -558,12 +572,12 @@ namespace datalog {
             }
         }
 
-        static bool is_predicate_list(rule const* r) {
-            return r->get_decl()->get_name().str().substr(0, 8) == "__pred__";
+        static bool is_predicate_list(func_decl const* fdecl) {
+            return fdecl->get_name().str().substr(0, 8) == "__pred__";
         }
 
         void collect_predicate_list(rule const* r) {
-            CASSERT("predabst", is_predicate_list(r));
+            CASSERT("predabst", is_predicate_list(r->get_decl()));
             // r is a rule of the form:
             //   p1 AND ... AND pN => __pred__SUFFIX
             // Treat p1...pN as initial predicates for query symbol SUFFIX.
@@ -606,12 +620,12 @@ namespace datalog {
             }
         }
 
-        static bool is_template_extra(rule const* r) {
-            return r->get_decl()->get_name() == "__temp__extra__";
+        static bool is_template_extra(func_decl const* fdecl) {
+            return fdecl->get_name() == "__temp__extra__";
         }
 
         void collect_template_extra(rule const* r) {
-            CASSERT("predabst", is_template_extra(r));
+            CASSERT("predabst", is_template_extra(r->get_decl()));
             // r is a rule of the form:
             //  ??? => __temp__extra__
             // Treat ??? as an extra template constraint.
@@ -650,12 +664,12 @@ namespace datalog {
             m_template.process_template_extra(extra_params, expr_ref(extras, m));
         }
 
-        static bool is_template(rule const* r) {
-            return r->get_decl()->get_name().str().substr(0, 8) == "__temp__";
+        static bool is_template(func_decl const* fdecl) {
+            return fdecl->get_name().str().substr(0, 8) == "__temp__";
         }
 
         void collect_template(rule const* r) {
-            CASSERT("predabst", is_template(r));
+            CASSERT("predabst", is_template(r->get_decl()));
             // r is a rule of the form:
             //  ??? => __temp__SUFFIX
             // Treat ??? as a template for query symbol SUFFIX.
@@ -735,7 +749,7 @@ namespace datalog {
         void find_rule_uses(rule_set const& rules) {
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
-                CASSERT("predabst", is_regular_rule(r));
+                CASSERT("predabst", is_regular_predicate(r->get_decl()));
 
                 if (m_func_decl2info[r->get_decl()]->m_has_template) {
                     STRACE("predabst", tout << "Rule exists for " << r->get_decl()->get_name() << ", which also has a template\n";);

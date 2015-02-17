@@ -453,11 +453,16 @@ namespace datalog {
             return true;
         }
 
-        static bool has_vars(app* a) {
-            for (unsigned i = 0; i < a->get_num_args(); ++i) {
-                if (is_var(a->get_arg(i)) ||
-                    (is_app(a->get_arg(i)) && has_vars(to_app(a->get_arg(i))))) {
-                    return true;
+        static bool has_vars(expr* e) {
+            if (is_var(e)) {
+                return true;
+            }
+            if (is_app(e)) {
+                app* a = to_app(e);
+                for (unsigned i = 0; i < a->get_num_args(); ++i) {
+                    if (has_vars(a->get_arg(i))) {
+                        return true;
+                    }
                 }
             }
             return false;
@@ -647,21 +652,16 @@ namespace datalog {
                 throw default_exception("extra template constraint has an uninterpreted tail");
             }
 
-            if (r->get_tail_size() != 1) {
-                STRACE("predabst", tout << "Error: extra template constraint tail size is " << r->get_tail_size() << " but should be 1\n";);
-                throw default_exception("extra template constraint has tail of length != 1");
-            }
-
             // Replace the variables corresponding to the extra template parameters with fresh constants.
             expr_ref_vector extra_params = get_fresh_args(r->get_decl(), "b");
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args(), extra_params);
-            app_ref extras = apply_subst(r->get_tail(0), extra_subst);
+            expr_ref extras = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
             STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
             if (has_vars(extras)) {
                 STRACE("predabst", tout << "Error: extra template constraint has free variables\n";);
                 throw default_exception("extra template constraint has free variables");
             }
-            m_template.process_template_extra(extra_params, expr_ref(extras, m));
+            m_template.process_template_extra(extra_params, extras);
         }
 
         static bool is_template(func_decl const* fdecl) {
@@ -719,15 +719,10 @@ namespace datalog {
                 throw default_exception("template for " + suffix.str() + " has an uninterpreted tail");
             }
 
-            if (r->get_tail_size() != 1) {
-                STRACE("predabst", tout << "Error: template tail size is " << r->get_tail_size() << " but should be 1\n";);
-                throw default_exception("template for " + suffix.str() + " has tail of length != 1");
-            }
-
             // First, replace the variables corresponding to the extra template parameters with their corresponding constants.
             app_ref orig_head(m.mk_app(suffix_decl, r->get_head()->get_args()), m);
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args() + new_arity, extra_params);
-            app_ref orig_body = apply_subst(r->get_tail(0), extra_subst);
+            expr_ref orig_body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
             STRACE("predabst", tout << "  orig template: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
 
             // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
@@ -735,7 +730,7 @@ namespace datalog {
             app_ref head(m.mk_app(suffix_decl, query_params.c_ptr()), m);
             expr_ref_vector all_params = vector_concat(query_params, extra_params);
             expr_ref_vector all_subst = build_subst(r->get_head()->get_args(), all_params);
-            app_ref body = apply_subst(r->get_tail(0), all_subst);
+            expr_ref body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), all_subst);
             STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
 
             if (has_vars(body)) {
@@ -743,7 +738,7 @@ namespace datalog {
                 throw default_exception("template for " + suffix.str() + " has free variables");
             }
 
-            m_template.process_template(rel_template(orig_head, expr_ref(orig_body, m)), rel_template(head, expr_ref(body, m)));
+            m_template.process_template(rel_template(orig_head, orig_body), rel_template(head, body));
         }
 
         void find_rule_uses(rule_set const& rules) {

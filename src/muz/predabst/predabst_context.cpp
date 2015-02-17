@@ -665,7 +665,7 @@ namespace datalog {
         }
 
         static bool is_template(func_decl const* fdecl) {
-            return fdecl->get_name().str().substr(0, 8) == "__temp__";
+            return (fdecl->get_name().str().substr(0, 8) == "__temp__") && !is_template_extra(fdecl);
         }
 
         void collect_template(rule const* r) {

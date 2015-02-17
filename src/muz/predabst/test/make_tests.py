@@ -1,12 +1,4 @@
 inpval_tests = [
-# XXX Causes a hang (goes to other engine?)
-#    ("pred-non-bool-return",
-#     """
-#(declare-fun p (Int) Int)
-#(assert (forall ((x Int)) (= (p x) 0)))
-#""",
-#     "predicate p has return type which is not bool"),
-
     ("wf-odd-arity",
      """
 (declare-fun __wf__p (Int) Bool)
@@ -80,14 +72,6 @@ inpval_tests = [
 (assert (forall ((x Int) (y Int)) (=> (= x y) (__pred__p x))))
 """,
      "predicate for p has free variables"),
-
-# XXX Causes a hang (goes to other engine?)
-#    ("extra-non-bool-return",
-#     """
-#(declare-fun __temp__extra__ (Int) Int)
-#(assert (forall ((a Int)) (= (__temp__extra__ a) 0)))
-#""",
-#     "extra template constraint has return type which is not bool"),
 
      ("extra-multiple-same-type",
      """

@@ -526,12 +526,8 @@ namespace datalog {
 
         void process_func_decl(rule_set const& rules, func_decl *fdecl) {
             CASSERT("predabst", is_regular_predicate(fdecl));
+            CASSERT("predabst", fdecl->get_range() == m.mk_bool_sort());
             if (!m_func_decl2info.contains(fdecl)) {
-                if (fdecl->get_range() != m.mk_bool_sort()) {
-                    STRACE("predabst", tout << "Error: predicate symbol " << fdecl->get_name() << " has return type " << mk_pp(fdecl->get_range(), m) << " which is not bool\n";);
-                    throw default_exception("predicate symbol " + fdecl->get_name().str() + " has non-bool return type");
-                }
-
                 bool is_wf = is_wf_predicate(fdecl);
                 if (is_wf) {
                     if (fdecl->get_arity() % 2 != 0) {
@@ -636,6 +632,7 @@ namespace datalog {
             // Treat ??? as an extra template constraint.
             func_decl* head_decl = r->get_decl();
             STRACE("predabst", tout << "Found extra template constraint with " << head_decl->get_arity() << "parameters\n";);
+            CASSERT("predabst", r->get_decl()->get_range() == m.mk_bool_sort());
 
             if (m_template.get_params().size() > 0) {
                 STRACE("predabst", tout << "Error: found multiple extra template constraints\n";);

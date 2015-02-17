@@ -571,7 +571,7 @@ namespace datalog {
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
             STRACE("predabst", tout << "Found predicate list for query symbol " << suffix << "("; print_expr_ref_vector(tout, expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()), false); tout << ")\n";);
 
-            func_decl_ref suffix_decl = func_decl_ref(m.mk_func_decl(
+            func_decl_ref suffix_decl(m.mk_func_decl(
                 suffix,
                 head_decl->get_arity(),
                 head_decl->get_domain(),
@@ -678,7 +678,7 @@ namespace datalog {
                 }
             }
 
-            func_decl_ref suffix_decl = func_decl_ref(m.mk_func_decl(
+            func_decl_ref suffix_decl(m.mk_func_decl(
                 suffix,
                 new_arity,
                 head_decl->get_domain(),
@@ -711,14 +711,14 @@ namespace datalog {
             }
 
             // First, replace the variables corresponding to the extra template parameters with their corresponding constants.
-            app* orig_head = m.mk_app(suffix_decl, r->get_head()->get_args());
+            app_ref orig_head(m.mk_app(suffix_decl, r->get_head()->get_args()), m);
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args() + new_arity, extra_params);
             app_ref orig_body = apply_subst(r->get_tail(0), extra_subst);
             STRACE("predabst", tout << "  orig template: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
 
             // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
             expr_ref_vector query_params = get_fresh_args(r->get_decl(), "v", new_arity);
-            app* head = m.mk_app(suffix_decl, query_params.c_ptr());
+            app_ref head(m.mk_app(suffix_decl, query_params.c_ptr()), m);
             expr_ref_vector all_params = vector_concat(query_params, extra_params);
             expr_ref_vector all_subst = build_subst(r->get_head()->get_args(), all_params);
             app_ref body = apply_subst(r->get_tail(0), all_subst);

@@ -29,10 +29,10 @@ bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref& bo
 expr_ref well_founded_cs(expr_ref_vector const& vsws);
 
 struct rel_template {
-    app* m_head;
+    app_ref m_head;
     expr_ref m_body;
 
-    rel_template(app* head, expr_ref const& body) :
+    rel_template(app_ref const& head, expr_ref const& body) :
         m_head(head),
         m_body(body) {}
 };

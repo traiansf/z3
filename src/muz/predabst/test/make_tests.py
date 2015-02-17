@@ -194,6 +194,10 @@ inpval_tests = [
 ]
 
 norefine_sat_tests = [
+    ("empty",
+     "",
+     ""),
+
     ("trivial-all-true",
      """
 (declare-fun p0 () Bool)
@@ -239,6 +243,63 @@ norefine_sat_tests = [
 (define-fun p0 () Bool false)
 (define-fun p1 ((x!1 Int)) Bool false)
 (define-fun p2 ((x!1 Int) (x!2 Int)) Bool false)"""),
+
+    ("simple-multiple-predicate-lists",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 5) (p x))))
+(assert (forall ((x Int)) (=> (= x 6) (p x))))
+(assert (forall ((x Int)) (=> (<= x 2) (p x))))
+(assert (forall ((x Int)) (=> (>= x 9) (p x))))
+(assert (forall ((x Int)) (__pred__p x)))
+(assert (forall ((x Int)) (=> (= x 5) (__pred__p x))))
+(assert (forall ((x Int)) (=> (and (= x 6) (<= x 2) (>= x 9)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (or (= x!1 5) (= x!1 6) (<= x!1 2) (>= x!1 9)))"""),
+
+    ("simple-literal-head",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (p 0)))
+(assert (forall ((x Int)) (p 1)))
+(assert (forall ((x Int)) (=> (and (= x 0) (= x 1)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (or (= x!1 0) (= x!1 1)))"""),
+
+    ("simple-duplicate-var-head",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __pred__p (Int Int) Bool)
+(assert (forall ((x Int)) (p x x)))
+(assert (forall ((x Int) (y Int)) (=> (= x y) (__pred__p x y))))""",
+     """
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (= x!1 x!2))"""),
+
+    ("simple-overlapping-preds-1",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (=> (<= x 1) (p x))))
+(assert (forall ((x Int)) (=> (<= x 2) (p x))))
+(assert (forall ((x Int)) (=> (<= x 3) (p x))))
+(assert (forall ((x Int)) (=> (<= x 4) (p x))))
+(assert (forall ((x Int)) (=> (and (<= x 2) (<= x 3) (<= x 4)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (<= x!1 4))"""),
+
+    ("simple-overlapping-preds-2",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (=> (<= x 4) (p x))))
+(assert (forall ((x Int)) (=> (<= x 3) (p x))))
+(assert (forall ((x Int)) (=> (<= x 2) (p x))))
+(assert (forall ((x Int)) (=> (<= x 1) (p x))))
+(assert (forall ((x Int)) (=> (and (<= x 2) (<= x 3) (<= x 4)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (<= x!1 4))"""),
 ]
 
 def write_test_smt2(testname, code, postsat_code):

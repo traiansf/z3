@@ -30,8 +30,8 @@ def normspace(s):
     return s
 
 def compareOutput(expected, actual):
-    expectedLines = map(normspace, expected.splitlines())
-    actualLines = map(normspace, actual.splitlines())
+    expectedLines = normspace(' '.join(expected.splitlines()))
+    actualLines = normspace(' '.join(actual.splitlines()))
     return expectedLines == actualLines
 
 numPassed = 0

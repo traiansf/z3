@@ -453,19 +453,25 @@ namespace datalog {
             return true;
         }
 
-        static bool has_vars(expr* e) {
+        // Returns true if e contains any variables other than those in bound.
+        static bool has_free_vars(expr* e, expr_ref_vector const& bound) {
             if (is_var(e)) {
-                return true;
+                return !bound.contains(e);
             }
             if (is_app(e)) {
                 app* a = to_app(e);
                 for (unsigned i = 0; i < a->get_num_args(); ++i) {
-                    if (has_vars(a->get_arg(i))) {
+                    if (has_free_vars(a->get_arg(i), bound)) {
                         return true;
                     }
                 }
             }
             return false;
+        }
+
+        // Returns true if e contains any variables.
+        bool has_vars(expr* e) const {
+            return has_free_vars(e, expr_ref_vector(m));
         }
 
         // Returns whether c1 implies c2, or in other words, whether the set
@@ -611,12 +617,13 @@ namespace datalog {
             expr_ref_vector& preds = m_func_decl2info[suffix_decl]->m_preds;
             expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                app_ref pred = apply_subst(r->get_tail(i), subst);
-                STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
-                if (has_vars(pred)) {
+                if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
                     STRACE("predabst", tout << "Error: predicate has free variables\n";);
                     throw default_exception("predicate for " + suffix.str() + " has free variables");
                 }
+
+                app_ref pred = apply_subst(r->get_tail(i), subst);
+                STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
                 preds.push_back(pred);
             }
         }
@@ -654,10 +661,12 @@ namespace datalog {
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args(), extra_params);
             expr_ref extras = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
             STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
+
             if (has_vars(extras)) {
                 STRACE("predabst", tout << "Error: extra template constraint has free variables\n";);
                 throw default_exception("extra template constraint has free variables");
             }
+
             m_template.process_template_extra(extra_params, extras);
         }
 

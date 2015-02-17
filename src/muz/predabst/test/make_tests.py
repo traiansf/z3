@@ -290,6 +290,15 @@ norefine_sat_tests = [
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (= x!1 x!2))"""),
 
+    ("simple-complex-body",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __pred__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (=> (and (>= x 0) (<= x 5) (>= y 3) (<= y 7)) (p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (>= x 0) (<= x 5) (>= y 3) (<= y 7)) (__pred__p x y))))""",
+     """
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (and (<= x!1 5) (>= x!1 0) (<= x!2 7) (>= x!2 3)))"""),
+
     ("simple-overlapping-preds-1",
      """
 (declare-fun p (Int) Bool)
@@ -313,6 +322,15 @@ norefine_sat_tests = [
 (assert (forall ((x Int)) (=> (and (<= x 2) (<= x 3) (<= x 4)) (__pred__p x))))""",
      """
 (define-fun p ((x!1 Int)) Bool (<= x!1 4))"""),
+
+    ("simple-duplicate-preds",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (p x))))
+(assert (forall ((x Int)) (=> (and (= x 0) (= x 0) (= x 0)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
 
     ("simple-redundant-preds",
      """
@@ -401,6 +419,16 @@ norefine_sat_tests = [
 (assert (forall ((x Int)) (=> (and (= x 4) (= x 5) (= x 13) (= x 14) (= x 21) (>= x 22)) (__pred__p x))))""",
      """
 (define-fun p ((x!1 Int)) Bool (or (= x!1 4) (= x!1 5) (= x!1 13) (= x!1 14) (>= x!1 22) (= x!1 21)))"""),
+
+    ("infer-non-integers",
+     """
+(declare-fun p (Bool Real) Bool)
+(declare-fun __pred__p (Bool Real) Bool)
+(assert (p true 0.0))
+(assert (forall ((y Real)) (=> (p true y) (p false (- 1.0 y)))))
+(assert (forall ((x Bool) (y Real)) (=> (and (= x true) (= x false) (<= y 0.0) (>= y 1.0)) (__pred__p x y))))""",
+     """
+(define-fun p ((x!1 Bool) (x!2 Real)) Bool (or (and (= x!1 true) (<= x!2 0.0)) (and (= x!1 false) (>= x!2 1.0))))"""),
 ]
 
 def write_test_smt2(testname, code, postsat_code):

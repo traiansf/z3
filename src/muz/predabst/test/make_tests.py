@@ -198,6 +198,19 @@ norefine_sat_tests = [
      "",
      ""),
 
+    ("trivial-unconstrained",
+     """
+(declare-fun p0 () Bool)
+(declare-fun p1 (Int) Bool)
+(declare-fun p2 (Int Int) Bool)
+(assert (forall ((a Int)) (=> (distinct a a) p0)))
+(assert (forall ((a Int) (x Int)) (=> (distinct a a) (p1 x))))
+(assert (forall ((a Int) (x Int) (y Int)) (=> (distinct a a) (p2 x y))))""",
+     """
+(define-fun p0 () Bool false)
+(define-fun p1 ((x!1 Int)) Bool false)
+(define-fun p2 ((x!1 Int) (x!2 Int)) Bool false)"""),
+
     ("trivial-all-true",
      """
 (declare-fun p0 () Bool)
@@ -300,6 +313,94 @@ norefine_sat_tests = [
 (assert (forall ((x Int)) (=> (and (<= x 2) (<= x 3) (<= x 4)) (__pred__p x))))""",
      """
 (define-fun p ((x!1 Int)) Bool (<= x!1 4))"""),
+
+    ("simple-redundant-preds",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (p x))))
+(assert (forall ((x Int)) (=> (and (= x 0) (<= x 0) (>= x 0)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
+
+    ("infer-constants-seq",
+     """
+(declare-fun p () Bool)
+(declare-fun q () Bool)
+(declare-fun r () Bool)
+(declare-fun s () Bool)
+(assert p)
+(assert (=> p q))
+(assert (=> q r))
+(assert (not s))""",
+     """
+(define-fun p () Bool true)
+(define-fun q () Bool true)
+(define-fun r () Bool true)
+(define-fun s () Bool false)"""),
+
+    ("infer-constants-tree",
+     """
+(declare-fun p () Bool)
+(declare-fun q () Bool)
+(declare-fun r () Bool)
+(declare-fun s () Bool)
+(assert p)
+(assert q)
+(assert (=> (and p q) r))
+(assert (not s))""",
+     """
+(define-fun p () Bool true)
+(define-fun q () Bool true)
+(define-fun r () Bool true)
+(define-fun s () Bool false)"""),
+
+    ("infer-constants-unreach",
+     """
+(declare-fun p () Bool)
+(declare-fun q () Bool)
+(declare-fun r () Bool)
+(declare-fun s () Bool)
+(assert p)
+(assert (=> (and p q) r))
+(assert (not s))""",
+     """
+(define-fun p () Bool true)
+(define-fun q () Bool false)
+(define-fun r () Bool false)
+(define-fun s () Bool false)"""),
+
+    ("infer-discrete",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (p 0))
+(assert (=> (p 0) (p 2)))
+(assert (=> (p 2) (p 4)))
+(assert (forall ((x Int)) (=> (and (= x 0) (= x 1) (= x 2) (= x 3) (= x 4)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (or (= x!1 0) (= x!1 2) (= x!1 4)))"""),
+
+    ("infer-infinite",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (p 0))
+(assert (forall ((x Int)) (=> (p x) (p (+ x 1)))))
+(assert (forall ((x Int)) (=> (and (= x 0) (>= x 1)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (or (= x!1 0) (>= x!1 1)))"""),
+
+    ("infer-multiple-parents",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (p 4))
+(assert (p 5))
+(assert (forall ((a Int) (b Int) (c Int)) (=> (and (p a) (p b) (p c) (distinct a b)) (p (+ a (+ b c))))))
+(assert (forall ((x Int)) (=> (and (= x 4) (= x 5) (= x 13) (= x 14) (= x 21) (>= x 22)) (__pred__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (or (= x!1 4) (= x!1 5) (= x!1 13) (= x!1 14) (>= x!1 22) (= x!1 21)))"""),
 ]
 
 def write_test_smt2(testname, code, postsat_code):

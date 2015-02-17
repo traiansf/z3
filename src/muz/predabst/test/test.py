@@ -58,7 +58,7 @@ with open(OUTFILE, "w") as outfile:
                 if expectedOutput is not None:
                     if compareOutput(expectedOutput, output):
                         status = PASSED
-                        msg = "PASSED+"
+                        msg = "PASSED"
                     else:
                         status = FAILED
                         msg = "FAILED: output not as expected:\n" + "\n".join(difflib.ndiff(expectedOutput.splitlines(), output.splitlines()))
@@ -74,7 +74,7 @@ with open(OUTFILE, "w") as outfile:
                         msg = "FAILED: memory leak"
                     else:
                         status = PASSED
-                        msg = "PASSED"
+                        msg = "PASSED (but no .out file to compare with)"
             except subprocess.CalledProcessError as e:
                 output = e.output
                 status = FAILED

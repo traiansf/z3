@@ -431,6 +431,40 @@ norefine_sat_tests = [
 (define-fun p ((x!1 Bool) (x!2 Real)) Bool (or (and (= x!1 true) (<= x!2 0.0)) (and (= x!1 false) (>= x!2 1.0))))"""),
 ]
 
+norefine_unsat_tests = [
+    ("empty",
+     """
+(assert false)"""),
+
+    ("trivial-0",
+     """
+(declare-fun p () Bool)
+(assert p)
+(assert (not p))"""),
+
+    ("trivial-1",
+     """
+(declare-fun p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (not (p x))))"""),
+
+    ("trivial-2",
+     """
+(declare-fun p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int) (y Int)) (not (p x y))))"""),
+
+    ("infer-discrete",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (p 0))
+(assert (=> (p 0) (p 2)))
+(assert (=> (p 2) (p 4)))
+(assert (not (p 4)))
+(assert (forall ((x Int)) (=> (and (= x 0) (= x 1) (= x 2) (= x 3) (= x 4)) (__pred__p x))))"""),
+]
+
 def write_test_smt2(testname, code, postsat_code):
     filename = testname + ".smt2"
     with open(filename, "w") as f:
@@ -443,7 +477,7 @@ def write_sat_test_smt2(testname, code):
     write_test_smt2(testname, code, "(get-model)")
 
 def write_unsat_test_smt2(testname, code):
-    write_test_smt2(testname, code, "(get-proof)")
+    write_test_smt2(testname, code, "") # "(get-proof)" # XXX Proofs are not currently supported.
 
 def write_unknown_test_smt2(testname, code):
     write_test_smt2(testname, code, "(get-info :reason-unknown)")
@@ -457,8 +491,8 @@ def write_test_out(testname, result, postsat_code):
 def write_sat_test_out(testname, model):
     write_test_out(testname, "sat", "(model " + model + "\n)")
 
-def write_unsat_test_out(testname, proof):
-    write_test_out(testname, "unsat", "(proof " + proof + "\n)")
+def write_unsat_test_out(testname):
+    write_test_out(testname, "unsat", "")
 
 def write_unknown_test_out(testname, errmsg):
     write_test_out(testname, "unknown", "(:reason-unknown " + errmsg + ")")
@@ -474,3 +508,9 @@ for test in norefine_sat_tests:
     testname = "norefine-sat-" + name
     write_sat_test_smt2(testname, code)
     write_sat_test_out(testname, model)
+
+for test in norefine_unsat_tests:
+    (name, code) = test
+    testname = "norefine-unsat-" + name
+    write_unsat_test_smt2(testname, code)
+    write_unsat_test_out(testname)

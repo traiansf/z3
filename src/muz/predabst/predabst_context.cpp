@@ -571,11 +571,11 @@ namespace datalog {
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
             STRACE("predabst", tout << "Found predicate list for query symbol " << suffix << "("; print_expr_ref_vector(tout, expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()), false); tout << ")\n";);
 
-            func_decl* suffix_decl = m.mk_func_decl(
+            func_decl_ref suffix_decl = func_decl_ref(m.mk_func_decl(
                 suffix,
                 head_decl->get_arity(),
                 head_decl->get_domain(),
-                head_decl->get_range());
+                head_decl->get_range()), m);
             if (!m_func_decl2info.contains(suffix_decl)) {
                 STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol\n";);
                 throw default_exception("found predicate list for non-existent query symbol " + suffix.str());
@@ -678,11 +678,11 @@ namespace datalog {
                 }
             }
 
-            func_decl* suffix_decl = m.mk_func_decl(
+            func_decl_ref suffix_decl = func_decl_ref(m.mk_func_decl(
                 suffix,
                 new_arity,
                 head_decl->get_domain(),
-                head_decl->get_range());
+                head_decl->get_range()), m);
             if (!m_func_decl2info.contains(suffix_decl)) {
                 STRACE("predabst", tout << "Error: found template for non-existent query symbol\n";);
                 throw default_exception("found template for non-existent query symbol " + suffix.str());

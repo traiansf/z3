@@ -23,6 +23,17 @@ def writeFooter(f, msg):
     print >>f, ">>> %s" % msg
     f.flush()
 
+def normspace(s):
+    s = re.sub(' +', ' ', s)
+    s = re.sub('^ *', '', s)
+    s = re.sub(' *$', '', s)
+    return s
+
+def compareOutput(expected, actual):
+    expectedLines = map(normspace, expected.splitlines())
+    actualLines = map(normspace, actual.splitlines())
+    return expectedLines == actualLines
+
 numPassed = 0
 numFailed = 0
 
@@ -45,7 +56,7 @@ with open(OUTFILE, "w") as outfile:
             try:
                 output = subprocess.check_output(Z3CMD + [inFilename], stderr=subprocess.STDOUT)
                 if expectedOutput is not None:
-                    if expectedOutput.splitlines() == output.splitlines():
+                    if compareOutput(expectedOutput, output):
                         status = PASSED
                         msg = "PASSED+"
                     else:

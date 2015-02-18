@@ -521,6 +521,19 @@ norefine_t_sat_tests = [
 (assert (forall ((x Int) (a Int) (b Int)) (=> (= (* a x) b) (__temp__p x a b))))""",
      """
 (define-fun p ((x!1 Int)) Bool (> x!1 0))"""),
+
+    ("extra-non-int-params",
+     """
+(declare-fun p (Real Bool) Bool)
+(declare-fun __pred__p (Real Bool) Bool)
+(declare-fun __temp__extra__ (Real Bool) Bool)
+(declare-fun __temp__p (Real Bool Real Bool) Bool)
+(assert (forall ((x Real) (y Bool)) (=> (p x y) (and (> x 0.0) (= y true)))))
+(assert (forall ((x Real) (y Bool)) (=> (and (> x 3.0) (= y true)) (__pred__p x y))))
+(assert (forall ((a Real) (b Bool)) (=> (and (= a 5.0) (= b true)) (__temp__extra__ a b))))
+(assert (forall ((x Real) (y Bool) (a Real) (b Bool)) (=> (and (> x a) (= y b)) (__temp__p x y a b))))""",
+     """
+(define-fun p ((x!1 Real) (x!2 Bool)) Bool (and (= x!2 true) (> x!1 3.0)))"""),
 ]
 
 norefine_t_unsat_tests = [
@@ -530,7 +543,11 @@ norefine_t_unsat_tests = [
 (assert (=> (= true false) __temp__extra__))"""),
 ]
 
+allNames = set()
+
 def write_test_smt2(testname, code, postsat_code):
+    assert testname not in allNames
+    allNames.add(testname)
     filename = testname + ".smt2"
     with open(filename, "w") as f:
         f.write("(set-logic HORN)\n")
@@ -548,6 +565,7 @@ def write_unknown_test_smt2(testname, code):
     write_test_smt2(testname, code, "(get-info :reason-unknown)")
 
 def write_test_out(testname, result, postsat_code):
+    assert testname in allNames
     filename = testname + ".out"
     with open(filename, "w") as f:
         f.write(result + "\n")

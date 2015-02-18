@@ -481,7 +481,7 @@ norefine_t_sat_tests = [
 (assert (forall ((x Int)) (=> (>= x 7) (__pred__p x))))
 (assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))""",
      """
-(define-fun p ((x!1 Int)) Bool (>= x 7))"""),
+(define-fun p ((x!1 Int)) Bool (>= x!1 7))"""),
 
     ("extra-no-params",
      """
@@ -494,7 +494,7 @@ norefine_t_sat_tests = [
 (assert (=> (= true true) __temp__extra__))
 (assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))""",
      """
-(define-fun p ((x!1 Int)) Bool (>= x 7))"""),
+(define-fun p ((x!1 Int)) Bool (>= x!1 7))"""),
 
     ("extra-unique-solution",
      """
@@ -503,11 +503,11 @@ norefine_t_sat_tests = [
 (declare-fun __temp__extra__ (Int Int) Bool)
 (declare-fun __temp__p (Int Int Int) Bool)
 (assert (forall ((x Int)) (=> (p x) (> x 0))))
-(assert (forall ((x Int)) (=> (>= (* 5 x) 6) (__pred__p x))))
-(assert (forall ((a Int) (b Int)) (=> (and (= a 5) (= b 7)) (__temp__extra__ a b))))
+(assert (forall ((x Int)) (=> (>= (* 5 x) 11) (__pred__p x))))
+(assert (forall ((a Int) (b Int)) (=> (and (= a 5) (= b 15)) (__temp__extra__ a b))))
 (assert (forall ((x Int) (a Int) (b Int)) (=> (= (* a x) b) (__temp__p x a b))))""",
      """
-(define-fun p ((x!1 Int)) Bool (>= (* 5 x) 6))"""),
+(define-fun p ((x!1 Int)) Bool (>= (* 5 x!1) 11))"""),
 
     ("extra-any-solution",
      """
@@ -520,7 +520,7 @@ norefine_t_sat_tests = [
 (assert (forall ((a Int) (b Int)) (=> (and (> a 0) (> b 0)) (__temp__extra__ a b))))
 (assert (forall ((x Int) (a Int) (b Int)) (=> (= (* a x) b) (__temp__p x a b))))""",
      """
-(define-fun p ((x!1 Int)) Bool (> x 0))"""),
+(define-fun p ((x!1 Int)) Bool (> x!1 0))"""),
 ]
 
 norefine_t_unsat_tests = [
@@ -583,7 +583,7 @@ for test in norefine_unsat_tests:
 for test in norefine_t_sat_tests:
     (name, code, model) = test
     testname = "norefine-templ-sat-" + name
-    write_unknown_test_smt2(testname, code)
+    write_sat_test_smt2(testname, code)
     write_sat_test_out(testname, model)
 
 for test in norefine_t_unsat_tests:

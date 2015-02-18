@@ -638,7 +638,7 @@ namespace datalog {
             //  ??? => __temp__extra__
             // Treat ??? as an extra template constraint.
             func_decl* head_decl = r->get_decl();
-            STRACE("predabst", tout << "Found extra template constraint with " << head_decl->get_arity() << "parameters\n";);
+            STRACE("predabst", tout << "Found extra template constraint with " << head_decl->get_arity() << " parameters\n";);
             CASSERT("predabst", r->get_decl()->get_range() == m.mk_bool_sort());
 
             if (m_template.get_params().size() > 0) {
@@ -729,7 +729,7 @@ namespace datalog {
             app_ref orig_head(m.mk_app(suffix_decl, r->get_head()->get_args()), m);
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args() + new_arity, extra_params);
             expr_ref orig_body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
-            STRACE("predabst", tout << "  orig template: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
+            STRACE("predabst", tout << "  orig: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
 
             // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
             expr_ref_vector query_params = get_fresh_args(r->get_decl(), "v", new_arity);
@@ -737,7 +737,7 @@ namespace datalog {
             expr_ref_vector all_params = vector_concat(query_params, extra_params);
             expr_ref_vector all_subst = build_subst(r->get_head()->get_args(), all_params);
             expr_ref body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), all_subst);
-            STRACE("predabst", tout << " template: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
+            STRACE("predabst", tout << "  temp: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
 
             if (has_vars(body)) {
                 STRACE("predabst", tout << "Error: template has free variables\n";);
@@ -884,6 +884,9 @@ namespace datalog {
 
             CASSERT("predabst", !m_func_decl2info[instance.m_head->get_decl()]->m_is_output_predicate);
             expr_ref_vector heads = app_inst_preds(instance.m_head);
+            for (unsigned i = 0; i < heads.size(); ++i) {
+                heads[i] = m.mk_not(heads.get(i));
+            }
             info.m_head_preds.swap(heads);
         }
 
@@ -1594,11 +1597,10 @@ namespace datalog {
             }
             out << "  Templates:" << std::endl;
             for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
-                out << "    " << i << ": " << std::endl;
                 rel_template const& orig = m_template.get_orig_template(i);
-                out << "          orig: " << orig.m_head << " <- " << orig.m_body << std::endl;
+                out << "    " << i << ": orig: " << mk_pp(orig.m_head, m) << " ~ " << mk_pp(orig.m_body, m) << std::endl;
                 rel_template const& temp = m_template.get_template(i);
-                out << "          temp: " << temp.m_head << " <- " << temp.m_body << std::endl;
+                out << "       temp: " << mk_pp(temp.m_head, m) << " ~ " << mk_pp(temp.m_body, m) << std::endl;
             }
             out << "=====================================\n";
         }
@@ -1620,9 +1622,8 @@ namespace datalog {
             }
             out << "  Template instances:" << std::endl;
             for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
-                out << "    " << i << ": " << std::endl;
                 rel_template const& instance = m_template.get_template_instance(i);
-                out << "          inst: " << instance.m_head << " <- " << instance.m_body << std::endl;
+                out << "    " << i << ": inst: " << mk_pp(instance.m_head, m) << " ~ " << mk_pp(instance.m_body, m) << std::endl;
             }
             out << "  Instantiated rules:" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {

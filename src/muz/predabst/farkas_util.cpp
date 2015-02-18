@@ -775,6 +775,7 @@ bool rel_template_suit::instantiate_templates(expr_ref const& constraint) {
     }
     //STRACE("predabst", solver.display(tout); tout << std::endl;);
     if (solver.check() != l_true) {
+        STRACE("predabst", tout << "Failed to solve template constraints\n";);
         return false;
     }
     solver.get_model(m_modref);
@@ -782,9 +783,9 @@ bool rel_template_suit::instantiate_templates(expr_ref const& constraint) {
     for (unsigned i = 0; i < m_rel_templates.size(); i++) {
         expr_ref instance(m);
         if (!m_modref->eval(m_rel_templates[i].m_body, instance)) {
+            STRACE("predabst", tout << "Failed to instantiate template " << i << "\n";);
             return false;
         }
-        STRACE("predabst", tout << "instance  : " << mk_pp(instance, m) << "\n";);
         m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
     }
     return true;

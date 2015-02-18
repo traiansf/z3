@@ -465,6 +465,71 @@ norefine_unsat_tests = [
 (assert (forall ((x Int)) (=> (and (= x 0) (= x 1) (= x 2) (= x 3) (= x 4)) (__pred__p x))))"""),
 ]
 
+norefine_t_sat_tests = [
+    ("empty-true-constraint",
+     """
+(declare-fun __temp__extra__ () Bool)
+(assert (=> (= true true) __temp__extra__))""",
+     ""),
+
+    ("no-extra",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (=> (p x) (> x 0))))
+(assert (forall ((x Int)) (=> (>= x 7) (__pred__p x))))
+(assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (>= x 7))"""),
+
+    ("extra-no-params",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __temp__extra__ () Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (=> (p x) (> x 0))))
+(assert (forall ((x Int)) (=> (>= x 7) (__pred__p x))))
+(assert (=> (= true true) __temp__extra__))
+(assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (>= x 7))"""),
+
+    ("extra-unique-solution",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __temp__extra__ (Int Int) Bool)
+(declare-fun __temp__p (Int Int Int) Bool)
+(assert (forall ((x Int)) (=> (p x) (> x 0))))
+(assert (forall ((x Int)) (=> (>= (* 5 x) 6) (__pred__p x))))
+(assert (forall ((a Int) (b Int)) (=> (and (= a 5) (= b 7)) (__temp__extra__ a b))))
+(assert (forall ((x Int) (a Int) (b Int)) (=> (= (* a x) b) (__temp__p x a b))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (>= (* 5 x) 6))"""),
+
+    ("extra-any-solution",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __temp__extra__ (Int Int) Bool)
+(declare-fun __temp__p (Int Int Int) Bool)
+(assert (forall ((x Int)) (=> (p x) (> x -5))))
+(assert (forall ((x Int)) (=> (> x 0) (__pred__p x))))
+(assert (forall ((a Int) (b Int)) (=> (and (> a 0) (> b 0)) (__temp__extra__ a b))))
+(assert (forall ((x Int) (a Int) (b Int)) (=> (= (* a x) b) (__temp__p x a b))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (> x 0))"""),
+]
+
+norefine_t_unsat_tests = [
+    ("empty-false-constraint",
+     """
+(declare-fun __temp__extra__ () Bool)
+(assert (=> (= true false) __temp__extra__))"""),
+]
+
 def write_test_smt2(testname, code, postsat_code):
     filename = testname + ".smt2"
     with open(filename, "w") as f:
@@ -512,5 +577,17 @@ for test in norefine_sat_tests:
 for test in norefine_unsat_tests:
     (name, code) = test
     testname = "norefine-unsat-" + name
+    write_unsat_test_smt2(testname, code)
+    write_unsat_test_out(testname)
+
+for test in norefine_t_sat_tests:
+    (name, code, model) = test
+    testname = "norefine-templ-sat-" + name
+    write_unknown_test_smt2(testname, code)
+    write_sat_test_out(testname, model)
+
+for test in norefine_t_unsat_tests:
+    (name, code) = test
+    testname = "norefine-templ-unsat-" + name
     write_unsat_test_smt2(testname, code)
     write_unsat_test_out(testname)

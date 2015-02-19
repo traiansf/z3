@@ -189,6 +189,15 @@ namespace datalog {
                 m_core(core) {}
         };
 
+        struct core_tree_wf_info {
+            expr_ref         m_bound;
+            expr_ref         m_decrease;
+            refine_cand_info m_refine_info;
+            core_tree_wf_info(ast_manager& m) :
+                m_bound(m),
+                m_decrease(m) {}
+        };
+
     public:
         imp(ast_manager& m) :
             m(m),
@@ -800,6 +809,7 @@ namespace datalog {
                 else {
                     // Our attempt to find a solution failed.
                     core_tree_info core_info(m);
+                    core_tree_wf_info core_info_wf(m);
                     if (mk_core_tree(error.m_node, core_info)) {
                         // The result didn't hold up without abstraction.  We
                         // need to refine the predicates and retry.
@@ -810,11 +820,21 @@ namespace datalog {
 
                         STRACE("predabst", tout << "Predicate refinement successful: retrying\n";);
                     }
+                    else if ((error.m_kind == not_wf) && should_refine_predicates_not_wf(error.m_node, core_info_wf)) {
+                        // The result relating to WF didn't hold up without abstraction.  We
+                        // need to refine the predicates and retry.
+                        if (!refine_predicates_not_wf(core_info_wf)) {
+                            STRACE("predabst", tout << "WF predicate refinement unsuccessful: result is UNKNOWN\n";);
+                            RETURN_CHECK_CANCELLED(l_undef);
+                        }
+ 
+                        STRACE("predabst", tout << "WF predicate refinement successful: retrying\n";);
+                    }
                     else {
                         // The result held up even without abstraction.  Unless
                         // we can refine the templates, we have a proof of
                         // unsatisfiability.
-                        if (!refine_predicates_not_wf(error.m_node) && !refine_templates(error)) {
+                        if (!refine_templates(error)) {
                             STRACE("predabst", tout << "Template refinement unsuccessful: result is UNSAT\n";);
                             RETURN_CHECK_CANCELLED(l_true);
                         }
@@ -1121,21 +1141,17 @@ namespace datalog {
             return refine_preds(refine_info, interpolants);
         }
 
-        bool refine_predicates_not_wf(unsigned node_id) {
-            refine_cand_info refine_info;
+        bool should_refine_predicates_not_wf(unsigned node_id, core_tree_wf_info& core_wf_info) {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "s");
-            expr_ref to_wf = mk_core_tree_wf(node_id, args, refine_info);
+            expr_ref to_wf = mk_core_tree_wf(node_id, args, core_wf_info.m_refine_info);
+            return well_founded(args, to_wf, core_wf_info.m_bound, core_wf_info.m_decrease);
+        }
 
-            expr_ref bound(m);
-            expr_ref decrease(m);
-            if (!well_founded(args, to_wf, bound, decrease)) {
-                return false;
-            }
-
+        bool refine_predicates_not_wf(core_tree_wf_info const& core_wf_info) {
             vector<refine_pred_info> interpolants;
-            interpolants.push_back(refine_pred_info(bound, get_all_vars(bound)));
-            interpolants.push_back(refine_pred_info(decrease, get_all_vars(decrease)));
-            return refine_preds(refine_info, interpolants); // >>> if this fails, should we actually return "unknown" rather than trying 
+            interpolants.push_back(refine_pred_info(core_wf_info.m_bound, get_all_vars(core_wf_info.m_bound)));
+            interpolants.push_back(refine_pred_info(core_wf_info.m_decrease, get_all_vars(core_wf_info.m_decrease)));
+            return refine_preds(core_wf_info.m_refine_info, interpolants);
         }
 
         bool refine_preds(refine_cand_info const& refine_info, vector<refine_pred_info> const& interpolants) {
@@ -1186,31 +1202,30 @@ namespace datalog {
         }
 
         bool refine_templates(acr_error error) {
+            expr_ref_vector args = get_fresh_args(m_node2info[error.m_node].m_func_decl, "r");
+            expr_ref cs = mk_leaf(error.m_node, args);
+
             expr_ref to_solve(m);
             if (error.m_kind == reached_query) {
                 STRACE("predabst", tout << "Refining templates (reached query)\n";);
-                to_solve = template_constraint_reached_query(error.m_node);
+                to_solve = template_constraint_reached_query(args, cs);
             }
             else {
                 CASSERT("predabst", error.m_kind == not_wf);
                 STRACE("predabst", tout << "Refining templates (not well-founded)\n";);
-                to_solve = template_constraint_not_wf(error.m_node);
+                to_solve = template_constraint_not_wf(args, cs);
             }
 
             m_template.constrain_templates(to_solve);
             return m_template.instantiate_templates();
         }
 
-        expr_ref template_constraint_reached_query(unsigned node_id) {
-            expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "l");
-            expr_ref cs = mk_leaf(node_id, args);
+        expr_ref template_constraint_reached_query(expr_ref_vector const& args, expr_ref cs) {
             return expr_ref(m.mk_not(cs), m);
         }
 
-        expr_ref template_constraint_not_wf(unsigned node_id) {
-            expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "s");
-            expr_ref cs = mk_leaf(node_id, args);
-            expr_ref_vector cs_vars(get_all_vars(cs));
+        expr_ref template_constraint_not_wf(expr_ref_vector const& args, expr_ref cs) {
+            expr_ref_vector cs_vars = get_all_vars(cs);
 
             app_ref_vector q_vars(m);
             for (unsigned i = 0; i < cs_vars.size(); ++i) {
@@ -1403,7 +1418,7 @@ namespace datalog {
 
                 core_clauses::const_iterator end4 = end2;
                 end4++;
-                expr_ref_vector vars(end4->m_args);
+                expr_ref_vector vars = end4->m_args;
 
                 expr_ref fmlB(m.mk_true(), m);
                 for (; j >= 0; j--, end2--) {
@@ -1419,7 +1434,7 @@ namespace datalog {
             return interpolants;
         }
 
-        expr_ref mk_core_tree_wf(unsigned root_n_id, expr_ref_vector root_args, refine_cand_info& refine_info) {
+        expr_ref mk_core_tree_wf(unsigned root_n_id, expr_ref_vector const& root_args, refine_cand_info& refine_info) {
             expr_ref_vector to_wfs(m);
 
             struct todo_item {
@@ -1434,12 +1449,11 @@ namespace datalog {
             todo.push_back(todo_item(root_n_id, root_args));
 
             while (!todo.empty()) {
-                todo_item const& item = todo.back();
+                todo_item item = todo.back();
                 todo.pop_back();
 
                 unsigned n_id = item.m_node_id;
                 expr_ref_vector const& args = item.m_args;
-
 
                 expr_ref cs(m);
 

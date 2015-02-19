@@ -789,6 +789,7 @@ namespace datalog {
             // set up by initialize_abs.
             unsigned refine_count = 0;
             while (true) {
+                m_node2info.reset();
                 for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                     m_func_decl2info[m_func_decls.get(i)]->m_max_reach_nodes.reset();
                 }
@@ -834,7 +835,11 @@ namespace datalog {
                         // The result held up even without abstraction.  Unless
                         // we can refine the templates, we have a proof of
                         // unsatisfiability.
-                        if (!refine_templates(error)) {
+                        if (m_template.get_num_templates() == 0) {
+                            STRACE("predabst", tout << "No templates to refine: result is UNSAT\n";);
+                            RETURN_CHECK_CANCELLED(l_true);
+                        }
+                        else if (!refine_templates(error)) {
                             STRACE("predabst", tout << "Template refinement unsuccessful: result is UNSAT\n";);
                             RETURN_CHECK_CANCELLED(l_true);
                         }
@@ -920,7 +925,6 @@ namespace datalog {
         }
 
         bool find_solution(unsigned refine_count, acr_error& error) {
-            m_node2info.reset();
             m_node_worklist.reset();
 
             try {
@@ -1208,7 +1212,7 @@ namespace datalog {
             expr_ref to_solve(m);
             if (error.m_kind == reached_query) {
                 STRACE("predabst", tout << "Refining templates (reached query)\n";);
-                to_solve = template_constraint_reached_query(args, cs);
+                to_solve = template_constraint_reached_query(cs);
             }
             else {
                 CASSERT("predabst", error.m_kind == not_wf);
@@ -1220,7 +1224,7 @@ namespace datalog {
             return m_template.instantiate_templates();
         }
 
-        expr_ref template_constraint_reached_query(expr_ref_vector const& args, expr_ref cs) {
+        expr_ref template_constraint_reached_query(expr_ref cs) {
             return expr_ref(m.mk_not(cs), m);
         }
 

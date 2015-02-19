@@ -872,7 +872,6 @@ namespace datalog {
                 STRACE("predabst", tout << "  body preds " << i << ": "; print_expr_ref_vector(tout, tails););
                 info.m_body_preds.push_back(tails);
             }
-
         }
 
         void instantiate_template_rule(unsigned t_id, unsigned r_id) {

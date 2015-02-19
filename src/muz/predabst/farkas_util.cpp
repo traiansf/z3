@@ -121,24 +121,12 @@ public:
         }
     }
 
-    expr_ref_vector get_coeffs() {
-        return m_coeffs;
-    }
-
     expr_ref get_coeffs(unsigned i) {
         return expr_ref(m_coeffs.get(i), m);
     }
 
-    rel_op get_op() {
-        return m_op;
-    }
-
     expr_ref get_const() {
         return m_const;
-    }
-
-    bool has_params() {
-        return m_has_params;
     }
 
     void display(std::ostream& out) const {
@@ -319,14 +307,6 @@ public:
         return m_set_op.get(i);
     }
 
-    unsigned conj_size() {
-        return m_set_op.size();
-    }
-
-    unsigned get_param_pred_count() {
-        return m_param_pred_count;
-    }
-
     void display(std::ostream& out) const {
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             out << mk_pp(m_vars[i], m) << "   ";
@@ -397,14 +377,6 @@ public:
             return true;
         }
         return false;
-    }
-
-    expr_ref_vector get_lambdas() {
-        return m_lambdas;
-    }
-
-    expr_ref_vector get_solutions() {
-        return m_solutions;
     }
 
     expr_ref get_constraints() {

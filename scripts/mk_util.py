@@ -1795,12 +1795,9 @@ def mk_config():
             CXXFLAGS     = '%s -g -Wall' % CXXFLAGS
             EXAMP_DEBUG_FLAG = '-g'
         else:
-            if GPROF:
-                CXXFLAGS     = '%s -O3 -D _EXTERNAL_RELEASE' % CXXFLAGS
-            else:
-                CXXFLAGS     = '%s -O3 -D _EXTERNAL_RELEASE -fomit-frame-pointer' % CXXFLAGS
+            CXXFLAGS     = '%s -O3 -D _EXTERNAL_RELEASE -Wall' % CXXFLAGS
         if is_CXX_clangpp():
-            CXXFLAGS   = '%s -Wno-unknown-pragmas -Wno-overloaded-virtual -Wno-unused-value' % CXXFLAGS
+            CXXFLAGS   = '%s -Wno-unknown-pragmas' % CXXFLAGS
         sysname = os.uname()[0]
         if sysname == 'Darwin':
             SO_EXT    = '.dylib'

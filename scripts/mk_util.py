@@ -1761,6 +1761,7 @@ def mk_config():
         CXX = find_cxx_compiler()
         CC  = find_c_compiler()
         SLIBEXTRAFLAGS = ''
+        CXXFLAGS = '%s -std=c++11' % CXXFLAGS
         if GPROF:
             CXXFLAGS = '%s -pg' % CXXFLAGS
             LDFLAGS  = '%s -pg' % LDFLAGS

@@ -125,8 +125,16 @@ public:
         return expr_ref(m_coeffs.get(i), m);
     }
 
+    rel_op get_op() {
+        return m_op;
+    }
+
     expr_ref get_const() {
         return m_const;
+    }
+
+    bool has_params() {
+        return m_has_params;
     }
 
     void display(std::ostream& out) const {
@@ -305,6 +313,14 @@ public:
 
     rel_op get_ops(unsigned i) {
         return m_set_op.get(i);
+    }
+
+    unsigned conj_size() {
+        return m_set_op.size();
+    }
+
+    unsigned get_param_pred_count() {
+        return m_param_pred_count;
     }
 
     void display(std::ostream& out) const {

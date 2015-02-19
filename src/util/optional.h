@@ -23,17 +23,20 @@ Revision History:
 
 template<typename T>
 class optional {
-    char m_obj[sizeof(T)];
+    union {
+        T m_obj;
+        char m_dummy;
+    };
     char m_initialized;
 
     void construct(const T & val) {
         m_initialized = 1;
-        new (reinterpret_cast<void *>(m_obj)) T(val);
+        new (&m_obj) T(val);
     }
 
     void destroy() {
         if (m_initialized == 1) {
-            reinterpret_cast<T *>(m_obj)->~T();
+            m_obj.~T();
         }
         m_initialized = 0;
     }
@@ -65,7 +68,7 @@ public:
     
     T * get() const { 
         if (m_initialized == 1) {
-            return reinterpret_cast<T *>(m_obj);
+            return &m_obj;
         }
         else {
             return 0;
@@ -80,22 +83,22 @@ public:
 
     T * operator->() {
         SASSERT(m_initialized==1);
-        return reinterpret_cast<T *>(m_obj);
+        return &m_obj;
     }
 
     T const * operator->() const {
         SASSERT(m_initialized==1);
-        return reinterpret_cast<T const *>(m_obj);
+        return &m_obj;
     }
 
     const T & operator*() const {
         SASSERT(m_initialized==1);
-        return *reinterpret_cast<T const*>(m_obj);
+        return m_obj;
     }
     
     T & operator*() {
         SASSERT(m_initialized==1);
-        return *reinterpret_cast<T *>(m_obj);
+        return m_obj;
     }
 
     optional & operator=(const T & val) {

@@ -568,6 +568,25 @@ refine_sat_tests = [
 (assert (not (p 1)))""",
      """
 (define-fun p ((x!1 Int)) Bool (<= x!1 0))"""),
+
+    ("templ",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun q (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __pred__q (Int) Bool)
+(declare-fun __temp__extra__ (Int) Bool)
+(declare-fun __temp__p (Int Int) Bool)
+(assert (forall ((x Int)) (=> (p x) (q x))))
+(assert (forall ((x Int)) (=> (= x 3) (q x))))
+(assert (forall ((x Int)) (=> (not (= x 3)) (not (q x)))))
+(assert (forall ((x Int)) (=> (and (= x 0) (= x 1) (= x 2) (= x 3) (= x 4) (= x 5) (= x 6) (= x 7) (= x 8) (= x 9)) (__pred__p x))))
+(assert (forall ((x Int)) (=> (and (= x 0) (= x 1) (= x 2) (= x 3) (= x 4) (= x 5) (= x 6) (= x 7) (= x 8) (= x 9)) (__pred__q x))))
+(assert (forall ((a Int)) (=> (and (>= a 0) (<= a 9)) (__temp__extra__ a))))
+(assert (forall ((x Int) (a Int)) (=> (= x a) (__temp__p x a))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (= x!1 3))
+(define-fun q ((x!1 Int)) Bool (= x!1 3))"""),
 ]
 
 refine_unsat_tests = [
@@ -577,6 +596,15 @@ refine_unsat_tests = [
 (assert (forall ((x Int)) (=> (= x 0) (p x))))
 (assert (forall ((x Int)) (=> (and (p 0) (= x 1)) (p x))))
 (assert (forall ((x Int)) (=> (= x 1) (not (p x)))))"""),
+
+    ("templ",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 7) (not (p x)))))
+(assert (forall ((x Int)) (=> (>= x 7) (__pred__p x))))
+(assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))"""),
 ]
 
 refine_unknown_tests = [

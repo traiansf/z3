@@ -543,6 +543,51 @@ norefine_t_unsat_tests = [
 (assert (=> (= true false) __temp__extra__))"""),
 ]
 
+refine_sat_tests = [
+    ("simple-refine-once",
+     """
+(declare-fun p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (p x))))
+(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (<= x!1 0))"""), # note that this is just one of multiple resonable solutions
+
+    ("simple-refine-twice",
+     """
+(declare-fun p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (p x))))
+(assert (forall ((x Int)) (=> (= x 2) (p x))))
+(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (or (<= x!1 0) (>= x!1 2)))"""), # note that this is just one of multiple resonable solutions
+
+    ("simple-literal-head",
+     """
+(declare-fun p (Int) Bool)
+(assert (p 0))
+(assert (not (p 1)))""",
+     """
+(define-fun p ((x!1 Int)) Bool (<= x!1 0))"""),
+]
+
+refine_unsat_tests = [
+    ("simple",
+     """
+(declare-fun p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (p x))))
+(assert (forall ((x Int)) (=> (and (p 0) (= x 1)) (p x))))
+(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))"""),
+]
+
+refine_unknown_tests = [
+    ("non-linear",
+     """
+(declare-fun p (Int) Bool)
+(assert (forall ((x Int)) (=> (= (mod x 2) 0) (p x))))
+(assert (forall ((x Int)) (=> (= (mod x 2) 1) (not (p x)))))""",
+     "incomplete"),
+]
+
 allNames = set()
 
 def write_test_smt2(testname, code, postsat_code):
@@ -609,3 +654,21 @@ for test in norefine_t_unsat_tests:
     testname = "norefine-templ-unsat-" + name
     write_unsat_test_smt2(testname, code)
     write_unsat_test_out(testname)
+
+for test in refine_sat_tests:
+    (name, code, model) = test
+    testname = "refine-sat-" + name
+    write_sat_test_smt2(testname, code)
+    write_sat_test_out(testname, model)
+
+for test in refine_unsat_tests:
+    (name, code) = test
+    testname = "refine-unsat-" + name
+    write_unsat_test_smt2(testname, code)
+    write_unsat_test_out(testname)
+
+for test in refine_unknown_tests:
+    (name, code, errmsg) = test
+    testname = "refine-unknown-" + name
+    write_unknown_test_smt2(testname, code)
+    write_unknown_test_out(testname, errmsg)

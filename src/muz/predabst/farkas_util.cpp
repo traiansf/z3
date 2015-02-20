@@ -512,8 +512,10 @@ static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& 
 }
 
 bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& sol_bound, expr_ref& sol_decrease) {
+    CASSERT("predabst", vsws.size() % 2 == 0);
+
     ast_manager& m = lhs.get_manager();
-    if (m.is_true(lhs) || !m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1 || (vsws.size() % 2) != 0) {
+    if (m.is_true(lhs) || !m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1) {
         return false;
     }
 
@@ -587,6 +589,8 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& so
 }
 
 expr_ref well_founded_cs(expr_ref_vector const& vsws) {
+    CASSERT("predabst", vsws.size() % 2 == 0);
+
     ast_manager& m = vsws.get_manager();
     arith_util arith(m);
 

@@ -135,7 +135,7 @@ public:
             bool found_coeff = false;
             for (unsigned j = 0; j < p_vars.size(); ++j) {
                 if (m_vars.get(i) == p_vars.get(j)) {
-                    m_coeffs.push_back(p_coeffs[j]);
+                    m_coeffs.push_back(p_coeffs.get(j));
                     p_vars.erase(j);
                     p_coeffs.erase(j);
                     found_coeff = true;

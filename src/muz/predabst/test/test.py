@@ -10,7 +10,14 @@ OUTFILE = "test.log"
 Z3TRCFILE = ".z3-trace"
 TRCFILE = "test.trc"
 testpydir = os.path.dirname(__file__)
-Z3CMD = [os.path.join(testpydir, r"..\..\..\..\build\z3"), "-smt2", "fixedpoint.engine=predabst", "-dbg:predabst", "-tr:predabst"]
+Z3CMD = [os.path.join(testpydir, r"..\..\..\..\build\z3"),
+         "-smt2",
+         "fixedpoint.engine=predabst",
+         "fixedpoint.print_answer=true",
+         "fixedpoint.print_certificate=true",
+         "fixedpoint.print_statistics=true",
+         "-dbg:predabst",
+         "-tr:predabst"]
 
 filter = sys.argv[1:]
 

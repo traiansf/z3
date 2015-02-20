@@ -23,23 +23,58 @@ Revision History:
 #include "smt_kernel.h"
 #include "smt_params.h"
 
-static void get_conj_terms(expr* conj, ast_manager &m, expr_ref_vector& terms) {
-    if (m.is_and(conj)) {
-        for (unsigned i = 0; i < to_app(conj)->get_num_args(); i++) {
-            get_conj_terms(to_app(conj)->get_arg(i), m, terms);
+static void get_conj_terms(expr* e, ast_manager& m, expr_ref_vector& terms) {
+    if (m.is_and(e)) {
+        for (unsigned i = 0; i < to_app(e)->get_num_args(); ++i) {
+            get_conj_terms(to_app(e)->get_arg(i), m, terms);
         }
     }
     else {
-        terms.push_back(expr_ref(conj, m));
+        terms.push_back(e);
     }
 }
 
-expr_ref_vector get_conj_terms(expr_ref const& conj) {
-    expr_ref_vector terms(conj.m());
-    get_conj_terms(conj, conj.m(), terms);
+expr_ref_vector get_conj_terms(expr_ref const& e) {
+    expr_ref_vector terms(e.m());
+    get_conj_terms(e, e.m(), terms);
     return terms;
 }
 
+static void get_additive_terms(expr* e, ast_manager& m, expr_ref_vector& terms) {
+    arith_util arith(m);
+    if (arith.is_add(e)) {
+        for (unsigned i = 0; i < to_app(e)->get_num_args(); ++i) {
+            get_additive_terms(to_app(e)->get_arg(i), m, terms);
+        }
+    }
+    else {
+        terms.push_back(e);
+    }
+}
+
+expr_ref_vector get_additive_terms(expr_ref const& e) {
+    expr_ref_vector terms(e.m());
+    get_additive_terms(e, e.m(), terms);
+    return terms;
+}
+
+static void get_multiplicative_factors(expr* e, ast_manager& m, expr_ref_vector& factors) {
+    arith_util arith(m);
+    if (arith.is_mul(e)) {
+        for (unsigned i = 0; i < to_app(e)->get_num_args(); ++i) {
+            get_multiplicative_factors(to_app(e)->get_arg(i), m, factors);
+        }
+    }
+    else {
+        factors.push_back(e);
+    }
+}
+
+expr_ref_vector get_multiplicative_factors(expr_ref const& e) {
+    expr_ref_vector factors(e.m());
+    get_multiplicative_factors(e, e.m(), factors);
+    return factors;
+}
 
 expr_ref mk_disj(expr_ref_vector const& terms) {
     if (terms.size() == 0) {
@@ -74,6 +109,32 @@ expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2) {
     }
     else {
         return expr_ref(term1.m().mk_and(term1, term2), term1.m());
+    }
+}
+
+expr_ref mk_sum(expr_ref_vector const& terms) {
+    arith_util arith(terms.m());
+    if (terms.size() == 0) {
+        return expr_ref(arith.mk_numeral(rational(0), true), terms.m());
+    }
+    else if (terms.size() == 1) {
+        return expr_ref(terms.get(0), terms.m());
+    }
+    else {
+        return expr_ref(arith.mk_add(terms.size(), terms.c_ptr()), terms.m());
+    }
+}
+
+expr_ref mk_prod(expr_ref_vector const& terms) {
+    arith_util arith(terms.m());
+    if (terms.size() == 0) {
+        return expr_ref(arith.mk_numeral(rational(1), true), terms.m());
+    }
+    else if (terms.size() == 1) {
+        return expr_ref(terms.get(0), terms.m());
+    }
+    else {
+        return expr_ref(arith.mk_mul(terms.size(), terms.c_ptr()), terms.m());
     }
 }
 
@@ -124,7 +185,7 @@ expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, exp
         return m.mk_not(ee1);
     }
     else if (to_app(e)->get_num_args() == 0) {
-        for (unsigned i = 0; i < args.size(); i++) {
+        for (unsigned i = 0; i < args.size(); ++i) {
             if (args.get(i) == e) {
                 return vars.get(i);
             }

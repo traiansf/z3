@@ -28,13 +28,21 @@ inline ref_vector<T, TManager> vector_concat(ref_vector<T, TManager> const& v1, 
     return v;
 }
 
-expr_ref_vector get_conj_terms(expr_ref const& conj);
+expr_ref_vector get_conj_terms(expr_ref const& e);
+
+expr_ref_vector get_additive_terms(expr_ref const& e);
+
+expr_ref_vector get_multiplicative_factors(expr_ref const& e);
 
 expr_ref mk_disj(expr_ref_vector const& terms);
 
 expr_ref mk_conj(expr_ref_vector const& terms);
 
 expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2);
+
+expr_ref mk_sum(expr_ref_vector const& terms);
+
+expr_ref mk_prod(expr_ref_vector const& terms);
 
 expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* e);
 

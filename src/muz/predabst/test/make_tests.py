@@ -623,6 +623,19 @@ wf_sat_tests = [
 (assert (forall ((x Int) (x_ Int)) (not (__wf__p x x_))))""",
      """
 (define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool false)"""),
+
+    ("templ-refine",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(declare-fun __pred____wf__p (Int Int) Bool)
+(declare-fun __temp__extra__ (Int) Bool)
+(declare-fun __temp____wf__p (Int Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (=> (__wf__p x x_) (= true true))))
+(assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (= x_ (+ x -1)) (= x_ (+ x 0)) (= x_ (+ x 1))) (__pred____wf__p x x_))))
+(assert (forall ((a Int)) (=> (and (>= a -1) (<= a 1)) (__temp__extra__ a))))
+(assert (forall ((x Int) (x_ Int) (a Int)) (=> (and (>= x 0) (= x_ (+ x a))) (__temp____wf__p x x_ a))))""",
+     """
+(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (= x!2 (+ x!1 (- 1))) (>= x!1 0)))"""),
 ]
 
 wf_unsat_tests = [
@@ -648,6 +661,7 @@ def write_test_smt2(testname, code, postsat_code):
     filename = testname + ".smt2"
     with open(filename, "w") as f:
         f.write("(set-logic HORN)\n")
+#        f.write("(set-option :produce-proofs true)\n") # XXX Proofs are not currently supported.
         f.write(code + "\n\n")
         f.write("(check-sat)\n")
         f.write(postsat_code + "\n")

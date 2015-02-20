@@ -29,6 +29,30 @@ Revision History:
 typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
 typedef enum { op_eq, op_le, op_ge, op_lt, op_gt } rel_op;
 
+std::ostream& operator<<(std::ostream& ostr, rel_op op) {
+    switch (op) {
+    case op_eq:
+        ostr << "=";
+        break;
+    case op_le:
+        ostr << "<=";
+        break;
+    case op_ge:
+        ostr << ">=";
+        break;
+    case op_lt:
+        ostr << "<";
+        break;
+    case op_gt:
+        ostr << ">";
+        break;
+    default:
+        ostr << "<unknown>";
+        break;
+    }
+    return ostr;
+}
+
 struct lambda_kind {
     expr_ref m_lambda;
     lambda_kind_sort m_kind;
@@ -45,45 +69,8 @@ struct lambda_kind {
     }
 };
 
-template<class T>
-static void push_front(vector<T>& v, T const& e) {
-    v.reverse();
-    v.push_back(e);
-    v.reverse();
-}
-
-template<class T, class TManager>
-static void push_front(ref_vector<T, TManager>& v, obj_ref<T, TManager> const& e) {
-    v.reverse();
-    v.push_back(e);
-    v.reverse();
-}
-
-static void get_all_terms(expr_ref const& term, expr_ref_vector const& vars, expr_ref_vector& var_facts, expr_ref_vector& const_facts, bool& has_params) {
-    ast_manager& m = term.m();
-    // XXX do we need to assign has_params = false here?
-    if (!arith_util(m).is_mul(term)) {
-        if (vars.contains(term)) {
-            var_facts.push_back(term);
-        }
-        else {
-            const_facts.push_back(term);
-            // params check ***
-            if (!arith_util(m).is_numeral(term)) {
-                has_params = true;
-            }
-        }
-    }
-    else {
-        expr_ref_vector facts(m);
-        facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
-        for (unsigned i = 0; i < facts.size(); ++i) {
-            get_all_terms(expr_ref(facts.get(i), m), vars, var_facts, const_facts, has_params);
-        }
-    }
-}
-
 class farkas_pred {
+    // Represents the expression (Sigma_i (m_vars[i] * m_coeffs[i])) m_op m_const
     expr_ref_vector m_vars;
     expr_ref_vector m_coeffs;
     rel_op m_op;
@@ -98,171 +85,162 @@ public:
         m_vars(vars),
         m_coeffs(vars.get_manager()),
         m_const(vars.get_manager()),
-        m_op(op_le),
-        m_has_params(false),
         m(vars.get_manager()) {
     }
 
-    void put(expr_ref term) {
+    // Convert an expression of the form (E1 op E2), where E1 and E2 are formulae
+    // involving m_vars, into an equivalent expression of the form stored by this class.
+    void set(expr_ref e) {
         arith_util arith(m);
+        th_rewriter rw(m);
+        e = rewrite_pred(e);
+        rw(e);
+        m_has_params = false;
+        expr_ref_vector terms = get_additive_terms(e);
+        expr_ref_vector p_consts(m);
+        expr_ref_vector p_vars(m);
+        expr_ref_vector p_coeffs(m);
+        for (unsigned i = 0; i < terms.size(); ++i) {
+            expr_ref term(terms.get(i), m);
+            expr_ref_vector factors = get_multiplicative_factors(term);
+            expr_ref_vector var_factors(m);
+            expr_ref_vector const_factors(m);
+
+            for (unsigned j = 0; j < factors.size(); ++j) {
+                expr_ref factor(factors.get(j), m);
+                if (m_vars.contains(factor)) {
+                    var_factors.push_back(factor);
+                }
+                else {
+                    const_factors.push_back(factor);
+                    if (!arith_util(m).is_numeral(factor)) {
+                        m_has_params = true;
+                    }
+                }
+            }
+
+            if (var_factors.size() == 0) {
+                p_consts.push_back(term);
+            }
+            else {
+                CASSERT("predabst", var_factors.size() == 1);
+                p_vars.push_back(var_factors.get(0));
+                p_coeffs.push_back(mk_prod(const_factors));
+            }
+        }
+
+        m_const = arith.mk_uminus(mk_sum(p_consts));
+        rw(m_const);
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            m_coeffs.push_back(arith.mk_numeral(rational(0), true));
-        }
-        if (m.is_true(term)) {
-            m_op = op_le;
-            m_const = arith.mk_numeral(rational(0), true);
-        }
-        else if (m.is_false(term)) {
-            m_op = op_le;
-            m_const = arith.mk_numeral(rational(-1), true);
-        }
-        else {
-            set(term);
+            bool found_coeff = false;
+            for (unsigned j = 0; j < p_vars.size(); ++j) {
+                if (m_vars.get(i) == p_vars.get(j)) {
+                    m_coeffs.push_back(p_coeffs[j]);
+                    p_vars.erase(j);
+                    p_coeffs.erase(j);
+                    found_coeff = true;
+                    break;
+                }
+            }
+            if (!found_coeff) {
+                m_coeffs.push_back(arith.mk_numeral(rational(0), true));
+            }
         }
     }
 
-    expr_ref get_coeffs(unsigned i) {
+    expr_ref_vector const& get_coeffs() const {
+        return m_coeffs;
+    }
+
+    expr_ref get_coeff(unsigned i) const {
         return expr_ref(m_coeffs.get(i), m);
     }
 
-    rel_op get_op() {
+    rel_op get_op() const {
         return m_op;
     }
 
-    expr_ref get_const() {
+    expr_ref get_const() const {
         return m_const;
     }
 
-    bool has_params() {
+    bool has_params() const {
         return m_has_params;
     }
 
     void display(std::ostream& out) const {
+        out << "  ";
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            if (i == 0) {
-                out << mk_pp(m_coeffs[i], m) << " * " << mk_pp(m_vars[i], m);
+            if (i != 0) {
+                out << " + ";
             }
-            else {
-                out << " + " << mk_pp(m_coeffs[i], m) << " * " << mk_pp(m_vars[i], m);
-            }
+            out << mk_pp(m_coeffs[i], m) << " * " << mk_pp(m_vars[i], m);
         }
-        switch (m_op) {
-        case op_eq:
-            out << " = ";
-            break;
-        case op_le:
-            out << " <= ";
-            break;
-        case op_ge:
-            out << " >= ";
-            break;
-        case op_lt:
-            out << " < ";
-            break;
-        case op_gt:
-            out << " > ";
-            break;
-        default:
-            out << " Unknown relation! ";
-            UNREACHABLE();
+        out << " " << m_op << " " << mk_pp(m_const, m);
+        if (m_has_params) {
+            out << " (with params)";
         }
-        out << mk_pp(m_const, m) << "\n";
-        out << "Params? : " << (m_has_params ? "TRUE" : "FALSE") << "\n";
+        out << "\n";
     }
 
 private:
 
-    void rewrite_pred(expr_ref& term) {
+    expr* rewrite_pred(expr_ref const& term) {
         arith_util arith(m);
         expr *e1;
         expr *e2;
-        if (m.is_eq(term, e1, e2)) {
-            term = arith.mk_sub(e1, e2);
+        if (m.is_true(term)) {
+            // true <=> (0 = 0)
+            m_op = op_le;
+            return arith.mk_numeral(rational(0), true);
+        }
+        else if (m.is_false(term)) {
+            // false <=> (1 <= 0)
+            m_op = op_le;
+            return arith.mk_numeral(rational(1), true);
+        }
+        else if (m.is_eq(term, e1, e2)) {
+            // (e1 == e2) <=> (e1 - e2 == 0)
             m_op = op_eq;
+            return arith.mk_sub(e1, e2);
         }
         else if (arith.is_le(term, e1, e2)) {
-            term = arith.mk_sub(e1, e2);
+            // (e1 <= e2) <=> (e1 - e2 <= 0)
+            m_op = op_le;
+            return arith.mk_sub(e1, e2);
         }
         else if (arith.is_ge(term, e1, e2)) {
-            term = arith.mk_sub(e2, e1);
+            // (e1 >= e2) <=> (e2 - e1 <= 0)
+            m_op = op_le;
+            return arith.mk_sub(e2, e1);
         }
         else if (arith.is_lt(term, e1, e2)) {
-            term = arith.mk_sub(arith.mk_sub(e1, e2), arith.mk_numeral(rational(-1), true));
+            // (e1 < e2) <=> (e1 - e2 + 1 <= 0)
+            m_op = op_le;
+            return arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational(1), true));
         }
         else if (arith.is_gt(term, e1, e2)) {
-            term = arith.mk_sub(arith.mk_sub(e2, e1), arith.mk_numeral(rational(-1), true));
+            // (e1 > e2) <=> (e2 - e1 + 1 <= 0)
+            m_op = op_le;
+            return arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational(1), true));
         }
         else {
             STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(term, m) << "\n";);
             UNREACHABLE();
-        }
-        th_rewriter rw(m);
-        rw(term);
-    }
-
-    void set(expr_ref& term) {
-        arith_util arith(m);
-        rewrite_pred(term);
-        expr_ref_vector p_coeffs(m), p_vars(m), p_const_facts(m), add_facts(m);
-        if (arith.is_add(term)) {
-            add_facts.append(to_app(term)->get_num_args(), to_app(term)->get_args());
-        }
-        else {
-            add_facts.push_back(term);
-        }
-        for (unsigned i = 0; i < add_facts.size(); ++i) {
-            expr_ref_vector mul_facts(m), var_mul_facts(m), const_mul_facts(m);
-            expr_ref mul_term(add_facts.get(i), m);
-            get_all_terms(mul_term, m_vars, var_mul_facts, const_mul_facts, m_has_params);
-            CASSERT("predabst", var_mul_facts.size() <= 1);
-            if (var_mul_facts.size() == 0) {
-                p_const_facts.push_back(add_facts.get(i));
-            }
-            else if (const_mul_facts.size() == 0) {
-                p_vars.push_back(add_facts.get(i));
-                p_coeffs.push_back(arith.mk_numeral(rational(1), true));
-            }
-            else if (const_mul_facts.size() == 1) {
-                p_vars.push_back(var_mul_facts.get(0));
-                p_coeffs.push_back(const_mul_facts.get(0));
-            }
-            else {
-                p_vars.push_back(var_mul_facts.get(0));
-                p_coeffs.push_back(arith.mk_mul(const_mul_facts.size(), const_mul_facts.c_ptr()));
-            }
-        }
-        if (p_const_facts.size() == 0) {
-            m_const = arith.mk_numeral(rational(0), true);
-        }
-        else if (p_const_facts.size() == 1) {
-            m_const = arith.mk_uminus(p_const_facts.get(0));
-        }
-        else {
-            m_const = arith.mk_uminus(arith.mk_add(p_const_facts.size(), p_const_facts.c_ptr()));
-        }
-        th_rewriter rw(m);
-        rw(m_const);
-        for (unsigned i = 0; i < m_vars.size(); ++i) {
-            for (unsigned j = 0; j < p_vars.size(); ++j) {
-                if (m_vars.get(i) == p_vars.get(j)) {
-                    m_coeffs.set(i, p_coeffs.get(j));
-                    p_vars.erase(j);
-                    p_coeffs.erase(j);
-                    break;
-                }
-            }
+            return nullptr;
         }
     }
 };
 
 class farkas_conj {
     expr_ref_vector m_vars;
-    vector<expr_ref_vector> m_set_coeffs;
-    vector<rel_op> m_set_op;
-    vector<expr_ref> m_set_const;
+    vector<expr_ref_vector> m_coeffs;
+    vector<rel_op> m_ops;
+    vector<expr_ref> m_consts;
+    vector<bool> m_has_params;
 
     unsigned m_param_pred_count;
-    mutable ast_manager m;
+    ast_manager& m;
 
 public:
     farkas_conj(expr_ref_vector const& vars) :
@@ -271,68 +249,60 @@ public:
         m(vars.get_manager()) {
     }
 
-    void add(farkas_pred& f_pred) {
-        if (m_set_coeffs.size() == 0) {
-            for (unsigned i = 0; i < m_vars.size(); ++i) {
-                expr_ref_vector init_coeff(m);
-                init_coeff.push_back(f_pred.get_coeffs(i));
-                m_set_coeffs.push_back(init_coeff);
-            }
-            m_set_op.push_back(f_pred.get_op());
-            m_set_const.push_back(f_pred.get_const());
-            if (f_pred.has_params()) {
-                m_param_pred_count++;
-            }
-        }
-        else {
-            if (f_pred.has_params()) {
-                for (unsigned i = 0; i < m_vars.size(); ++i) {
-                    push_front(m_set_coeffs[i], f_pred.get_coeffs(i));
-                }
-                push_front(m_set_op, f_pred.get_op());
-                push_front(m_set_const, f_pred.get_const());
-                m_param_pred_count++;
-            }
-            else {
-                for (unsigned i = 0; i < m_vars.size(); ++i) {
-                    m_set_coeffs[i].push_back(f_pred.get_coeffs(i));
-                }
-                m_set_op.push_back(f_pred.get_op());
-                m_set_const.push_back(f_pred.get_const());
-            }
+    void add(farkas_pred const& f_pred) {
+        m_coeffs.push_back(f_pred.get_coeffs());
+        m_ops.push_back(f_pred.get_op());
+        m_consts.push_back(f_pred.get_const());
+        m_has_params.push_back(f_pred.has_params());
+
+        if (f_pred.has_params()) {
+            m_param_pred_count++;
         }
     }
 
-    expr_ref get_conj_coeffs(unsigned i, unsigned j) {
-        return expr_ref(m_set_coeffs.get(i).get(j), m);
+    unsigned get_size() const {
+        return m_ops.size();
     }
 
-    expr_ref get_conj_const(unsigned i) {
-        return expr_ref(m_set_const.get(i), m);
+    expr_ref get_coeff(unsigned j, unsigned i) const {
+        return expr_ref(m_coeffs.get(i).get(j), m);
     }
 
-    rel_op get_ops(unsigned i) {
-        return m_set_op.get(i);
+    rel_op get_op(unsigned i) const {
+        return m_ops.get(i);
     }
 
-    unsigned conj_size() {
-        return m_set_op.size();
+    expr_ref get_const(unsigned i) const {
+        return expr_ref(m_consts.get(i), m);
     }
 
-    unsigned get_param_pred_count() {
+    bool has_params(unsigned i) const {
+        return m_has_params.get(i);
+    }
+
+    unsigned get_param_pred_count() const {
         return m_param_pred_count;
     }
 
     void display(std::ostream& out) const {
+        out << "  Vars: ";
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            out << mk_pp(m_vars[i], m) << "   ";
+            out << mk_pp(m_vars[i], m) << " ";
         }
         out << "\n";
-        for (unsigned i = 0; i < m_set_coeffs[0].size(); ++i) {
+        for (unsigned i = 0; i < m_ops.size(); ++i) {
+            out << "  Equation " << i << ": ";
             for (unsigned j = 0; j < m_vars.size(); ++j) {
-                out << mk_pp(m_set_coeffs[j][i], m) << "   ";
+                if (j != 0) {
+                    out << " + ";
+                }
+                out << mk_pp(m_coeffs[i][j], m) << " * " << mk_pp(m_vars[j], m);
             }
-            out << m_set_op[i] << "   " << mk_pp(m_set_const[i], m) << "\n";
+            out << " " << m_ops[i] << " " << mk_pp(m_consts[i], m);
+            if (m_has_params[i]) {
+                out << " (with params)";
+            }
+            out << "\n";
         }
     }
 };
@@ -345,44 +315,48 @@ class farkas_imp {
     expr_ref_vector m_solutions;
     expr_ref m_constraints;
 
-    vector<lambda_kind> m_lambda_kinds;
-    bool m_mk_lambda_kinds;
-
     ast_manager& m;
 
 public:
-    farkas_imp(expr_ref_vector const& vars, bool mk_lambda_kinds) :
+    farkas_imp(expr_ref_vector const& vars) :
         m_vars(vars),
         m_lhs(vars),
         m_rhs(vars),
         m_lambdas(vars.get_manager()),
         m_solutions(vars.get_manager()),
-        m_constraints((vars.get_manager()).mk_true(), vars.get_manager()),
-        m_mk_lambda_kinds(mk_lambda_kinds),
+        m_constraints(vars.get_manager()),
         m(vars.get_manager()) {
     }
 
-    void set(expr_ref lhs_term, expr_ref rhs_term) {
+    void set(expr_ref const& lhs_term, expr_ref const& rhs_term) {
+        STRACE("predabst", tout << "Solving " << mk_pp(lhs_term, m) << " => " << mk_pp(rhs_term, m) << "\n";);
+        CASSERT("predabst", m.is_and(lhs_term));
         expr_ref_vector conjs(m);
         conjs.append(to_app(lhs_term)->get_num_args(), to_app(lhs_term)->get_args());
         for (unsigned i = 0; i < conjs.size(); ++i) {
             farkas_pred f_pred(m_vars);
-            f_pred.put(expr_ref(conjs.get(i), m));
+            f_pred.set(expr_ref(conjs.get(i), m));
             m_lhs.add(f_pred);
         }
-        m_rhs.put(rhs_term);
-        set_constraint();
+
+        m_rhs.set(rhs_term);
+
+        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+            m_lambdas.push_back(m.mk_fresh_const("t", arith_util(m).mk_int()));
+        }
+
+        m_constraints = make_constraints();
     }
 
     bool solve_constraint() {
-        smt_params new_param;;
+        smt_params new_param;
         smt::kernel solver(m, new_param);
         solver.assert_expr(m_constraints);
         if (solver.check() == l_true) {
             model_ref modref;
             solver.get_model(modref);
             expr_ref solution(m);
-            for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
+            for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
                 if (modref->eval(m_lambdas.get(j), solution, true)) {
                     m_solutions.push_back(solution);
                 }
@@ -395,22 +369,43 @@ public:
         return false;
     }
 
-    expr_ref get_constraints() {
+    expr_ref get_constraints() const {
         return m_constraints;
     }
 
-    vector<lambda_kind> get_lambda_kinds() {
-        return m_lambda_kinds;
+    vector<lambda_kind> get_lambda_kinds() const {
+        vector<lambda_kind> lambda_kinds;
+        if (m_lhs.get_param_pred_count() == 1) {
+            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+                if (m_lhs.has_params(i)) {
+                    if (m_lhs.get_op(i) == op_eq) {
+                        lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin_sing, m_lhs.get_op(i)));
+                    }
+                    break;
+                }
+            }
+        }
+        else {
+            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+                if (m_lhs.has_params(i)) {
+                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get_op(i)));
+                }
+                else {
+                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), lin, m_lhs.get_op(i)));
+                }
+            }
+        }
+        return lambda_kinds;
     }
 
     void display(std::ostream& out) const {
-        out << "LHS: \n";
+        out << "LHS:\n";
         m_lhs.display(out);
-        out << "RHS: \n";
+        out << "RHS:\n";
         m_rhs.display(out);
-        out << "Constraint: \n" << mk_pp(m_constraints, m) << "\n";
+        out << "Constraint:\n" << mk_pp(m_constraints, m) << "\n";
         if (m_solutions.size() > 0) {
-            out << "Solutions: \n";
+            out << "Solutions:\n";
         }
         for (unsigned i = 0; i < m_solutions.size(); ++i) {
             out << mk_pp(m_lambdas[i], m) << " --> " << mk_pp(m_solutions[i], m) << "\n";
@@ -419,58 +414,45 @@ public:
 
 private:
 
-    void set_constraint() {
+    expr_ref make_constraints() const {
         arith_util arith(m);
         //CASSERT("predabst", m_lhs.get_param_pred_count() > 0);
         // XXX This assert fails on unsat-N.smt2, but without it the tests pass.  It's not clear whether this assert is wrong, or whether there's a bug.
 
-        for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
-            m_lambdas.push_back(expr_ref(m.mk_fresh_const("t", arith.mk_int()), m));
-            if (m_lhs.get_ops(i) == op_le) {
-                m_constraints = m.mk_and(m_constraints, arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
+        expr_ref constraints(m.mk_true(), m);
+
+        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+            if (m_lhs.get_op(i) == op_le) {
+                constraints = m.mk_and(constraints, arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
             }
         }
 
-        if (m_lhs.get_param_pred_count() == 1 && m_lhs.get_ops(0) != op_eq) {
-            m_constraints = m.mk_and(m_constraints, m.mk_eq(m_lambdas.get(0), arith.mk_numeral(rational(1), true)));
-        }
-
-        if (m_mk_lambda_kinds) {
-            set_lambda_kinds();
+        if (m_lhs.get_param_pred_count() == 1) {
+            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+                if (m_lhs.has_params(i)) {
+                    if (m_lhs.get_op(i) != op_eq) {
+                        constraints = m.mk_and(constraints, m.mk_eq(m_lambdas.get(i), arith.mk_numeral(rational(1), true)));
+                    }
+                    break;
+                }
+            }
         }
 
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             expr_ref sum(arith.mk_numeral(rational(0), true), m);
-            for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
-                sum = arith.mk_add(sum, arith.mk_mul(m_lambdas.get(j), m_lhs.get_conj_coeffs(i, j)));
+            for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+                sum = arith.mk_add(sum, arith.mk_mul(m_lambdas.get(j), m_lhs.get_coeff(i, j)));
             }
-            m_constraints = m.mk_and(m_constraints, m.mk_eq(sum, m_rhs.get_coeffs(i)));
+            constraints = m.mk_and(constraints, m.mk_eq(sum, m_rhs.get_coeff(i)));
         }
 
         expr_ref sum_const(arith.mk_numeral(rational(0), true), m);
-        for (unsigned j = 0; j < m_lhs.conj_size(); ++j) {
-            sum_const = arith.mk_add(sum_const, arith.mk_mul(m_lambdas.get(j), m_lhs.get_conj_const(j)));
+        for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+            sum_const = arith.mk_add(sum_const, arith.mk_mul(m_lambdas.get(j), m_lhs.get_const(j)));
         }
-        m_constraints = m.mk_and(m_constraints, arith.mk_le(sum_const, m_rhs.get_const()));
-    }
+        constraints = m.mk_and(constraints, arith.mk_le(sum_const, m_rhs.get_const()));
 
-    void set_lambda_kinds() {
-        arith_util arith(m);
-        if (m_lhs.get_param_pred_count() == 1) {
-            if (m_lhs.get_ops(0) == op_eq) {
-                m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(0), m), bilin_sing, m_lhs.get_ops(0)));
-            }
-        }
-        else {
-            for (unsigned i = 0; i < m_lhs.conj_size(); ++i) {
-                if (i < m_lhs.get_param_pred_count()) {
-                    m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get_ops(i)));
-                }
-                else {
-                    m_lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), lin, m_lhs.get_ops(i)));
-                }
-            }
-        }
+        return constraints;
     }
 };
 
@@ -484,7 +466,7 @@ static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_r
         app_ref_vector q_vars_disj(q_vars);
         qe_lite ql1(m);
         ql1(q_vars_disj, disj);
-        farkas_imp f_imp(vars, false);
+        farkas_imp f_imp(vars);
         f_imp.set(disj, expr_ref(m.mk_false(), m));
         if (!f_imp.solve_constraint()) {
             return false;
@@ -500,7 +482,7 @@ static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& 
     expr_ref norm_fml = neg_and_2dnf(fml);
     CASSERT("predabst", m.is_or(norm_fml));
     for (unsigned i = 0; i < to_app(norm_fml)->get_num_args(); ++i) {
-        farkas_imp f_imp(vars, true);
+        farkas_imp f_imp(vars);
         f_imp.set(expr_ref(to_app(norm_fml)->get_arg(i), m), expr_ref(m.mk_false(), m));
         if (!f_imp.solve_constraint()) {
             return false;

@@ -616,6 +616,30 @@ refine_unknown_tests = [
      "incomplete"),
 ]
 
+wf_sat_tests = [
+    ("trivial-always-false",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (not (__wf__p x x_))))""",
+     """
+(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool false)"""),
+]
+
+wf_unsat_tests = [
+    ("trivial-always-true",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (__wf__p x x_)))"""),
+]
+
+wf_unknown_tests = [
+    ("non-linear",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (=> (and (> x 2) (= x_ (mod x 2))) (__wf__p x x_))))""",
+     "incomplete"),
+]
+
 allNames = set()
 
 def write_test_smt2(testname, code, postsat_code):
@@ -698,5 +722,23 @@ for test in refine_unsat_tests:
 for test in refine_unknown_tests:
     (name, code, errmsg) = test
     testname = "refine-unknown-" + name
+    write_unknown_test_smt2(testname, code)
+    write_unknown_test_out(testname, errmsg)
+
+for test in wf_sat_tests:
+    (name, code, model) = test
+    testname = "wf-sat-" + name
+    write_sat_test_smt2(testname, code)
+    write_sat_test_out(testname, model)
+
+for test in wf_unsat_tests:
+    (name, code) = test
+    testname = "wf-unsat-" + name
+    write_unsat_test_smt2(testname, code)
+    write_unsat_test_out(testname)
+
+for test in wf_unknown_tests:
+    (name, code, errmsg) = test
+    testname = "wf-unknown-" + name
     write_unknown_test_smt2(testname, code)
     write_unknown_test_out(testname, errmsg)

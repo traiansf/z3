@@ -725,7 +725,7 @@ void mpz_manager<SYNCH>::gcd(mpz const & a, mpz const & b, mpz & c) {
 
 #ifdef LEHMER_GCD
         // For now, it only works if sizeof(digit_t) == sizeof(unsigned)
-        COMPILE_TIME_ASSERT(sizeof(digit_t) == sizeof(unsigned));
+        static_assert(sizeof(digit_t) == sizeof(unsigned), "sizeof(digit_t)");
         
         int64 a_hat, b_hat, A, B, C, D, T, q, a_sz, b_sz;
         mpz a1, b1, t, r, tmp;
@@ -1755,7 +1755,7 @@ void mpz_manager<SYNCH>::mul2k(mpz & a, unsigned k) {
 }
 
 #ifndef _MP_GMP
-COMPILE_TIME_ASSERT(sizeof(digit_t) == 4 || sizeof(digit_t) == 8);
+static_assert(sizeof(digit_t) == 4 || sizeof(digit_t) == 8, "sizeof(digit_t)");
 #endif
 
 template<bool SYNCH>
@@ -1822,7 +1822,7 @@ unsigned mpz_manager<SYNCH>::log2(mpz const & a) {
     if (is_small(a))
         return ::log2((unsigned)a.m_val);
 #ifndef _MP_GMP
-    COMPILE_TIME_ASSERT(sizeof(digit_t) == 8 || sizeof(digit_t) == 4);
+    static_assert(sizeof(digit_t) == 8 || sizeof(digit_t) == 4, "sizeof(digit_t)");
     mpz_cell * c     = a.m_ptr;
     unsigned sz      = c->m_size;
     digit_t * ds     = c->m_digits; 
@@ -1844,7 +1844,7 @@ unsigned mpz_manager<SYNCH>::mlog2(mpz const & a) {
     if (is_small(a))
         return ::log2((unsigned)-a.m_val);
 #ifndef _MP_GMP
-    COMPILE_TIME_ASSERT(sizeof(digit_t) == 8 || sizeof(digit_t) == 4);
+    static_assert(sizeof(digit_t) == 8 || sizeof(digit_t) == 4, "sizeof(digit_t)");
     mpz_cell * c     = a.m_ptr;
     unsigned sz      = c->m_size;
     digit_t * ds     = c->m_digits; 

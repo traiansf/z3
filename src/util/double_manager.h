@@ -97,7 +97,7 @@ public:
     }
 };
 
-COMPILE_TIME_ASSERT(sizeof(uint64) == sizeof(double));
+static_assert(sizeof(uint64) == sizeof(double), "sizeof(uint64)");
 
 #endif /* _DOUBLE_MANAGER_H_ */
 

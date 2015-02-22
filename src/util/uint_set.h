@@ -22,7 +22,7 @@ Revision History:
 #include"util.h"
 #include"vector.h"
 
-COMPILE_TIME_ASSERT(sizeof(unsigned) == 4);
+static_assert(sizeof(unsigned) == 4, "sizeof(unsigned)");
 
 class uint_set : unsigned_vector {
 

@@ -50,4 +50,6 @@ expr_ref_vector get_all_vars(expr_ref const& fml);
 
 expr_ref neg_and_2dnf(expr_ref const& fml);
 
+void print_expr_ref_vector(std::ostream& out, expr_ref_vector const& v, bool newline = true);
+
 #endif /* _PREDABST_UTIL_H */

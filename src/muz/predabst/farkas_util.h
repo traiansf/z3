@@ -24,9 +24,9 @@ Revision History:
 
 bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
 
-bool well_founded(expr_ref_vector const& vars, expr_ref const& LHS, expr_ref& bound, expr_ref& decrease);
+void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease);
 
-expr_ref well_founded_cs(expr_ref_vector const& vsws);
+bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& sol_bound, expr_ref& sol_decrease);
 
 struct rel_template {
     app_ref m_head;

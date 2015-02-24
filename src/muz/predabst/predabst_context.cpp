@@ -297,6 +297,16 @@ namespace datalog {
 
     private:
 
+        // Returns true if v1 is a (possibly non-strict) subset of v2.
+        static bool is_subset(expr_ref_vector const& v1, expr_ref_vector const& v2) {
+            for (unsigned i = 0; i < v1.size(); ++i) {
+                if (!v2.contains(v1.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // Apply a substitution vector to an expression, returning the result.
         expr_ref apply_subst(expr* expr, expr_ref_vector const& subst) const {
             expr_ref expr2(m);
@@ -669,7 +679,7 @@ namespace datalog {
             expr_ref_vector extra_params = get_fresh_args(r->get_decl(), "b");
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args(), extra_params);
             expr_ref extras = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
-            STRACE("predabst", tout << "  template extra " << mk_pp(extras, m) << "\n";);
+            STRACE("predabst", tout << "  " << mk_pp(extras, m) << "\n";);
 
             if (has_vars(extras)) {
                 STRACE("predabst", tout << "Error: extra template constraint has free variables\n";);
@@ -738,7 +748,7 @@ namespace datalog {
             app_ref orig_head(m.mk_app(suffix_decl, r->get_head()->get_args()), m);
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args() + new_arity, extra_params);
             expr_ref orig_body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
-            STRACE("predabst", tout << "  orig: " << mk_pp(orig_head, m) << "; " << mk_pp(orig_body, m) << "\n";);
+            STRACE("predabst", tout << "  orig: " << mk_pp(orig_head, m) << " := " << mk_pp(orig_body, m) << "\n";);
 
             // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
             expr_ref_vector query_params = get_fresh_args(r->get_decl(), "v", new_arity);
@@ -746,7 +756,7 @@ namespace datalog {
             expr_ref_vector all_params = vector_concat(query_params, extra_params);
             expr_ref_vector all_subst = build_subst(r->get_head()->get_args(), all_params);
             expr_ref body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), all_subst);
-            STRACE("predabst", tout << "  temp: " << mk_pp(head, m) << "; " << mk_pp(body, m) << "\n";);
+            STRACE("predabst", tout << "  temp: " << mk_pp(head, m) << " := " << mk_pp(body, m) << "\n";);
 
             if (has_vars(body)) {
                 STRACE("predabst", tout << "Error: template has free variables\n";);
@@ -1176,12 +1186,7 @@ namespace datalog {
         }
 
         static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& vars) {
-            for (unsigned i = 0; i < vars.size(); ++i) {
-                if (!args.contains(vars.get(i))) {
-                    return false;
-                }
-            }
-            return true;
+            return is_subset(vars, args);
         }
 
         unsigned get_interpolant_pred(func_decl* fdecl, expr_ref_vector const& args, refine_pred_info const& interpolant) {
@@ -1240,7 +1245,11 @@ namespace datalog {
 
             qe_lite ql1(m);
             ql1(q_vars, cs);
-            return expr_ref(m.mk_or(m.mk_not(cs), well_founded_cs(args)), m);
+
+            expr_ref bound(m);
+            expr_ref decrease(m);
+            well_founded_bound_and_decrease(args, bound, decrease);
+            return expr_ref(m.mk_or(m.mk_not(cs), m.mk_and(bound, decrease)), m);
         }
 
         bool mk_core_tree(unsigned node_id, core_tree_info &core_info) {
@@ -1620,9 +1629,9 @@ namespace datalog {
             out << "  Templates:" << std::endl;
             for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
                 rel_template const& orig = m_template.get_orig_template(i);
-                out << "    " << i << ": orig: " << mk_pp(orig.m_head, m) << " ~ " << mk_pp(orig.m_body, m) << std::endl;
+                out << "    " << i << ": orig: " << mk_pp(orig.m_head, m) << " := " << mk_pp(orig.m_body, m) << std::endl;
                 rel_template const& temp = m_template.get_template(i);
-                out << "       temp: " << mk_pp(temp.m_head, m) << " ~ " << mk_pp(temp.m_body, m) << std::endl;
+                out << "       temp: " << mk_pp(temp.m_head, m) << " := " << mk_pp(temp.m_body, m) << std::endl;
             }
             out << "=====================================\n";
         }
@@ -1645,7 +1654,7 @@ namespace datalog {
             out << "  Template instances:" << std::endl;
             for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
                 rel_template const& instance = m_template.get_template_instance(i);
-                out << "    " << i << ": inst: " << mk_pp(instance.m_head, m) << " ~ " << mk_pp(instance.m_body, m) << std::endl;
+                out << "    " << i << ": inst: " << mk_pp(instance.m_head, m) << " := " << mk_pp(instance.m_body, m) << std::endl;
             }
             out << "  Instantiated rules:" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {
@@ -1688,19 +1697,6 @@ namespace datalog {
             }
             out << "  Worklist: " << m_node_worklist << std::endl;
             out << "=====================================\n";
-        }
-
-        void print_expr_ref_vector(std::ostream& out, expr_ref_vector const& v,
-                                   bool newline = true) const {
-            for (unsigned i = 0; i < v.size(); ++i) {
-                out << mk_pp(v[i], m);
-                if (i + 1 < v.size()) {
-                    out << ", ";
-                }
-            }
-            if (newline) {
-                out << std::endl;
-            }
         }
     };
 

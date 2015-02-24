@@ -661,8 +661,12 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_
                 return cs;
             }
         }
+        UNREACHABLE();
+        return expr_ref(m);
     }
-    return fml;
+    else {
+        return fml;
+    }
 }
 
 static void interpolate_helper(expr_ref_vector const& vars, expr_ref &fml) {

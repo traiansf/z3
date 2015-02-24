@@ -463,6 +463,12 @@ norefine_unsat_tests = [
 (assert (=> (p 2) (p 4)))
 (assert (not (p 4)))
 (assert (forall ((x Int)) (=> (and (= x 0) (= x 1) (= x 2) (= x 3) (= x 4)) (__pred__p x))))"""),
+
+    ("non-head-vars",
+     """
+(declare-fun p (Int) Bool)
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (= x 0) (= y x) (= z y)) (p z))))
+(assert (not (p 0)))"""),
 ]
 
 norefine_t_sat_tests = [
@@ -569,6 +575,7 @@ refine_sat_tests = [
      """
 (define-fun p ((x!1 Int)) Bool (<= x!1 0))"""),
 
+    # XXX over complex?  was I assuming that (x <> 3) => not(p(x)) was not allowed for templated p?
     ("templ",
      """
 (declare-fun p (Int) Bool)
@@ -587,6 +594,38 @@ refine_sat_tests = [
      """
 (define-fun p ((x!1 Int)) Bool (= x!1 3))
 (define-fun q ((x!1 Int)) Bool (= x!1 3))"""),
+
+    ("arity-0",
+     """
+(declare-fun p () Bool)
+(declare-fun q (Int) Bool)
+(assert p)
+(assert (forall ((x Int)) (=> (= x 1) (q x))))
+(assert (forall ((x Int)) (=> (and (= x 0) p) (not (q x)))))""",
+     """
+(define-fun p () Bool true)
+(define-fun q ((x!1 Int)) Bool (>= x!1 1))"""),
+
+    ("templ-refine-preds",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))
+(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (and (>= x!1 0) (< x!1 1))"""),
+
+    ("templ-refine-preds-other",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun q (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 1) (q x))))
+(assert (forall ((x Int)) (=> (and (p x) (q x)) false)))
+(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (= x!1 0))
+(define-fun q ((x!1 Int)) Bool (= x!1 1))"""),
 ]
 
 refine_unsat_tests = [
@@ -617,6 +656,13 @@ refine_unknown_tests = [
 ]
 
 wf_sat_tests = [
+    ("arity-0",
+     """
+(declare-fun __wf__p () Bool)
+(assert (not __wf__p))""",
+     """
+(define-fun __wf__p () Bool false)"""),
+
     ("trivial-always-false",
      """
 (declare-fun __wf__p (Int Int) Bool)
@@ -639,10 +685,41 @@ wf_sat_tests = [
 ]
 
 wf_unsat_tests = [
+    ("arity-0",
+     """
+(declare-fun __wf__p () Bool)
+(assert __wf__p)"""),
+
     ("trivial-always-true",
      """
 (declare-fun __wf__p (Int Int) Bool)
 (assert (forall ((x Int) (x_ Int)) (__wf__p x x_)))"""),
+
+    ("trivial-first-equal-zero",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (=> (= x 0) (__wf__p x x_))))"""),
+
+    ("trivial-second-equal-zero",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (=> (= x_ 0) (__wf__p x x_))))"""),
+
+    ("always-true-indirectly",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(declare-fun q (Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (=> (and (q x) (q x_)) (__wf__p x x_))))
+(assert (forall ((x Int)) (q x)))"""),
+
+    ("templ-refine-non-head-vars",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(declare-fun q (Int) Bool)
+(declare-fun __temp__q (Int) Bool)
+(assert (forall ((x Int) (x_ Int) (y Int) (y_ Int)) (=> (and (= x y) (= x_ y_)) (__wf__p x x_))))
+(assert (forall ((x Int)) (=> (q x) (= true true))))
+(assert (forall ((x Int)) (=> (= x 0) (__temp__q x))))"""),
 ]
 
 wf_unknown_tests = [

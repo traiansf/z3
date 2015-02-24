@@ -16,6 +16,7 @@ Z3CMD = [os.path.join(testpydir, r"..\..\..\..\build\z3"),
          "fixedpoint.print_answer=true",
          "fixedpoint.print_certificate=true",
          "fixedpoint.print_statistics=true",
+         "timeout=10000", # 10 seconds
          "-dbg:predabst",
          "-tr:predabst"]
 

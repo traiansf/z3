@@ -744,26 +744,22 @@ namespace datalog {
                 throw default_exception("template for " + suffix.str() + " has an uninterpreted tail");
             }
 
-            // First, replace the variables corresponding to the extra template parameters with their corresponding constants.
+            // Replace the variables corresponding to the extra template parameters with their corresponding constants.
             app_ref orig_head(m.mk_app(suffix_decl, r->get_head()->get_args()), m);
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args() + new_arity, extra_params);
             expr_ref orig_body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
             STRACE("predabst", tout << "  orig: " << mk_pp(orig_head, m) << " := " << mk_pp(orig_body, m) << "\n";);
 
-            // Second, additionally replace the variables corresponding to the query parameters with fresh constants.
-            expr_ref_vector query_params = get_fresh_args(r->get_decl(), "v", new_arity);
-            app_ref head(m.mk_app(suffix_decl, query_params.c_ptr()), m);
-            expr_ref_vector all_params = vector_concat(query_params, extra_params);
-            expr_ref_vector all_subst = build_subst(r->get_head()->get_args(), all_params);
-            expr_ref body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), all_subst);
-            STRACE("predabst", tout << "  temp: " << mk_pp(head, m) << " := " << mk_pp(body, m) << "\n";);
-
-            if (has_vars(body)) {
+            if (has_free_vars(orig_body, expr_ref_vector(m, new_arity, r->get_head()->get_args()))) {
                 STRACE("predabst", tout << "Error: template has free variables\n";);
                 throw default_exception("template for " + suffix.str() + " has free variables");
             }
 
-            m_template.process_template(rel_template(orig_head, orig_body), rel_template(head, body));
+            // Generate fresh constants for each of the query parameters.
+            expr_ref_vector query_params = get_fresh_args(r->get_decl(), "v", new_arity);
+            app_ref temp_inst_head(m.mk_app(suffix_decl, query_params.c_ptr()), m);
+
+            m_template.process_template(rel_template(orig_head, orig_body), temp_inst_head);
         }
 
         void find_rule_uses(rule_set const& rules) {
@@ -1630,8 +1626,6 @@ namespace datalog {
             for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {
                 rel_template const& orig = m_template.get_orig_template(i);
                 out << "    " << i << ": orig: " << mk_pp(orig.m_head, m) << " := " << mk_pp(orig.m_body, m) << std::endl;
-                rel_template const& temp = m_template.get_template(i);
-                out << "       temp: " << mk_pp(temp.m_head, m) << " := " << mk_pp(temp.m_body, m) << std::endl;
             }
             out << "=====================================\n";
         }

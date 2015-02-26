@@ -625,40 +625,40 @@ static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kin
     return cons;
 }
 
-expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const {
+expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, expr_ref_vector& args_coll) const {
     expr_ref_vector new_fmls(m);
     for (unsigned i = 0; i < fmls.size(); ++i) {
-        new_fmls.push_back(subst_template_body(expr_ref(fmls.get(i), m), rel_templates, args_coll));
+        new_fmls.push_back(subst_template_body(expr_ref(fmls.get(i), m), args_coll));
     }
     return new_fmls;
 }
 
-expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, vector<rel_template> const& rel_templates, expr_ref_vector& args_coll) const {
+expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, expr_ref_vector& args_coll) const {
     app_ref a(to_app(fml), m);
     if (m.is_and(fml)) {
         expr_ref_vector sub_formulas(m, a->get_num_args(), a->get_args());
-        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, rel_templates, args_coll);
+        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, args_coll);
         return expr_ref(m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
     }
     else if (m.is_or(fml)) {
         expr_ref_vector sub_formulas(m, a->get_num_args(), a->get_args());
-        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, rel_templates, args_coll);
+        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, args_coll);
         return expr_ref(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
     }
     else if (m.is_not(fml)) {
         CASSERT("predabst", a->get_num_args() == 1);
-        return expr_ref(m.mk_not(subst_template_body(expr_ref(a->get_arg(0), m), rel_templates, args_coll)), m);
+        return expr_ref(m.mk_not(subst_template_body(expr_ref(a->get_arg(0), m), args_coll)), m);
     }
     else if (has_template(a->get_decl())) {
-        for (unsigned i = 0; i < rel_templates.size(); i++) {
-            if (a->get_decl() == rel_templates.get(i).m_head->get_decl()) {
-                expr_ref cs = m_rel_templates_orig.get(i).m_body;
-                expr_ref_vector args(m, a->get_num_args(), a->get_args());
-                args_coll.append(args);
-                args.append(m_params);
-                args.reverse(); // >>> bogus
-                m_var_subst(cs, args.size(), args.c_ptr(), cs);
-                return cs;
+        for (unsigned i = 0; i < m_rel_templates_orig.size(); i++) {
+            if (a->get_decl() == m_rel_templates_orig.get(i).m_head->get_decl()) {
+                args_coll.append(a->get_num_args(), a->get_args());
+
+                expr_ref orig_temp_body(m);
+                expr_ref_vector orig_temp_vars(m);
+                get_orig_template(i, orig_temp_body, orig_temp_vars);
+                expr_ref_vector subst = build_subst(orig_temp_vars, a->get_args());
+                return apply_subst(orig_temp_body, subst);
             }
         }
         UNREACHABLE();
@@ -752,21 +752,31 @@ bool rel_template_suit::instantiate_templates(expr_ref const& constraint) {
         return false;
     }
     solver.get_model(m_modref);
-    m_rel_template_instances.reset();
-    for (unsigned i = 0; i < m_rel_templates.size(); i++) {
+
+    for (unsigned i = 0; i < m_rel_templates_orig.size(); i++) {
+        expr_ref orig_temp_body(m);
+        expr_ref_vector orig_temp_vars(m);
+        get_orig_template(i, orig_temp_body, orig_temp_vars);
+        
+        // First, evaluate the template body with respect to the model, to give values for each of the extra template parameters.
         expr_ref instance(m);
-        if (!m_modref->eval(m_rel_templates[i].m_body, instance)) {
+        if (!m_modref->eval(orig_temp_body, instance, true)) {
             return false;
         }
-        STRACE("predabst", tout << "Instantiated template " << i << ": " << mk_pp(m_rel_templates[i].m_head, m) << " := " << mk_pp(instance, m) << "\n";);
-        m_rel_template_instances.push_back(rel_template(m_rel_templates[i].m_head, instance));
+
+        // Second, replace the variables corresponding to the query parameters with fresh constants.
+        expr_ref_vector subst = build_subst(orig_temp_vars, m_rel_template_instances[i].m_head->get_args());
+        expr_ref body = apply_subst(instance, subst);
+
+        STRACE("predabst", tout << "Instantiated template " << i << ": " << mk_pp(m_rel_template_instances[i].m_head, m) << " := " << mk_pp(body, m) << "\n";);
+        m_rel_template_instances[i].m_body = body;
     }
     return true;
 }
 
 bool rel_template_suit::instantiate_templates() {
     expr_ref_vector args_coll(m);
-    expr_ref c1 = subst_template_body(m_acc, m_rel_templates, args_coll);
+    expr_ref c1 = subst_template_body(m_acc, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
     expr_ref constraint_st(m);
@@ -782,32 +792,4 @@ bool rel_template_suit::instantiate_templates() {
     STRACE("predabst", tout << "Using lambda constraint " << mk_pp(lambda_cs, m) << "\n";);
     expr_ref constraint(m.mk_and(constraint_st, lambda_cs), m);
     return instantiate_templates(constraint);
-}
-
-void rel_template_suit::display(std::ostream& out) const {
-    out << "templates: " << m_rel_templates.size() << "\n";
-    for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-        out << "template " << i << " : " << m_rel_templates[i].m_head->get_decl()->get_name() << " / " << m_rel_templates[i].m_head->get_decl()->get_arity() << "\n";
-        out << "template body : " << mk_pp(m_rel_templates[i].m_body, m) << "\n";
-        out << "template head : " << mk_pp(m_rel_templates[i].m_head, m) << "\n";
-    }
-    out << "instances: " << m_rel_template_instances.size() << "\n";
-    for (unsigned i = 0; i < m_rel_template_instances.size(); i++) {
-        out << "instance " << i << " : " << m_rel_template_instances[i].m_head->get_decl()->get_name() << " / " << m_rel_template_instances[i].m_head->get_decl()->get_arity() << "\n";
-        out << "instance body : " << mk_pp(m_rel_template_instances[i].m_body, m) << "\n";
-        out << "instance head : " << mk_pp(m_rel_template_instances[i].m_head, m) << "\n";
-
-        expr_ref_vector inst_body_terms = get_conj_terms(m_rel_template_instances[i].m_body);
-        out << "inst_body_terms: " << inst_body_terms.size() << "\n";
-        for (unsigned j = 0; j < inst_body_terms.size(); j++) {
-            out << "inst_body_terms : " << mk_pp(inst_body_terms.get(j), m) << "\n";
-        }
-    }
-
-    out << "orig templates: " << m_rel_templates_orig.size() << "\n";
-    for (unsigned i = 0; i < m_rel_templates_orig.size(); i++) {
-        out << "orig template " << i << " : " << m_rel_templates_orig[i].m_head->get_decl()->get_name() << " / " << m_rel_templates_orig[i].m_head->get_decl()->get_arity() << "\n";
-        out << "orig template body : " << mk_pp(m_rel_templates_orig[i].m_body, m) << "\n";
-        out << "orig template head : " << mk_pp(m_rel_templates_orig[i].m_head, m) << "\n";
-    }
 }

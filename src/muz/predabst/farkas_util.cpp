@@ -650,15 +650,15 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, expr_ref_ve
         return expr_ref(m.mk_not(subst_template_body(expr_ref(a->get_arg(0), m), args_coll)), m);
     }
     else if (has_template(a->get_decl())) {
-        for (unsigned i = 0; i < m_rel_templates_orig.size(); i++) {
-            if (a->get_decl() == m_rel_templates_orig.get(i).m_head->get_decl()) {
+        for (unsigned i = 0; i < m_rel_templates.size(); i++) {
+            if (a->get_decl() == m_rel_templates.get(i).m_head->get_decl()) {
                 args_coll.append(a->get_num_args(), a->get_args());
 
-                expr_ref orig_temp_body(m);
-                expr_ref_vector orig_temp_vars(m);
-                get_orig_template(i, orig_temp_body, orig_temp_vars);
-                expr_ref_vector subst = build_subst(orig_temp_vars, a->get_args());
-                return apply_subst(orig_temp_body, subst);
+                expr_ref temp_body(m);
+                expr_ref_vector temp_vars(m);
+                get_template(i, temp_body, temp_vars);
+                expr_ref_vector subst = build_subst(temp_vars, a->get_args());
+                return apply_subst(temp_body, subst);
             }
         }
         UNREACHABLE();
@@ -753,19 +753,19 @@ bool rel_template_suit::instantiate_templates(expr_ref const& constraint) {
     }
     solver.get_model(m_modref);
 
-    for (unsigned i = 0; i < m_rel_templates_orig.size(); i++) {
-        expr_ref orig_temp_body(m);
-        expr_ref_vector orig_temp_vars(m);
-        get_orig_template(i, orig_temp_body, orig_temp_vars);
+    for (unsigned i = 0; i < m_rel_templates.size(); i++) {
+        expr_ref temp_body(m);
+        expr_ref_vector temp_vars(m);
+        get_template(i, temp_body, temp_vars);
         
         // First, evaluate the template body with respect to the model, to give values for each of the extra template parameters.
         expr_ref instance(m);
-        if (!m_modref->eval(orig_temp_body, instance, true)) {
+        if (!m_modref->eval(temp_body, instance, true)) {
             return false;
         }
 
         // Second, replace the variables corresponding to the query parameters with fresh constants.
-        expr_ref_vector subst = build_subst(orig_temp_vars, m_rel_template_instances[i].m_head->get_args());
+        expr_ref_vector subst = build_subst(temp_vars, m_rel_template_instances[i].m_head->get_args());
         expr_ref body = apply_subst(instance, subst);
 
         STRACE("predabst", tout << "Instantiated template " << i << ": " << mk_pp(m_rel_template_instances[i].m_head, m) << " := " << mk_pp(body, m) << "\n";);

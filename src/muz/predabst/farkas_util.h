@@ -44,7 +44,7 @@ class rel_template_suit {
     expr_ref_vector m_params;
     expr_ref m_extras;
 
-    vector<rel_template> m_rel_templates_orig;
+    vector<rel_template> m_rel_templates;
     vector<rel_template> m_rel_template_instances;
 
     expr_ref m_acc;
@@ -55,8 +55,8 @@ class rel_template_suit {
     expr_ref subst_template_body(expr_ref const& fml, expr_ref_vector& args_coll) const;
 
     bool has_template(func_decl* fdecl) const {
-        for (unsigned i = 0; i < m_rel_templates_orig.size(); ++i) {
-            if (m_rel_templates_orig[i].m_head->get_decl() == fdecl) {
+        for (unsigned i = 0; i < m_rel_templates.size(); ++i) {
+            if (m_rel_templates[i].m_head->get_decl() == fdecl) {
                 return true;
             }
         }
@@ -109,8 +109,8 @@ public:
         m_extras = extras;
     }
 
-    void process_template(rel_template const& orig_temp, app_ref const& temp_inst_head) {
-        m_rel_templates_orig.push_back(orig_temp);
+    void process_template(rel_template const& temp, app_ref const& temp_inst_head) {
+        m_rel_templates.push_back(temp);
         m_rel_template_instances.push_back(rel_template(temp_inst_head, expr_ref(m)));
     }
 
@@ -121,21 +121,21 @@ public:
     }
 
     unsigned get_num_templates() const {
-        return m_rel_templates_orig.size();
+        return m_rel_templates.size();
     }
 
-    rel_template const& get_orig_template(unsigned i) const {
-        return m_rel_templates_orig.get(i);
+    rel_template const& get_template(unsigned i) const {
+        return m_rel_templates.get(i);
     }
 
     rel_template const& get_template_instance(unsigned i) const {
         return m_rel_template_instances.get(i);
     }
 
-    void rel_template_suit::get_orig_template(unsigned i, expr_ref& body, expr_ref_vector& vars) const {
-        rel_template const& orig = m_rel_templates_orig[i];
-        body = orig.m_body;
-        vars.append(orig.m_head->get_num_args(), orig.m_head->get_args());
+    void rel_template_suit::get_template(unsigned i, expr_ref& body, expr_ref_vector& vars) const {
+        rel_template const& temp = m_rel_templates[i];
+        body = temp.m_body;
+        vars.append(temp.m_head->get_num_args(), temp.m_head->get_args());
     }
 
     void rel_template_suit::get_template_instance(unsigned i, expr_ref& body, expr_ref_vector& vars) const {

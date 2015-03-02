@@ -25,6 +25,9 @@ Revision History:
 #include "substitution.h"
 #include "smt_kernel.h"
 #include "dl_transforms.h"
+#include "fixedpoint_params.hpp"
+
+#define USE_PUSH_POP
 
 namespace datalog {
 
@@ -149,6 +152,7 @@ namespace datalog {
         static const unsigned NON_NODE = UINT_MAX;
 
         ast_manager&           m;             // manager for ASTs. It is used for managing expressions
+        fixedpoint_params const& m_fp_params;
         smt_params             m_fparams;     // parameters specific to smt solving
         smt::kernel            m_solver;      // basic SMT solver class
         mutable var_subst      m_var_subst;   // substitution object. It gets updated and reset.
@@ -199,8 +203,9 @@ namespace datalog {
         };
 
     public:
-        imp(ast_manager& m) :
+        imp(ast_manager& m, fixedpoint_params const& fp_params) :
             m(m),
+            m_fp_params(fp_params),
             m_solver(m, m_fparams),
             m_var_subst(m, false),
             m_cancel(false),
@@ -813,8 +818,12 @@ namespace datalog {
                     STRACE("predabst", tout << "Solution found: result is SAT\n";);
                     RETURN_CHECK_CANCELLED(l_false);
                 }
+                else if (!m_fp_params.use_refinement()) {
+                    STRACE("predabst", tout << "No solution found: result is UNSAT\n";);
+                    RETURN_CHECK_CANCELLED(l_true);
+                }
                 else {
-                    // Our attempt to find a solution failed.
+                    // Our attempt to find a solution failed and we want to try refinement.
                     core_tree_info core_info(m);
                     core_tree_wf_info core_info_wf(m);
                     if (mk_core_tree(error.m_node, core_info)) {
@@ -1049,7 +1058,11 @@ namespace datalog {
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         bool cart_pred_abst_rule(unsigned r_id, cube_t& cube, node_vector const& nodes = node_vector()) {
+#ifdef USE_PUSH_POP
             scoped_push _push1(m_solver);
+#else
+            m_solver.reset();
+#endif
             m_solver.assert_expr(m_rule2info[r_id].m_body);
             // get instantiated predicates
             vector<expr_ref_vector> const& body_preds_vector = m_rule2info[r_id].m_body_preds;
@@ -1071,11 +1084,27 @@ namespace datalog {
             }
             // collect abstract cube
             expr_ref_vector const& head_preds = m_rule2info[r_id].m_head_preds;
+
+#ifndef USE_PUSH_POP
+            expr_ref_vector bs(m);
+            for (unsigned i = 0; i < head_preds.size(); ++i) {
+                expr_ref b(m.mk_fresh_const("x", m.mk_bool_sort()), m);
+                bs.push_back(b);
+                expr_ref e(m.mk_eq(head_preds[i], b), m);
+                m_solver.assert_expr(e);
+            }
+#endif
+
             cube.resize(head_preds.size());
             for (unsigned i = 0; i < head_preds.size(); ++i) {
+#ifdef USE_PUSH_POP
                 scoped_push _push2(m_solver);
                 m_solver.assert_expr(head_preds[i]);
                 cube[i] = (m_solver.check() == l_false);
+#else
+                expr* e = bs.get(i);
+                cube[i] = (m_solver.check(1, &e) == l_false);
+#endif
             }
             STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") succeeded, with cube [" << cube << "]\n";);
             return true;
@@ -1701,7 +1730,7 @@ namespace datalog {
     predabst::predabst(context& ctx) :
         engine_base(ctx.get_manager(), "predabst"),
         m_ctx(ctx),
-        m_imp(alloc(imp, ctx.get_manager())) {
+        m_imp(alloc(imp, ctx.get_manager(), ctx.get_params())) {
     }
     predabst::~predabst() {
         dealloc(m_imp);

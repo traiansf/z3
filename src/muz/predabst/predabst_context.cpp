@@ -89,9 +89,20 @@ namespace datalog {
         struct stats {
             stats() { reset(); }
             void reset() { memset(this, 0, sizeof(*this)); }
+            /*
             unsigned m_num_unfold;
             unsigned m_num_no_unfold;
             unsigned m_num_subsumed;
+            */
+            unsigned m_num_refinement_iterations;
+            unsigned m_num_predabst_iterations;
+            unsigned m_num_solver_assert_invocations;
+            unsigned m_num_solver_check_invocations;
+            unsigned m_num_rules_succeeded;
+            unsigned m_num_rules_failed;
+            unsigned m_num_nodes_created;
+            unsigned m_num_nodes_suppressed;
+            unsigned m_num_nodes_subsumed;
         };
 
         class scoped_push {
@@ -264,7 +275,16 @@ namespace datalog {
         }
 
         void collect_statistics(statistics& st) const {
-            // TBD hmm?
+#define UPDATE_STAT(NAME) st.update(#NAME, m_stats.NAME)
+            UPDATE_STAT(m_num_refinement_iterations);
+            UPDATE_STAT(m_num_predabst_iterations);
+            UPDATE_STAT(m_num_solver_assert_invocations);
+            UPDATE_STAT(m_num_solver_check_invocations);
+            UPDATE_STAT(m_num_rules_succeeded);
+            UPDATE_STAT(m_num_rules_failed);
+            UPDATE_STAT(m_num_nodes_created);
+            UPDATE_STAT(m_num_nodes_suppressed);
+            UPDATE_STAT(m_num_nodes_subsumed);
         }
 
         void display_certificate(std::ostream& out) const {
@@ -800,6 +820,7 @@ namespace datalog {
             // set up by initialize_abs.
             unsigned refine_count = 0;
             while (true) {
+                m_stats.m_num_refinement_iterations++;
                 m_node2info.reset();
                 for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                     m_func_decl2info[m_func_decls.get(i)]->m_max_reach_nodes.reset();
@@ -954,11 +975,18 @@ namespace datalog {
                 // process worklist
                 unsigned infer_count = 0;
                 while (!m_cancel && !m_node_worklist.empty()) {
+                    m_stats.m_num_predabst_iterations++;
+
                     STRACE("predabst", print_inference_state(tout, refine_count, infer_count););
                     unsigned current_id = *m_node_worklist.begin();
                     m_node_worklist.remove(current_id);
                     inference_step(current_id);
                     infer_count++;
+
+                    if ((m_fp_params.max_predabst_iterations() > 0) &&
+                        (m_stats.m_num_predabst_iterations >= m_fp_params.max_predabst_iterations())) {
+                        m_cancel = true;
+                    }
                 }
 
                 // We managed to find a solution.
@@ -996,6 +1024,15 @@ namespace datalog {
                     // with this rule, assuming that the new node is used at
                     // this position.
                     vector<node_vector> nodes_set = build_cartesian_product(r, node_id, *current_pos);
+#if 0
+                    if (nodes_set.size() > 1000000) {
+                        std::cout << "Attempting to apply rule " << *r_id << " using node " << node_id << " in position " << *current_pos << " gave " << nodes_set.size() << " possibilities\n";
+                        std::cout << "Rule is:\n";
+                        r->display_smt2(m, std::cout);
+                        std::cout << "\n";
+                        count_cartesian_product(r, node_id, *current_pos);
+                    }
+#endif
                     for (vector<node_vector>::iterator nodes = nodes_set.begin(), nodes_end = nodes_set.end(); nodes != nodes_end; ++nodes) {
                         CASSERT("predabst", nodes->size() == r->get_uninterpreted_tail_size());
                         cube_t cube;
@@ -1055,6 +1092,15 @@ namespace datalog {
             return nodes_set;
         }
 
+#if 0
+        void count_cartesian_product(rule* r, unsigned node, unsigned current_pos) const {
+            for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
+                unsigned n = (current_pos == pos) ? 1 : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes.num_elems();
+                std::cout << "There are " << n << " option(s) for position " << pos << "\n";
+            }
+        }
+#endif
+
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         bool cart_pred_abst_rule(unsigned r_id, cube_t& cube, node_vector const& nodes = node_vector()) {
@@ -1063,6 +1109,7 @@ namespace datalog {
 #else
             m_solver.reset();
 #endif
+            m_stats.m_num_solver_assert_invocations++;
             m_solver.assert_expr(m_rule2info[r_id].m_body);
             // get instantiated predicates
             vector<expr_ref_vector> const& body_preds_vector = m_rule2info[r_id].m_body_preds;
@@ -1073,13 +1120,16 @@ namespace datalog {
                 expr_ref_vector const& body_preds = body_preds_vector[pos];
                 for (unsigned i = 0; i < body_preds.size(); ++i) {
                     if (pos_cube[i]) {
+                        m_stats.m_num_solver_assert_invocations++;
                         m_solver.assert_expr(body_preds[i]);
                     }
                 }
             }
+            m_stats.m_num_solver_check_invocations++;
             if (m_solver.check() == l_false) {
                 // unsat body
                 STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") failed\n";);
+                m_stats.m_num_rules_failed++;
                 return false;
             }
             // collect abstract cube
@@ -1099,14 +1149,18 @@ namespace datalog {
             for (unsigned i = 0; i < head_preds.size(); ++i) {
 #ifdef USE_PUSH_POP
                 scoped_push _push2(m_solver);
+                m_stats.m_num_solver_assert_invocations++;
                 m_solver.assert_expr(head_preds[i]);
+                m_stats.m_num_solver_check_invocations++;
                 cube[i] = (m_solver.check() == l_false);
 #else
                 expr* e = bs.get(i);
+                m_stats.m_num_solver_check_invocations++;
                 cube[i] = (m_solver.check(1, &e) == l_false);
 #endif
             }
             STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") succeeded, with cube [" << cube << "]\n";);
+            m_stats.m_num_rules_succeeded++;
             return true;
         }
 
@@ -1150,6 +1204,7 @@ namespace datalog {
                 if (cube_leq(cube, old_cube)) {
                     STRACE("predabst", tout << "New node is subsumed by node " << *it << " with cube [" << old_cube << "]\n";);
                     CASSERT("predabst", old_lt_nodes.size() == 0);
+                    m_stats.m_num_nodes_suppressed++;
                     return NON_NODE;
                 }
                 // stronger old cubes will not be considered maximal
@@ -1161,10 +1216,12 @@ namespace datalog {
             // (no???) fixpoint reached since didn't return
             // remove subsumed maximal nodes
             for (node_vector::iterator it = old_lt_nodes.begin(), end = old_lt_nodes.end(); it != end; ++it) {
+                m_stats.m_num_nodes_subsumed++;
                 sym_nodes.remove(*it);
                 m_node_worklist.remove(*it); // removing non-existent element is ok
             }
             // no fixpoint reached hence create new node
+            m_stats.m_num_nodes_created++;
             unsigned added_id = m_node2info.size();
             sym_nodes.insert(added_id);
             m_node_worklist.insert(added_id);
@@ -1328,7 +1385,7 @@ namespace datalog {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                         unsigned qname = core.size();
-                        core.push_back(core_tree_node(node.m_parent_nodes.get(i)));
+                        core.push_back(core_tree_node(node.m_parent_nodes[i]));
                         todo.push_back(todo_item(qname, qargs));
                         core[name].m_names.push_back(qname);
                     }
@@ -1512,7 +1569,7 @@ namespace datalog {
                     for (unsigned i = 0; i < usz; ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        todo.push_back(todo_item(node.m_parent_nodes.get(i), qargs));
+                        todo.push_back(todo_item(node.m_parent_nodes[i], qargs));
                     }
                 }
                 else {
@@ -1568,7 +1625,7 @@ namespace datalog {
                     for (unsigned i = 0; i < usz; ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        todo.push_back(todo_item(node.m_parent_nodes.get(i), qargs));
+                        todo.push_back(todo_item(node.m_parent_nodes[i], qargs));
                     }
                 }
                 else {
@@ -1725,6 +1782,12 @@ namespace datalog {
             out << "  Worklist: " << m_node_worklist << std::endl;
             out << "=====================================\n";
         }
+
+        void print_statistics(std::ostream& out) const {
+            statistics st;
+            collect_statistics(st);
+            st.display(out);
+        }
     };
 
     predabst::predabst(context& ctx) :
@@ -1763,15 +1826,3 @@ namespace datalog {
         return m_imp->get_model();
     }
 };
-
-template<class T>
-inline std::ostream& operator<<(std::ostream& out, vector<T> const& v) {
-    unsigned size = v.size();
-    if (size > 0) {
-        out << v[0];
-        for (unsigned i = 1; i < size; ++i) {
-            out << "," << v[i];
-        }
-    }
-    return out;
-}

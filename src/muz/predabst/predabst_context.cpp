@@ -1826,3 +1826,15 @@ namespace datalog {
         return m_imp->get_model();
     }
 };
+
+template<class T>
+inline std::ostream& operator<<(std::ostream& out, vector<T> const& v) {
+    unsigned size = v.size();
+    if (size > 0) {
+        out << v[0];
+        for (unsigned i = 1; i < size; ++i) {
+            out << "," << v[i];
+        }
+    }
+    return out;
+}

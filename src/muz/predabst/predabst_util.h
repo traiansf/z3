@@ -34,7 +34,7 @@ expr_ref_vector get_additive_terms(expr_ref const& e);
 
 expr_ref_vector get_multiplicative_factors(expr_ref const& e);
 
-expr_ref mk_not(const expr_ref& term);
+expr_ref mk_not(expr_ref const& term);
 
 expr_ref mk_disj(expr_ref_vector const& terms);
 

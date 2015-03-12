@@ -76,14 +76,16 @@ expr_ref_vector get_multiplicative_factors(expr_ref const& e) {
     return factors;
 }
 
-expr_ref mk_not(const expr_ref&term) {
+expr_ref mk_not(expr_ref const& term) {
 	if (term.m().is_true(term)) {
 		return expr_ref(term.m().mk_false(), term.m());
 	}
-	if (term.m().is_false(term)) {
+	else if (term.m().is_false(term)) {
 		return expr_ref(term.m().mk_true(), term.m());
 	}
-	return expr_ref(term.m().mk_not(term), term.m());
+    else {
+        return expr_ref(term.m().mk_not(term), term.m());
+    }
 }
 
 expr_ref mk_disj(expr_ref_vector const& terms) {

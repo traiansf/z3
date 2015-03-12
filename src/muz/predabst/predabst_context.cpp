@@ -960,10 +960,11 @@ namespace datalog {
             return apply_subst(preds, inst);
         }
 
-		expr_ref model_eval_app(const model_ref &md, const app *app) {
+		expr_ref model_eval_app(model_ref const& md, app const* app) {
 			expr_ref exp(m);
-			md.get()->eval(app->get_decl(), exp);
-			ptr_vector<sort> sorts;
+			bool result = md->eval(app->get_decl(), exp);
+            CASSERT("predabst", result);
+            ptr_vector<sort> sorts;
 			get_free_vars(exp, sorts);
 			expr_ref_vector subst(m);
 			subst.reserve(sorts.size());
@@ -973,7 +974,7 @@ namespace datalog {
 			return apply_subst(exp, subst);
 		}
 
-		expr_ref ground(const expr_ref& exp, const char *prefix) {
+		expr_ref ground(expr_ref const& exp, char const* prefix) {
 			ptr_vector<sort> sorts;
 			get_free_vars(exp, sorts);
 			expr_ref_vector subst(m);
@@ -987,16 +988,22 @@ namespace datalog {
 		bool check_solution() {
 			model_ref& md = get_model();
 			for (unsigned i = 0; i < m_rule2info.size(); ++i) {
-				rule *r = m_rule2info[i].m_rule;
-				unsigned usz = r->get_uninterpreted_tail_size();
-				expr_ref body_exp = mk_conj(expr_ref_vector(m, r->get_tail_size() - usz, r->get_expr_tail() + usz));
-				for (unsigned u = 0; u < usz; ++u) {
-					body_exp = mk_conj(body_exp, model_eval_app(md, r->get_tail(u)));
+				rule* r = m_rule2info[i].m_rule;
+                CASSERT("predabst", r); // TBD: this will fail for template rules
+                unsigned usz = r->get_uninterpreted_tail_size();
+                unsigned tsz = r->get_tail_size();
+                expr_ref body_exp = mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz));
+				for (unsigned i = 0; i < usz; ++i) {
+					body_exp = mk_conj(body_exp, model_eval_app(md, r->get_tail(i)));
 				}
-				expr_ref head_exp(m.mk_false(),	m);
+				expr_ref head_exp(m);
 				if (!m_func_decl2info[r->get_decl()]->m_is_output_predicate) {
 					head_exp = model_eval_app(md, r->get_head());
 				}
+                else {
+                    head_exp = m.mk_false();
+                }
+
 #ifdef USE_PUSH_POP
 				scoped_push push(m_solver);
 #else

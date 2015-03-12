@@ -76,6 +76,16 @@ expr_ref_vector get_multiplicative_factors(expr_ref const& e) {
     return factors;
 }
 
+expr_ref mk_not(const expr_ref&term) {
+	if (term.m().is_true(term)) {
+		return expr_ref(term.m().mk_false(), term.m());
+	}
+	if (term.m().is_false(term)) {
+		return expr_ref(term.m().mk_true(), term.m());
+	}
+	return expr_ref(term.m().mk_not(term), term.m());
+}
+
 expr_ref mk_disj(expr_ref_vector const& terms) {
     if (terms.size() == 0) {
         return expr_ref(terms.m().mk_false(), terms.m());
@@ -384,8 +394,13 @@ expr_ref neg_and_2dnf(expr_ref const& fml) {
 
 void print_expr_ref_vector(std::ostream& out, expr_ref_vector const& v, bool newline) {
     ast_manager& m = v.m();
-    for (unsigned i = 0; i < v.size(); ++i) {
-        out << mk_pp(v[i], m);
+	for (unsigned i = 0; i < v.size(); ++i) {
+		if (v[i]) {
+			out << mk_pp(v[i], m);
+		}
+		else {
+			out << "NULL";
+		}
         if (i + 1 < v.size()) {
             out << ", ";
         }

@@ -969,7 +969,9 @@ namespace datalog {
 			expr_ref_vector subst(m);
 			subst.reserve(sorts.size());
 			for (unsigned i = 0; i < sorts.size(); ++i) {
-				subst[i] = sorts[i] ? app->get_arg(i) : NULL;
+                if (sorts[i]) {
+                    subst[i] = app->get_arg(i);
+                }
 			}
 			return apply_subst(exp, subst);
 		}
@@ -980,7 +982,9 @@ namespace datalog {
 			expr_ref_vector subst(m);
 			subst.reserve(sorts.size());
 			for (unsigned i = 0; i < sorts.size(); ++i) {
-				subst[i] = sorts[i] ? m.mk_fresh_const(prefix, sorts[i]) : NULL;
+                if (sorts[i]) {
+                    subst[i] = m.mk_fresh_const(prefix, sorts[i]);
+                }
 			}
 			return apply_subst(exp, subst);
 		}
@@ -989,7 +993,10 @@ namespace datalog {
 			model_ref& md = get_model();
 			for (unsigned i = 0; i < m_rule2info.size(); ++i) {
 				rule* r = m_rule2info[i].m_rule;
-                CASSERT("predabst", r); // TBD: this will fail for template rules
+                if (!r) {
+                    // TBD: pay attention to template rules?
+                    continue;
+                }
                 unsigned usz = r->get_uninterpreted_tail_size();
                 unsigned tsz = r->get_tail_size();
                 expr_ref body_exp = mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz));

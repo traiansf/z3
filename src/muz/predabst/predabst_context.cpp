@@ -1013,11 +1013,7 @@ namespace datalog {
                     head_exp = m.mk_false();
                 }
 
-#ifdef USE_PUSH_POP
 				scoped_push push(m_solver);
-#else
-				m_solver.reset();
-#endif
 				m_solver.assert_expr(ground(mk_conj(body_exp, mk_not(head_exp)), "c"));
 				if (m_solver.check() != l_false) {
 					return false;

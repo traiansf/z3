@@ -1114,27 +1114,24 @@ namespace datalog {
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         void cart_pred_abst_rule(unsigned r_id, unsigned fixed_pos = 0, unsigned fixed_node = NON_NODE) {
-            unsigned tsz = m_rule2info[r_id].m_rule ? m_rule2info[r_id].m_rule->get_uninterpreted_tail_size() : 0;
-            CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < tsz));
+            CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < m_rule2info[r_id].m_rule->get_uninterpreted_tail_size()));
             node_vector nodes;
-            cart_pred_abst_rule(r_id, tsz, nodes, fixed_pos, fixed_node, m_node2info.size());
+            cart_pred_abst_rule(r_id, 0, nodes, fixed_pos, fixed_node);
         }
 
-        void cart_pred_abst_rule(unsigned r_id, unsigned x, node_vector& nodes, unsigned fixed_pos, unsigned fixed_node, unsigned orig_num_nodes) {
-#ifndef USE_PUSH_POP
-#error Recursive cart_pred_abst_rule requires USE_PUSH_POP
-#endif
-            if (x > 0) {
-                unsigned pos = x - 1;
+        void cart_pred_abst_rule(unsigned r_id, unsigned pos, node_vector& nodes, unsigned fixed_pos, unsigned fixed_node) {
+            rule* r = m_rule2info[r_id].m_rule;
+            if (r && (pos < r->get_uninterpreted_tail_size())) {
                 node_set fixed_node_singleton;
                 fixed_node_singleton.insert(fixed_node);
 
-                rule* r = m_rule2info[r_id].m_rule;
-                CASSERT("predabst", r);
                 node_set pos_nodes = (pos == fixed_pos) ? fixed_node_singleton : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes; // make a copy, to prevent it from changing while we iterate over it
                 for (node_set::iterator pos_node = pos_nodes.begin(), pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
-                    if (*pos_node >= orig_num_nodes) {
-                        continue;
+                    if ((*pos_node > fixed_node) || ((pos > fixed_pos) && (*pos_node == fixed_node))) {
+                        // Don't use any nodes newer than the fixed node; we'll have a chance to use newer nodes when they are taken off the worklist later.
+                        // Furthermore, don't use the fixed node further along that the fixed position; we'll have a chance to use it in both places when the fixed position advances.
+                        // Note that iterating over the max_reach_nodes set return nodes in ascending order, so we can bail out here.
+                        break;
                     }
 
                     nodes.push_back(*pos_node);
@@ -1151,11 +1148,11 @@ namespace datalog {
                     m_stats.m_num_solver_check_invocations++;
                     if (m_solver.check() == l_false) {
                         // unsat body
-                        STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") failed\n";);
+                        STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << "...) failed\n";);
                         m_stats.m_num_rules_failed_uninterp++;
                     }
                     else {
-                        cart_pred_abst_rule(r_id, x - 1, nodes, fixed_pos, fixed_node, orig_num_nodes);
+                        cart_pred_abst_rule(r_id, pos + 1, nodes, fixed_pos, fixed_node);
                     }
 
                     nodes.pop_back();
@@ -1180,38 +1177,20 @@ namespace datalog {
                     m_stats.m_num_rules_succeeded++;
 
                     // add and check the node
-                    node_vector revnodes(nodes);
-                    revnodes.reverse();
-                    check_node_property(add_node(m_rule2info[r_id].m_func_decl, cube, r_id, revnodes));
+                    check_node_property(add_node(m_rule2info[r_id].m_func_decl, cube, r_id, nodes));
                 }
             }
         }
 
         cube_t cart_pred_abst_cube(expr_ref_vector const& head_preds) {
-#ifndef USE_PUSH_POP
-            expr_ref_vector bs(m);
-            for (unsigned i = 0; i < head_preds.size(); ++i) {
-                expr_ref b(m.mk_fresh_const("x", m.mk_bool_sort()), m);
-                bs.push_back(b);
-                expr_ref e(m.mk_eq(head_preds[i], b), m);
-                m_solver.assert_expr(e);
-            }
-#endif
-
             cube_t cube;
             cube.resize(head_preds.size());
             for (unsigned i = 0; i < head_preds.size(); ++i) {
-#ifdef USE_PUSH_POP
                 scoped_push _push2(m_solver);
                 m_stats.m_num_solver_assert_invocations++;
                 m_solver.assert_expr(head_preds[i]);
                 m_stats.m_num_solver_check_invocations++;
                 cube[i] = (m_solver.check() == l_false);
-#else
-                expr* e = bs.get(i);
-                m_stats.m_num_solver_check_invocations++;
-                cube[i] = (m_solver.check(1, &e) == l_false);
-#endif
             }
             return cube;
         }

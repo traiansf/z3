@@ -99,7 +99,8 @@ namespace datalog {
             unsigned m_num_solver_assert_invocations;
             unsigned m_num_solver_check_invocations;
             unsigned m_num_rules_succeeded;
-            unsigned m_num_rules_failed;
+            unsigned m_num_rules_failed_interp;
+            unsigned m_num_rules_failed_uninterp;
             unsigned m_num_nodes_created;
             unsigned m_num_nodes_suppressed;
             unsigned m_num_nodes_subsumed;
@@ -281,7 +282,8 @@ namespace datalog {
             UPDATE_STAT(m_num_solver_assert_invocations);
             UPDATE_STAT(m_num_solver_check_invocations);
             UPDATE_STAT(m_num_rules_succeeded);
-            UPDATE_STAT(m_num_rules_failed);
+            UPDATE_STAT(m_num_rules_failed_interp);
+            UPDATE_STAT(m_num_rules_failed_uninterp);
             UPDATE_STAT(m_num_nodes_created);
             UPDATE_STAT(m_num_nodes_suppressed);
             UPDATE_STAT(m_num_nodes_subsumed);
@@ -1052,7 +1054,7 @@ namespace datalog {
                         m_cancel = true;
                     }
                 }
-				if (!check_solution()) {
+				if (!m_cancel && !check_solution()) {
 					throw default_exception("check_solution failed");
 				}
                 // We managed to find a solution.
@@ -1066,10 +1068,7 @@ namespace datalog {
         }
 
         void initialize_abs(unsigned r_id) {
-            cube_t cube;
-            if (cart_pred_abst_rule(r_id, cube)) {
-                check_node_property(add_node(m_rule2info[r_id].m_func_decl, cube, r_id));
-            }
+            cart_pred_abst_rule(r_id);
         }
 
         void inference_step(unsigned node_id) {
@@ -1086,26 +1085,11 @@ namespace datalog {
                 CASSERT("predabst", current_poss.num_elems() != 0);
                 for (uint_set::iterator current_pos = current_poss.begin(), current_pos_end = current_poss.end(); current_pos != current_pos_end; ++current_pos) {
                     STRACE("predabst-cprod", tout << "Using this node in position " << *current_pos << "\n";);
-                    // Find all possible combinations of nodes that can be used
+                    // Try all possible combinations of nodes that can be used
                     // with this rule, assuming that the new node is used at
                     // this position.
-                    vector<node_vector> nodes_set = build_cartesian_product(r, node_id, *current_pos);
-#if 0
-                    if (nodes_set.size() > 1000000) {
-                        std::cout << "Attempting to apply rule " << *r_id << " using node " << node_id << " in position " << *current_pos << " gave " << nodes_set.size() << " possibilities\n";
-                        std::cout << "Rule is:\n";
-                        r->display_smt2(m, std::cout);
-                        std::cout << "\n";
-                        count_cartesian_product(r, node_id, *current_pos);
-                    }
-#endif
-                    for (vector<node_vector>::iterator nodes = nodes_set.begin(), nodes_end = nodes_set.end(); nodes != nodes_end; ++nodes) {
-                        CASSERT("predabst", nodes->size() == r->get_uninterpreted_tail_size());
-                        cube_t cube;
-                        if (cart_pred_abst_rule(*r_id, cube, *nodes)) {
-                            check_node_property(add_node(r->get_decl(), cube, *r_id, *nodes));
-                        }
-                    }
+                    STRACE("predabst-cprod", count_cartesian_product(tout, r, *current_pos););
+                    cart_pred_abst_rule(*r_id, *current_pos, node_id);
                 }
             }
         }
@@ -1120,87 +1104,90 @@ namespace datalog {
             return positions;
         }
 
-        vector<node_vector> build_cartesian_product(rule* r, unsigned node, unsigned current_pos) const {
-            vector<node_vector> nodes_set;
-            nodes_set.push_back(node_vector());
-
-            node_set current_pos_singleton;
-            current_pos_singleton.insert(node);
-
-            // grow node combinations as cartesian product with nodes at pos
+        void count_cartesian_product(std::ostream& out, rule* r, unsigned fixed_pos) const {
             for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
-                node_set& pos_nodes = (current_pos == pos) ? current_pos_singleton : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes;
-                STRACE("predabst-cprod", tout << "There are " << pos_nodes.num_elems() << " option(s) for position " << pos << "\n";);
-                if (pos_nodes.num_elems() == 0) {
-                    // The Cartesian product with an empty set is the empty set.
-                    nodes_set.reset();
-                    break;
-                }
-                unsigned orig_nodes_set_size = nodes_set.size();
-                // First, store the product with the first node in-place.
-                node_set::iterator pos_node = pos_nodes.begin();
-                for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
-                    STRACE("predabst-cprod", tout << "Adding " << *pos_node << " to existing set " << nodes_set[nodes_set_offset] << "\n";);
-                    nodes_set[nodes_set_offset].push_back(*pos_node);
-                }
-                ++pos_node;
-                // Then, the product with each of the remaining nodes goes into additional vectors.
-                for (node_set::iterator pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
-                    for (unsigned nodes_set_offset = 0; nodes_set_offset < orig_nodes_set_size; ++nodes_set_offset) {
-                        STRACE("predabst-cprod", tout << "Using " << *pos_node << " instead of last element of existing set " << nodes_set[nodes_set_offset] << "\n";);
-                        node_vector tmp = nodes_set[nodes_set_offset];
-                        tmp.back() = *pos_node;
-                        nodes_set.push_back(tmp);
-                    }
-                }
-            }
-
-            return nodes_set;
-        }
-
-#if 0
-        void count_cartesian_product(rule* r, unsigned node, unsigned current_pos) const {
-            for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
-                unsigned n = (current_pos == pos) ? 1 : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes.num_elems();
-                std::cout << "There are " << n << " option(s) for position " << pos << "\n";
+                unsigned n = (pos == fixed_pos) ? 1 : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes.num_elems();
+                out << "There are " << n << " option(s) for position " << pos << "\n";
             }
         }
-#endif
 
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
-        bool cart_pred_abst_rule(unsigned r_id, cube_t& cube, node_vector const& nodes = node_vector()) {
-#ifdef USE_PUSH_POP
-            scoped_push _push1(m_solver);
-#else
-            m_solver.reset();
+        void cart_pred_abst_rule(unsigned r_id, unsigned fixed_pos = 0, unsigned fixed_node = NON_NODE) {
+            unsigned tsz = m_rule2info[r_id].m_rule ? m_rule2info[r_id].m_rule->get_uninterpreted_tail_size() : 0;
+            CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < tsz));
+            node_vector nodes;
+            cart_pred_abst_rule(r_id, tsz, nodes, fixed_pos, fixed_node, m_node2info.size());
+        }
+
+        void cart_pred_abst_rule(unsigned r_id, unsigned x, node_vector& nodes, unsigned fixed_pos, unsigned fixed_node, unsigned orig_num_nodes) {
+#ifndef USE_PUSH_POP
+#error Recursive cart_pred_abst_rule requires USE_PUSH_POP
 #endif
-            m_stats.m_num_solver_assert_invocations++;
-            m_solver.assert_expr(m_rule2info[r_id].m_body);
-            // get instantiated predicates
-            vector<expr_ref_vector> const& body_preds_vector = m_rule2info[r_id].m_body_preds;
-            CASSERT("predabst", body_preds_vector.size() == nodes.size());
-            // load abstract states for nodes
-            for (unsigned pos = 0; pos < nodes.size(); ++pos) {
-                cube_t const& pos_cube = m_node2info[nodes[pos]].m_cube;
-                expr_ref_vector const& body_preds = body_preds_vector[pos];
-                for (unsigned i = 0; i < body_preds.size(); ++i) {
-                    if (pos_cube[i]) {
-                        m_stats.m_num_solver_assert_invocations++;
-                        m_solver.assert_expr(body_preds[i]);
+            if (x > 0) {
+                unsigned pos = x - 1;
+                node_set fixed_node_singleton;
+                fixed_node_singleton.insert(fixed_node);
+
+                rule* r = m_rule2info[r_id].m_rule;
+                CASSERT("predabst", r);
+                node_set pos_nodes = (pos == fixed_pos) ? fixed_node_singleton : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes; // make a copy, to prevent it from changing while we iterate over it
+                for (node_set::iterator pos_node = pos_nodes.begin(), pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
+                    if (*pos_node >= orig_num_nodes) {
+                        continue;
                     }
+
+                    nodes.push_back(*pos_node);
+                    scoped_push _push1(m_solver);
+                    cube_t const& pos_cube = m_node2info[*pos_node].m_cube;
+                    expr_ref_vector const& body_preds = m_rule2info[r_id].m_body_preds[pos];
+                    for (unsigned i = 0; i < body_preds.size(); ++i) {
+                        if (pos_cube[i]) {
+                            m_stats.m_num_solver_assert_invocations++;
+                            m_solver.assert_expr(body_preds[i]);
+                        }
+                    }
+
+                    m_stats.m_num_solver_check_invocations++;
+                    if (m_solver.check() == l_false) {
+                        // unsat body
+                        STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") failed\n";);
+                        m_stats.m_num_rules_failed_uninterp++;
+                    }
+                    else {
+                        cart_pred_abst_rule(r_id, x - 1, nodes, fixed_pos, fixed_node, orig_num_nodes);
+                    }
+
+                    nodes.pop_back();
                 }
             }
-            m_stats.m_num_solver_check_invocations++;
-            if (m_solver.check() == l_false) {
-                // unsat body
-                STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") failed\n";);
-                m_stats.m_num_rules_failed++;
-                return false;
-            }
-            // collect abstract cube
-            expr_ref_vector const& head_preds = m_rule2info[r_id].m_head_preds;
+            else {
+                scoped_push _push1(m_solver);
+                m_stats.m_num_solver_assert_invocations++;
+                m_solver.assert_expr(m_rule2info[r_id].m_body);
 
+                m_stats.m_num_solver_check_invocations++;
+                if (m_solver.check() == l_false) {
+                    // unsat body
+                    STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") failed\n";);
+                    m_stats.m_num_rules_failed_interp++;
+                }
+                else {
+                    // collect abstract cube
+                    expr_ref_vector const& head_preds = m_rule2info[r_id].m_head_preds;
+                    cube_t cube = cart_pred_abst_cube(head_preds);
+                    STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") succeeded, with cube [" << cube << "]\n";);
+                    m_stats.m_num_rules_succeeded++;
+
+                    // add and check the node
+                    node_vector revnodes(nodes);
+                    revnodes.reverse();
+                    check_node_property(add_node(m_rule2info[r_id].m_func_decl, cube, r_id, revnodes));
+                }
+            }
+        }
+
+        cube_t cart_pred_abst_cube(expr_ref_vector const& head_preds) {
 #ifndef USE_PUSH_POP
             expr_ref_vector bs(m);
             for (unsigned i = 0; i < head_preds.size(); ++i) {
@@ -1211,6 +1198,7 @@ namespace datalog {
             }
 #endif
 
+            cube_t cube;
             cube.resize(head_preds.size());
             for (unsigned i = 0; i < head_preds.size(); ++i) {
 #ifdef USE_PUSH_POP
@@ -1225,9 +1213,7 @@ namespace datalog {
                 cube[i] = (m_solver.check(1, &e) == l_false);
 #endif
             }
-            STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") succeeded, with cube [" << cube << "]\n";);
-            m_stats.m_num_rules_succeeded++;
-            return true;
+            return cube;
         }
 
         void check_node_property(unsigned id) {

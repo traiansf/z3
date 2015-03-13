@@ -351,7 +351,7 @@ public:
         smt::kernel solver(m, new_param);
         solver.assert_expr(m_constraints);
         if (solver.check() != l_true) {
-            STRACE("predabst", tout << "Unable to find solution";);
+            STRACE("predabst", tout << "Unable to find solution\n";);
             return false;
         }
 
@@ -532,7 +532,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& so
 
     ast_manager& m = lhs.get_manager();
     if (!m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it is not a conjunction of at least 2 terms";);
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it is not a conjunction of at least 2 terms\n";);
         return false;
     }
 
@@ -546,7 +546,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& so
         }
     }
     if (!hasv) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it contains no variable from vs";);
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it contains no variable from vs\n";);
         return false;
     }
 
@@ -558,7 +558,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& so
         }
     }
     if (!hasw) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it contains no variable from ws";);
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it contains no variable from ws\n";);
         return false;
     }
 
@@ -576,7 +576,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& so
 
     expr_ref constraint_st(m);
     if (!exists_valid(to_solve, vsws, q_vars, constraint_st)) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: lambda is unsatisfiable";);
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: lambda is unsatisfiable\n";);
         return false;
     }
 
@@ -584,7 +584,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& so
     smt::kernel solver(m, new_param);
     solver.assert_expr(constraint_st);
     if (solver.check() != l_true) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: constraint is unsatisfiable";);
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: constraint is unsatisfiable\n";);
         return false;
     }
 

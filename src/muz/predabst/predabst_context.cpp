@@ -22,6 +22,8 @@ Revision History:
 #include "dl_context.h"
 #include "unifier.h"
 #include "var_subst.h"
+#include "simplifier.h"
+#include "arith_simplifier_plugin.h"
 #include "substitution.h"
 #include "smt_kernel.h"
 #include "dl_transforms.h"
@@ -31,6 +33,7 @@ Revision History:
 
 #define PREDABST_ORDER_CARTPROD_CHOICES
 #undef PREDABST_ASSERT_EXPR_UPFRONT
+#undef PREDABST_NO_SIMPLIFY
 
 namespace datalog {
 
@@ -241,6 +244,9 @@ namespace datalog {
         smt_params             m_fparams;     // parameters specific to smt solving
         smt::kernel            m_solver;      // basic SMT solver class
         mutable var_subst      m_var_subst;   // substitution object. It gets updated and reset.
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+        simplifier             m_simplifier;
+#endif
         volatile bool          m_cancel;      // Boolean flag to track external cancelation.
         stats                  m_stats;       // statistics information specific to the predabst module.
 
@@ -293,6 +299,9 @@ namespace datalog {
             m_fp_params(fp_params),
             m_solver(m, m_fparams),
             m_var_subst(m, false),
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+            m_simplifier(m),
+#endif
             m_cancel(false),
             m_func_decls(m),
             m_template(m) {
@@ -300,6 +309,17 @@ namespace datalog {
             m_fparams.m_mbqi = false;
             m_fparams.m_soft_timeout = 1000;
             m_fparams.m_model = false;
+#ifdef PREDABST_NO_SIMPLIFY
+            m_fparams.m_nnf_cnf = false;
+            m_fparams.m_eliminate_and = false;
+            m_fparams.m_pre_simplifier = false;
+#endif
+
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+            basic_simplifier_plugin* bsimp = alloc(basic_simplifier_plugin, m);
+            m_simplifier.register_plugin(bsimp);
+            m_simplifier.register_plugin(alloc(arith_simplifier_plugin, m, *bsimp, m_fparams));
+#endif
         }
 
         ~imp() {
@@ -1016,7 +1036,12 @@ namespace datalog {
                 expr_ref_vector heads = app_inst_preds(apply_subst(r->get_head(), rule_subst));
                 STRACE("predabst", tout << "  head preds: "; print_expr_ref_vector(tout, heads););
                 for (unsigned i = 0; i < heads.size(); ++i) {
-                    heads[i] = m.mk_not(heads.get(i));
+                    expr_ref e(m.mk_not(heads.get(i)), m);
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+                    proof_ref pr(m);
+                    m_simplifier(e, e, pr);
+#endif
+                    heads[i] = e;
                 }
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                 expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);
@@ -1030,6 +1055,14 @@ namespace datalog {
             for (unsigned i = 0; i < usz; ++i) {
                 expr_ref_vector tails = app_inst_preds(apply_subst(r->get_tail(i), rule_subst));
                 STRACE("predabst", tout << "  body preds " << i << ": "; print_expr_ref_vector(tout, tails););
+                for (unsigned i = 0; i < tails.size(); ++i) {
+                    expr_ref e(tails.get(i), m);
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+                    proof_ref pr(m);
+                    m_simplifier(e, e, pr);
+#endif
+                    tails[i] = e;
+                }
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                 expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
                 info.m_body_pred_cond_vars.push_back(tail_cond_vars);
@@ -1056,7 +1089,12 @@ namespace datalog {
             expr_ref_vector heads = app_inst_preds(instance.m_head);
             STRACE("predabst", tout << "  head preds: "; print_expr_ref_vector(tout, heads););
             for (unsigned i = 0; i < heads.size(); ++i) {
-                heads[i] = m.mk_not(heads.get(i));
+                expr_ref e(m.mk_not(heads.get(i)), m);
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+                proof_ref pr(m);
+                m_simplifier(e, e, pr);
+#endif
+                heads[i] = e;
             }
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);

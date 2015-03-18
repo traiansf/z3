@@ -26,8 +26,11 @@ Revision History:
 #include "smt_kernel.h"
 #include "dl_transforms.h"
 #include "fixedpoint_params.hpp"
+#include <vector>
+#include <algorithm>
 
-#define USE_PUSH_POP
+#define PREDABST_ORDER_CARTPROD_CHOICES
+#undef PREDABST_ASSERT_EXPR_UPFRONT
 
 namespace datalog {
 
@@ -98,9 +101,9 @@ namespace datalog {
             unsigned m_num_predabst_iterations;
             unsigned m_num_solver_assert_invocations;
             unsigned m_num_solver_check_invocations;
+            unsigned m_num_rules_unsatisfiable;
             unsigned m_num_rules_succeeded;
-            unsigned m_num_rules_failed_interp;
-            unsigned m_num_rules_failed_uninterp;
+            unsigned m_num_rules_failed;
             unsigned m_num_nodes_created;
             unsigned m_num_nodes_suppressed;
             unsigned m_num_nodes_subsumed;
@@ -134,19 +137,89 @@ namespace datalog {
                 m_has_template(false) {}
         };
 
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+        struct rule_instance_info {
+            expr_ref_vector         m_head_pred_cond_vars;
+            vector<expr_ref_vector> m_body_pred_cond_vars;
+            smt::kernel*            m_rule_solver;
+            rule_instance_info(ast_manager& m) :
+                m_head_pred_cond_vars(m),
+                m_rule_solver(NULL) {}
+            unsigned uninterpreted_tail_size() const {
+                return m_body_pred_cond_vars.size();
+            }
+            void reset() {
+                m_head_pred_cond_vars.reset();
+                m_body_pred_cond_vars.reset();
+                m_rule_solver->reset();
+            }
+            void cancel() {
+                m_rule_solver->cancel();
+            }
+            void reset_cancel() {
+                m_rule_solver->reset_cancel();
+            }
+            void alloc_solver(ast_manager& m, smt_params& fparams) {
+                CASSERT("predabst", !m_rule_solver);
+                m_rule_solver = alloc(smt::kernel, m, fparams);
+            }
+            void dealloc_solver() {
+                CASSERT("predabst", m_rule_solver);
+                dealloc(m_rule_solver);
+                m_rule_solver = NULL;
+            }
+            void display(std::ostream& out) const {
+                out << "      head preds cond vars: ";
+                print_expr_ref_vector(out, m_head_pred_cond_vars);
+                for (unsigned i = 0; i < m_body_pred_cond_vars.size(); ++i) {
+                    out << "      body pred cond vars " << i << ": ";
+                    print_expr_ref_vector(out, m_body_pred_cond_vars[i]);
+                }
+            }
+        };
+#else
+        struct rule_instance_info {
+            expr_ref                m_body;
+            expr_ref_vector         m_head_preds;
+            vector<expr_ref_vector> m_body_preds;
+            bool                    m_unsat;
+            rule_instance_info(ast_manager& m) :
+                m_body(m),
+                m_head_preds(m) {}
+            unsigned uninterpreted_tail_size() const {
+                return m_body_preds.size();
+            }
+            void reset() {
+                m_head_preds.reset();
+                m_body_preds.reset();
+            }
+            void cancel() {}
+            void reset_cancel() {}
+            void alloc_solver(ast_manager& m, smt_params& fparams) {}
+            void dealloc_solver() {}
+            void display(std::ostream& out) const {
+                out << "      body: " << mk_pp(m_body, m_body.m()) << std::endl;
+                out << "      head preds: ";
+                print_expr_ref_vector(out, m_head_preds);
+                for (unsigned i = 0; i < m_body_preds.size(); ++i) {
+                    out << "      body preds " << i << ": ";
+                    print_expr_ref_vector(out, m_body_preds[i]);
+                }
+            }
+        };
+#endif
+
         struct rule_info {
             func_decl*              m_func_decl;
             rule*                   m_rule;
             unsigned                m_template_id;
-            expr_ref                m_body;
-            expr_ref_vector         m_head_preds;
-            vector<expr_ref_vector> m_body_preds;
+            rule_instance_info      m_instance_info;
+            bool                    m_unsat;
             rule_info(func_decl* func_decl, rule* rule, unsigned template_id, ast_manager& m) :
                 m_func_decl(func_decl),
                 m_rule(rule),
                 m_template_id(template_id),
-                m_body(m),
-                m_head_preds(m) {}
+                m_instance_info(m) {}
         };
 
         struct node_info {
@@ -226,12 +299,16 @@ namespace datalog {
 
             m_fparams.m_mbqi = false;
             m_fparams.m_soft_timeout = 1000;
+            m_fparams.m_model = false;
         }
 
         ~imp() {
             for (obj_map<func_decl, func_decl_info*>::iterator it = m_func_decl2info.begin(),
                 end = m_func_decl2info.end(); it != end; ++it) {
                 dealloc(it->m_value);
+            }
+            for (unsigned i = 0; i < m_rule2info.size(); ++i) {
+                m_rule2info[i].m_instance_info.dealloc_solver();
             }
         }
 
@@ -249,6 +326,7 @@ namespace datalog {
 
             find_rule_uses(rules);
 
+            CASSERT("predabst", m_rule2info.empty());
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
                 m_rule2info.push_back(rule_info(r->get_decl(), r, 0, m));
@@ -257,18 +335,28 @@ namespace datalog {
                 m_rule2info.push_back(rule_info(m_template.get_template(i).m_head->get_decl(), nullptr, i, m));
             }
 
+            for (unsigned i = 0; i < m_rule2info.size(); ++i) {
+                m_rule2info[i].m_instance_info.alloc_solver(m, m_fparams);
+            }
+
             return abstract_check_refine();
         }
 
         void cancel() {
             m_cancel = true;
             m_solver.cancel();
+            for (unsigned i = 0; i < m_rule2info.size(); ++i) {
+                m_rule2info[i].m_instance_info.cancel();
+            }
         }
 
         void cleanup() {
             m_cancel = false;
             // TBD hmm?
             m_solver.reset_cancel();
+            for (unsigned i = 0; i < m_rule2info.size(); ++i) {
+                m_rule2info[i].m_instance_info.reset_cancel();
+            }
         }
 
         void reset_statistics() {
@@ -281,9 +369,9 @@ namespace datalog {
             UPDATE_STAT(m_num_predabst_iterations);
             UPDATE_STAT(m_num_solver_assert_invocations);
             UPDATE_STAT(m_num_solver_check_invocations);
+            UPDATE_STAT(m_num_rules_unsatisfiable);
             UPDATE_STAT(m_num_rules_succeeded);
-            UPDATE_STAT(m_num_rules_failed_interp);
-            UPDATE_STAT(m_num_rules_failed_uninterp);
+            UPDATE_STAT(m_num_rules_failed);
             UPDATE_STAT(m_num_nodes_created);
             UPDATE_STAT(m_num_nodes_suppressed);
             UPDATE_STAT(m_num_nodes_subsumed);
@@ -558,15 +646,15 @@ namespace datalog {
                     for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
                         func_decl* fdecl = r->get_decl(j);
                         if (is_predicate_list(fdecl)) {
-                            STRACE("predabst", tout << "Error: found predicate list " << fdecl->get_name() << " in non-head position";);
+                            STRACE("predabst", tout << "Error: found predicate list " << fdecl->get_name() << " in non-head position\n";);
                             throw default_exception("found predicate list " + fdecl->get_name().str() + " in non-head position");
                         }
                         if (is_template_extra(fdecl)) {
-                            STRACE("predabst", tout << "Error: found extra template constraint in non-head position";);
+                            STRACE("predabst", tout << "Error: found extra template constraint in non-head position\n";);
                             throw default_exception("found extra template constraint in non-head position");
                         }
                         if (is_template(fdecl)) {
-                            STRACE("predabst", tout << "Error: found template " << fdecl->get_name() << " in non-head position";);
+                            STRACE("predabst", tout << "Error: found template " << fdecl->get_name() << " in non-head position\n";);
                             throw default_exception("found template " + fdecl->get_name().str() + " in non-head position");
                         }
                         process_func_decl(rules, fdecl);
@@ -698,7 +786,7 @@ namespace datalog {
             }
 
             if (r->get_uninterpreted_tail_size() != 0) {
-                STRACE("predabst", tout << "Error: extra template constraint has an uninterpreted tail";);
+                STRACE("predabst", tout << "Error: extra template constraint has an uninterpreted tail\n";);
                 throw default_exception("extra template constraint has an uninterpreted tail");
             }
 
@@ -898,58 +986,84 @@ namespace datalog {
             else {
                 instantiate_template_rule(m_rule2info[r_id].m_template_id, r_id);
             }
+
+            m_rule2info[r_id].m_unsat = !rule_body_satisfiable(r_id);
         }
 
         void instantiate_regular_rule(rule* r, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating rule " << r_id << "\n";);
+            rule_instance_info& info = m_rule2info[r_id].m_instance_info;
+            info.reset();
 
-            // conjoin constraints in rule body
+            // create grounding substitution
+            expr_ref_vector rule_subst = get_subst_vect_free(r, "c");
+
+            // create ground body
             unsigned usz = r->get_uninterpreted_tail_size();
             unsigned tsz = r->get_tail_size();
             expr_ref conj = mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz));
-            STRACE("predabst", tout << "  body (before subst): " << mk_pp(conj, m) << "\n";);
-
-            // apply grounding substitution
-            expr_ref_vector rule_subst = get_subst_vect_free(r, "c");
             conj = apply_subst(conj, rule_subst);
-            STRACE("predabst", tout << "  body (after subst): " << mk_pp(conj, m) << "\n";);
-
-            // store ground body and instantiations
-            rule_info& info = m_rule2info[r_id];
+            STRACE("predabst", tout << "  body: " << mk_pp(conj, m) << "\n";);
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+            m_stats.m_num_solver_assert_invocations++;
+            info.m_rule_solver->assert_expr(conj);
+#else
             info.m_body = conj;
+#endif
 
-            // store instantiation for non-query head
+            // create instantiations for non-query head
             if (!m_func_decl2info[r->get_decl()]->m_is_output_predicate) {
                 expr_ref_vector heads = app_inst_preds(apply_subst(r->get_head(), rule_subst));
+                STRACE("predabst", tout << "  head preds: "; print_expr_ref_vector(tout, heads););
                 for (unsigned i = 0; i < heads.size(); ++i) {
                     heads[i] = m.mk_not(heads.get(i));
                 }
-                STRACE("predabst", tout << "  head preds: "; print_expr_ref_vector(tout, heads););
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);
+                info.m_head_pred_cond_vars.swap(head_cond_vars);
+#else
                 info.m_head_preds.swap(heads);
+#endif
             }
 
-            // store instantiation for body applications
-            info.m_body_preds.reset();
+            // create instantiations for body applications
             for (unsigned i = 0; i < usz; ++i) {
                 expr_ref_vector tails = app_inst_preds(apply_subst(r->get_tail(i), rule_subst));
                 STRACE("predabst", tout << "  body preds " << i << ": "; print_expr_ref_vector(tout, tails););
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
+                info.m_body_pred_cond_vars.push_back(tail_cond_vars);
+#else
                 info.m_body_preds.push_back(tails);
+#endif
             }
         }
 
         void instantiate_template_rule(unsigned t_id, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating template " << t_id << " (rule " << r_id << ")\n";);
             rel_template const& instance = m_template.get_template_instance(t_id);
+            rule_instance_info& info = m_rule2info[r_id].m_instance_info;
+            info.reset();
 
-            rule_info& info = m_rule2info[r_id];
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+            m_stats.m_num_solver_assert_invocations++;
+            info.m_rule_solver->assert_expr(instance.m_body);
+#else
             info.m_body = instance.m_body;
+#endif
 
             CASSERT("predabst", !m_func_decl2info[instance.m_head->get_decl()]->m_is_output_predicate);
             expr_ref_vector heads = app_inst_preds(instance.m_head);
+            STRACE("predabst", tout << "  head preds: "; print_expr_ref_vector(tout, heads););
             for (unsigned i = 0; i < heads.size(); ++i) {
                 heads[i] = m.mk_not(heads.get(i));
             }
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+            expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);
+            info.m_head_pred_cond_vars.swap(head_cond_vars);
+#else
             info.m_head_preds.swap(heads);
+#endif
         }
 
         // instantiate each predicate by replacing its free variables with (grounded) arguments of gappl
@@ -960,6 +1074,46 @@ namespace datalog {
             expr_ref_vector inst = build_subst(vars, gappl->get_args());
             // preds instantiates to inst_preds
             return apply_subst(preds, inst);
+        }
+
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+        expr_ref_vector assert_exprs_upfront(expr_ref_vector const& preds, smt::kernel* solver) {
+            expr_ref_vector cond_vars(m);
+            for (unsigned i = 0; i < preds.size(); ++i) {
+                expr_ref c(m.mk_fresh_const("cv", m.mk_bool_sort()), m);
+                cond_vars.push_back(c);
+                expr_ref e(m.mk_iff(preds.get(i), c), m);
+                m_stats.m_num_solver_assert_invocations++;
+                solver->assert_expr(e);
+            }
+            return cond_vars;
+        }
+#endif
+
+        bool rule_body_satisfiable(unsigned r_id) {
+            rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
+
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+            scoped_push _push1(m_solver);
+            m_stats.m_num_solver_assert_invocations++;
+            m_solver.assert_expr(info.m_body);
+#endif
+
+            m_stats.m_num_solver_check_invocations++;
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+            lbool result = info.m_rule_solver->check();
+#else
+            lbool result = m_solver.check();
+#endif
+            if (result == l_false) {
+                // unsat body
+                STRACE("predabst", tout << "Rule " << r_id << " will always fail\n";);
+                m_stats.m_num_rules_unsatisfiable++;
+                return false;
+            }
+            else {
+                return true;
+            }
         }
 
 		expr_ref model_eval_app(model_ref const& md, app const* app) {
@@ -1029,7 +1183,7 @@ namespace datalog {
                 // initial abstract inference
                 STRACE("predabst", tout << "Performing initial inference\n";);
                 for (unsigned r_id = 0; !m_cancel && r_id < m_rule2info.size(); ++r_id) {
-                    if (m_rule2info[r_id].m_body_preds.size() == 0) {
+                    if (m_rule2info[r_id].m_instance_info.uninterpreted_tail_size() == 0) {
                         initialize_abs(r_id);
                     }
                 }
@@ -1084,7 +1238,6 @@ namespace datalog {
                     // Try all possible combinations of nodes that can be used
                     // with this rule, assuming that the new node is used at
                     // this position.
-                    STRACE("predabst-cprod", count_cartesian_product(tout, r, *current_pos););
                     cart_pred_abst_rule(*r_id, *current_pos, node_id);
                 }
             }
@@ -1100,27 +1253,61 @@ namespace datalog {
             return positions;
         }
 
-        void count_cartesian_product(std::ostream& out, rule* r, unsigned fixed_pos) const {
-            for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
-                unsigned n = (pos == fixed_pos) ? 1 : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes.num_elems();
-                out << "There are " << n << " option(s) for position " << pos << "\n";
-            }
-        }
-
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         void cart_pred_abst_rule(unsigned r_id, unsigned fixed_pos = 0, unsigned fixed_node = NON_NODE) {
-            CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < m_rule2info[r_id].m_rule->get_uninterpreted_tail_size()));
+            rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
+            CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < info.uninterpreted_tail_size()));
+
+            if (m_rule2info[r_id].m_unsat) {
+                STRACE("predabst", tout << "Skipping rule " << r_id << " with unsatisfiable body\n";);
+                return;
+            }
+
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+            scoped_push _push1(m_solver);
+            m_stats.m_num_solver_assert_invocations++;
+            m_solver.assert_expr(info.m_body);
+#endif
+
             node_vector nodes;
-            cart_pred_abst_rule(r_id, 0, nodes, fixed_pos, fixed_node);
+            expr_ref_vector cond_vars(m); // unused unless PREDABST_ASSERT_EXPR_UPFRONT defined
+            vector<unsigned> pos_order = get_rule_pos_order(r_id, fixed_pos);
+            cart_pred_abst_rule(r_id, 0, fixed_pos, fixed_node, nodes, cond_vars, pos_order);
         }
 
-        void cart_pred_abst_rule(unsigned r_id, unsigned pos, node_vector& nodes, unsigned fixed_pos, unsigned fixed_node) {
-            rule* r = m_rule2info[r_id].m_rule;
-            if (r && (pos < r->get_uninterpreted_tail_size())) {
+        vector<unsigned> get_rule_pos_order(unsigned r_id, unsigned fixed_pos) {
+            rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
+
+            std::vector<std::pair<unsigned, unsigned>> pos_counts;
+            for (unsigned pos = 0; pos < info.uninterpreted_tail_size(); ++pos) {
+                unsigned n = (pos == fixed_pos) ? 1 : m_func_decl2info[m_rule2info[r_id].m_rule->get_decl(pos)]->m_max_reach_nodes.num_elems();
+                STRACE("predabst-cprod", tout << "There are " << n << " option(s) for position " << pos << "\n";);
+                pos_counts.push_back(std::make_pair(n, pos));
+            }
+
+#ifdef PREDABST_ORDER_CARTPROD_CHOICES
+            std::sort(pos_counts.begin(), pos_counts.end());
+#endif
+
+            vector<unsigned> pos_order;
+            for (unsigned i = 0; i < pos_counts.size(); ++i) {
+                pos_order.push_back(pos_counts[i].second);
+            }
+            return pos_order;
+        }
+
+        void cart_pred_abst_rule(unsigned r_id, unsigned pos_idx, unsigned fixed_pos, unsigned fixed_node, node_vector& nodes, expr_ref_vector& cond_vars, vector<unsigned> const& pos_order) {
+            rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
+
+            if (pos_idx < info.uninterpreted_tail_size()) {
+                unsigned pos = pos_order[pos_idx];
+
                 node_set fixed_node_singleton;
                 fixed_node_singleton.insert(fixed_node);
 
+                rule* r = m_rule2info[r_id].m_rule;
+                CASSERT("predabst", r);
                 node_set pos_nodes = (pos == fixed_pos) ? fixed_node_singleton : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes; // make a copy, to prevent it from changing while we iterate over it
                 for (node_set::iterator pos_node = pos_nodes.begin(), pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
                     if ((*pos_node > fixed_node) || ((pos > fixed_pos) && (*pos_node == fixed_node))) {
@@ -1131,62 +1318,100 @@ namespace datalog {
                     }
 
                     nodes.push_back(*pos_node);
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                    unsigned num_cond_vars_pushed = 0;
+#else
                     scoped_push _push1(m_solver);
+#endif
                     cube_t const& pos_cube = m_node2info[*pos_node].m_cube;
-                    expr_ref_vector const& body_preds = m_rule2info[r_id].m_body_preds[pos];
-                    for (unsigned i = 0; i < body_preds.size(); ++i) {
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                    expr_ref_vector const& body_pred_cond_vars = info.m_body_pred_cond_vars[pos];
+                    unsigned num_preds = body_pred_cond_vars.size();
+#else
+                    expr_ref_vector const& body_preds = info.m_body_preds[pos];
+                    unsigned num_preds = body_preds.size();
+#endif
+                    CASSERT("predabst", num_preds == pos_cube.size());
+                    for (unsigned i = 0; i < num_preds; ++i) {
                         if (pos_cube[i]) {
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                            num_cond_vars_pushed++;
+                            cond_vars.push_back(body_pred_cond_vars[i]);
+#else
                             m_stats.m_num_solver_assert_invocations++;
                             m_solver.assert_expr(body_preds[i]);
+#endif
                         }
                     }
 
                     m_stats.m_num_solver_check_invocations++;
-                    if (m_solver.check() == l_false) {
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                    lbool result = info.m_rule_solver->check(cond_vars.size(), cond_vars.c_ptr());
+#else
+                    lbool result = m_solver.check();
+#endif
+                    if (result == l_false) {
                         // unsat body
-                        STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << "...) failed\n";);
-                        m_stats.m_num_rules_failed_uninterp++;
+                        STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << "...) failed\n";); // >>> note: order of nodes is not as expected!
+                        m_stats.m_num_rules_failed++;
                     }
                     else {
-                        cart_pred_abst_rule(r_id, pos + 1, nodes, fixed_pos, fixed_node);
+                        cart_pred_abst_rule(r_id, pos_idx + 1, fixed_pos, fixed_node, nodes, cond_vars, pos_order);
                     }
 
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                    for (unsigned i = 0; i < num_cond_vars_pushed; ++i) {
+                        cond_vars.pop_back();
+                    }
+#endif
                     nodes.pop_back();
                 }
             }
             else {
-                scoped_push _push1(m_solver);
-                m_stats.m_num_solver_assert_invocations++;
-                m_solver.assert_expr(m_rule2info[r_id].m_body);
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                CASSERT("predabst", info.m_rule_solver->check(cond_vars.size(), cond_vars.c_ptr()) != l_false);
+#else
+                CASSERT("predabst", m_solver.check() != l_false);
+#endif
 
-                m_stats.m_num_solver_check_invocations++;
-                if (m_solver.check() == l_false) {
-                    // unsat body
-                    STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") failed\n";);
-                    m_stats.m_num_rules_failed_interp++;
-                }
-                else {
-                    // collect abstract cube
-                    expr_ref_vector const& head_preds = m_rule2info[r_id].m_head_preds;
-                    cube_t cube = cart_pred_abst_cube(head_preds);
-                    STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") succeeded, with cube [" << cube << "]\n";);
-                    m_stats.m_num_rules_succeeded++;
+                // collect abstract cube
+                cube_t cube = cart_pred_abst_cube(info, cond_vars);
+                STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << ") succeeded, with cube [" << cube << "]\n";);
+                m_stats.m_num_rules_succeeded++;
 
-                    // add and check the node
-                    check_node_property(add_node(m_rule2info[r_id].m_func_decl, cube, r_id, nodes));
-                }
+                // add and check the node
+                check_node_property(add_node(m_rule2info[r_id].m_func_decl, cube, r_id, nodes));
             }
         }
 
-        cube_t cart_pred_abst_cube(expr_ref_vector const& head_preds) {
+        cube_t cart_pred_abst_cube(rule_instance_info const& info, expr_ref_vector& cond_vars) {
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+            expr_ref_vector const& head_pred_cond_vars = info.m_head_pred_cond_vars;
+            unsigned num_preds = head_pred_cond_vars.size();
+#else
+            expr_ref_vector const& head_preds = info.m_head_preds;
+            unsigned num_preds = head_preds.size();
+#endif
             cube_t cube;
-            cube.resize(head_preds.size());
-            for (unsigned i = 0; i < head_preds.size(); ++i) {
+            cube.resize(num_preds);
+            for (unsigned i = 0; i < num_preds; ++i) {
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                cond_vars.push_back(head_pred_cond_vars[i]);
+#else
                 scoped_push _push2(m_solver);
                 m_stats.m_num_solver_assert_invocations++;
                 m_solver.assert_expr(head_preds[i]);
+#endif
                 m_stats.m_num_solver_check_invocations++;
-                cube[i] = (m_solver.check() == l_false);
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                lbool result = info.m_rule_solver->check(cond_vars.size(), cond_vars.c_ptr());
+#else
+                lbool result = m_solver.check();
+#endif
+                cube[i] = (result == l_false);
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                cond_vars.pop_back();
+#endif
             }
             return cube;
         }
@@ -1769,15 +1994,8 @@ namespace datalog {
             }
             out << "  Instantiated rules:" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {
-                out << "    " << r_id << ": "
-                    << mk_pp(m_rule2info[r_id].m_body, m) << std::endl;
-                out << "      head preds: ";
-                print_expr_ref_vector(out, m_rule2info[r_id].m_head_preds);
-                vector<expr_ref_vector> const& body_preds_vector = m_rule2info[r_id].m_body_preds;
-                for (unsigned i = 0; i < body_preds_vector.size(); ++i) {
-                    out << "      body preds " << i << ": ";
-                    print_expr_ref_vector(out, body_preds_vector[i]);
-                }
+                out << "    " << r_id << ":" << std::endl;
+                m_rule2info[r_id].m_instance_info.display(out);
             }
             out << "=====================================\n";
         }

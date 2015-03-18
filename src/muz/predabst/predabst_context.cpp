@@ -104,7 +104,9 @@ namespace datalog {
             unsigned m_num_refinement_iterations;
             unsigned m_num_predabst_iterations;
             unsigned m_num_solver_assert_invocations;
-            unsigned m_num_solver_check_invocations;
+            unsigned m_num_solver_check_interp_invocations;
+            unsigned m_num_solver_check_body_invocations;
+            unsigned m_num_solver_check_head_invocations;
             unsigned m_num_rules_unsatisfiable;
             unsigned m_num_rules_succeeded;
             unsigned m_num_rules_failed;
@@ -405,7 +407,9 @@ namespace datalog {
             UPDATE_STAT(m_num_refinement_iterations);
             UPDATE_STAT(m_num_predabst_iterations);
             UPDATE_STAT(m_num_solver_assert_invocations);
-            UPDATE_STAT(m_num_solver_check_invocations);
+            UPDATE_STAT(m_num_solver_check_interp_invocations);
+            UPDATE_STAT(m_num_solver_check_head_invocations);
+            UPDATE_STAT(m_num_solver_check_body_invocations);
             UPDATE_STAT(m_num_rules_unsatisfiable);
             UPDATE_STAT(m_num_rules_succeeded);
             UPDATE_STAT(m_num_rules_failed);
@@ -1243,7 +1247,7 @@ namespace datalog {
             m_solver.assert_expr(info.m_body);
 #endif
 
-            m_stats.m_num_solver_check_invocations++;
+            m_stats.m_num_solver_check_interp_invocations++;
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             lbool result = info.m_rule_solver->check();
 #else
@@ -1444,14 +1448,14 @@ namespace datalog {
         bool is_implied(expr* e, expr_ref_vector& cond_vars) {
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             cond_vars.push_back(e);
-            m_stats.m_num_solver_check_invocations++;
+            m_stats.m_num_solver_check_head_invocations++;
             lbool result = info.m_rule_solver->check(cond_vars.size(), cond_vars.c_ptr());
             cond_vars.pop_back();
 #else
             scoped_push _push2(m_solver);
             m_stats.m_num_solver_assert_invocations++;
             m_solver.assert_expr(e);
-            m_stats.m_num_solver_check_invocations++;
+            m_stats.m_num_solver_check_head_invocations++;
             lbool result = m_solver.check();
 #endif
             return (result == l_false);
@@ -1519,7 +1523,7 @@ namespace datalog {
                         }
                     }
 
-                    m_stats.m_num_solver_check_invocations++;
+                    m_stats.m_num_solver_check_body_invocations++;
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                     lbool result = info.m_rule_solver->check(cond_vars.size(), cond_vars.c_ptr());
 #else

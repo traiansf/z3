@@ -1352,9 +1352,13 @@ namespace datalog {
                         m_cancel = true;
                     }
                 }
+
+#ifdef Z3DEBUG
 				if (!m_cancel && !check_solution()) {
 					throw default_exception("check_solution failed");
 				}
+#endif
+
                 // We managed to find a solution.
                 return true;
             }
@@ -1445,7 +1449,7 @@ namespace datalog {
             return pos_order;
         }
 
-        bool is_implied(expr* e, expr_ref_vector& cond_vars) {
+        bool is_implied(expr* e, rule_instance_info const& info, expr_ref_vector& cond_vars) {
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             cond_vars.push_back(e);
             m_stats.m_num_solver_check_head_invocations++;
@@ -1462,15 +1466,15 @@ namespace datalog {
         }
 
 #ifndef PREDABST_COMPLETE_CUBE
-        void build_cube(cube_t& cube, expr_ref_vector const& es, vector<pred_info> const& preds, vector<unsigned> const& pred_idxs, expr_ref_vector& cond_vars) {
+        void build_cube(cube_t& cube, expr_ref_vector const& es, vector<pred_info> const& preds, vector<unsigned> const& pred_idxs, rule_instance_info const& info, expr_ref_vector& cond_vars) {
             for (unsigned i = 0; i < pred_idxs.size(); ++i) {
                 unsigned idx = pred_idxs[i];
                 CASSERT("predabst", !cube[idx]);
-                if (is_implied(es[idx], cond_vars)) {
+                if (is_implied(es[idx], info, cond_vars)) {
                     cube[idx] = true;
                 }
                 else {
-                    build_cube(cube, es, preds, preds[idx].m_implied, cond_vars);
+                    build_cube(cube, es, preds, preds[idx].m_implied, info, cond_vars);
                 }
             }
         }
@@ -1574,11 +1578,11 @@ namespace datalog {
             cube.resize(num_preds);
 #ifdef PREDABST_COMPLETE_CUBE
             for (unsigned i = 0; i < num_preds; ++i) {
-                cube[i] = is_implied(es.get(i), cond_vars);
+                cube[i] = is_implied(es.get(i), info, cond_vars);
             }
 #else
             func_decl* fdecl = m_rule2info[r_id].m_func_decl;
-            build_cube(cube, es, m_func_decl2info[fdecl]->m_preds, m_func_decl2info[fdecl]->m_root_preds, cond_vars);
+            build_cube(cube, es, m_func_decl2info[fdecl]->m_preds, m_func_decl2info[fdecl]->m_root_preds, info, cond_vars);
 #endif
             return cube;
         }

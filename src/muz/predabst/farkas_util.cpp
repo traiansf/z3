@@ -313,7 +313,7 @@ class farkas_imp {
     farkas_pred m_rhs;
     expr_ref_vector m_lambdas;
     expr_ref_vector m_solutions;
-    expr_ref m_constraints;
+    expr_ref_vector m_constraints;
 
     ast_manager& m;
 
@@ -343,13 +343,15 @@ public:
             m_lambdas.push_back(m.mk_fresh_const("t", arith_util(m).mk_int()));
         }
 
-        m_constraints = make_constraints();
+        m_constraints.swap(make_constraints());
     }
 
     bool solve_constraint() {
         smt_params new_param;
         smt::kernel solver(m, new_param);
-        solver.assert_expr(m_constraints);
+        for (unsigned i = 0; i < m_constraints.size(); ++i) {
+            solver.assert_expr(m_constraints.get(i));
+        }
         if (solver.check() != l_true) {
             STRACE("predabst", tout << "Unable to find solution\n";);
             return false;
@@ -369,7 +371,7 @@ public:
         return true;
     }
 
-    expr_ref get_constraints() const {
+    expr_ref_vector const& get_constraints() const {
         return m_constraints;
     }
 
@@ -403,7 +405,8 @@ public:
         m_lhs.display(out);
         out << "RHS:\n";
         m_rhs.display(out);
-        out << "Constraint:\n" << mk_pp(m_constraints, m) << "\n";
+        out << "Constraint:\n";
+        print_expr_ref_vector(out, m_constraints);
         if (m_solutions.size() > 0) {
             out << "Solutions:\n";
         }
@@ -414,16 +417,16 @@ public:
 
 private:
 
-    expr_ref make_constraints() const {
+    expr_ref_vector make_constraints() const {
         arith_util arith(m);
         //CASSERT("predabst", m_lhs.get_param_pred_count() > 0);
         // XXX This assert fails on unsat-N.smt2, but without it the tests pass.  It's not clear whether this assert is wrong, or whether there's a bug.
 
-        expr_ref constraints(m.mk_true(), m);
+        expr_ref_vector constraints(m);
 
         for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
             if (m_lhs.get_op(i) == op_le) {
-                constraints = m.mk_and(constraints, arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
+                constraints.push_back(arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
             }
         }
 
@@ -431,7 +434,7 @@ private:
             for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
                 if (m_lhs.has_params(i)) {
                     if (m_lhs.get_op(i) != op_eq) {
-                        constraints = m.mk_and(constraints, m.mk_eq(m_lambdas.get(i), arith.mk_numeral(rational(1), true)));
+                        constraints.push_back(m.mk_eq(m_lambdas.get(i), arith.mk_numeral(rational(1), true)));
                     }
                     break;
                 }
@@ -443,26 +446,26 @@ private:
             for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
                 sum = arith.mk_add(sum, arith.mk_mul(m_lambdas.get(j), m_lhs.get_coeff(i, j)));
             }
-            constraints = m.mk_and(constraints, m.mk_eq(sum, m_rhs.get_coeff(i)));
+            constraints.push_back(m.mk_eq(sum, m_rhs.get_coeff(i)));
         }
 
         expr_ref sum_const(arith.mk_numeral(rational(0), true), m);
         for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
             sum_const = arith.mk_add(sum_const, arith.mk_mul(m_lambdas.get(j), m_lhs.get_const(j)));
         }
-        constraints = m.mk_and(constraints, arith.mk_le(sum_const, m_rhs.get_const()));
+        constraints.push_back(arith.mk_le(sum_const, m_rhs.get_const()));
 
         return constraints;
     }
 };
 
-static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref& constraint_st) {
+static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref_vector& constraint_st) {
     ast_manager& m = fml.m();
-    constraint_st = m.mk_true();
+    CASSERT("predabst", constraint_st.empty());
     expr_ref norm_fml = neg_and_2dnf(fml);
-    CASSERT("predabst", m.is_or(norm_fml));
-    for (unsigned i = 0; i < to_app(norm_fml)->get_num_args(); ++i) {
-        expr_ref disj(to_app(norm_fml)->get_arg(i), m);
+    expr_ref_vector disjs = get_disj_terms(norm_fml);
+    for (unsigned i = 0; i < disjs.size(); ++i) {
+        expr_ref disj(disjs.get(i), m);
         app_ref_vector q_vars_disj(q_vars);
         qe_lite ql1(m);
         ql1(q_vars_disj, disj);
@@ -471,23 +474,23 @@ static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_r
         if (!f_imp.solve_constraint()) {
             return false;
         }
-        constraint_st = m.mk_and(constraint_st, f_imp.get_constraints());
+        constraint_st.append(f_imp.get_constraints());
     }
     return true;
 }
 
-static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref& constraint_st, vector<lambda_kind>& all_lambda_kinds) {
+static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraint_st, vector<lambda_kind>& all_lambda_kinds) {
     ast_manager& m = fml.m();
-    constraint_st = m.mk_true();
+    CASSERT("predabst", constraint_st.empty());
     expr_ref norm_fml = neg_and_2dnf(fml);
-    CASSERT("predabst", m.is_or(norm_fml));
-    for (unsigned i = 0; i < to_app(norm_fml)->get_num_args(); ++i) {
+    expr_ref_vector disjs = get_disj_terms(norm_fml);
+    for (unsigned i = 0; i < disjs.size(); ++i) {
         farkas_imp f_imp(vars);
-        f_imp.set(expr_ref(to_app(norm_fml)->get_arg(i), m), expr_ref(m.mk_false(), m));
+        f_imp.set(expr_ref(disjs.get(i), m), expr_ref(m.mk_false(), m));
         if (!f_imp.solve_constraint()) {
             return false;
         }
-        constraint_st = m.mk_and(constraint_st, f_imp.get_constraints());
+        constraint_st.append(f_imp.get_constraints());
         all_lambda_kinds.append(f_imp.get_lambda_kinds());
     }
     return true;
@@ -527,8 +530,9 @@ void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& boun
     STRACE("predabst", tout << "WF decrease: " << mk_pp(decrease, m) << "\n";);
 }
 
-bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& sol_bound, expr_ref& sol_decrease) {
+bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* sol_bound, expr_ref* sol_decrease) {
     CASSERT("predabst", vsws.size() % 2 == 0);
+    CASSERT("predabst", (sol_bound && sol_decrease) || (!sol_bound && !sol_decrease));
 
     ast_manager& m = lhs.get_manager();
     if (!m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1) {
@@ -574,27 +578,39 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& so
         }
     }
 
-    expr_ref constraint_st(m);
+    expr_ref_vector constraint_st(m);
     if (!exists_valid(to_solve, vsws, q_vars, constraint_st)) {
         STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: lambda is unsatisfiable\n";);
         return false;
     }
 
     smt_params new_param;
+    if (!sol_bound && !sol_decrease) {
+        new_param.m_model = false;
+    }
     smt::kernel solver(m, new_param);
-    solver.assert_expr(constraint_st);
+    for (unsigned i = 0; i < constraint_st.size(); ++i) {
+        solver.assert_expr(constraint_st.get(i));
+    }
+
     if (solver.check() != l_true) {
         STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: constraint is unsatisfiable\n";);
         return false;
     }
 
-    model_ref modref;
-    solver.get_model(modref);
-    if (!(modref->eval(bound, sol_bound) && modref->eval(decrease, sol_decrease))) {
-        return false;
+    if (sol_bound && sol_decrease) {
+        model_ref modref;
+        solver.get_model(modref);
+        if (!(modref->eval(bound, *sol_bound) && modref->eval(decrease, *sol_decrease))) {
+            return false;
+        }
+
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is well-founded, with bound " << mk_pp(*sol_bound, m) << "; decrease " << mk_pp(*sol_decrease, m) << "\n";);
+    }
+    else {
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is well-founded\n";);
     }
     
-    STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is well-founded, with bound " << mk_pp(sol_bound, m) << "; decrease " << mk_pp(sol_decrease, m) << "\n";);
     return true;
 }
 
@@ -702,7 +718,7 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
 
     app_ref_vector q_vars(m);
-    expr_ref constraint_st(m);
+    expr_ref_vector constraint_st(m);
     if (!exists_valid(to_solve, vars, q_vars, constraint_st)) {
         STRACE("predabst", tout << "Interpolation failed: not exists_valid\n";);
         return false;
@@ -710,7 +726,9 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
 
     smt_params new_param;
     smt::kernel solver(m, new_param);
-    solver.assert_expr(constraint_st);
+    for (unsigned i = 0; i < constraint_st.size(); ++i) {
+        solver.assert_expr(constraint_st.get(i));
+    }
     if (solver.check() != l_true) {
         STRACE("predabst", tout << "Interpolation failed: constraint is unsatisfiable\n";);
         return false;
@@ -779,7 +797,7 @@ bool rel_template_suit::instantiate_templates() {
     expr_ref c1 = subst_template_body(m_acc, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
-    expr_ref constraint_st(m);
+    expr_ref_vector constraint_st(m);
     vector<lambda_kind> all_lambda_kinds;
     if (!mk_exists_forall_farkas(c1, args_coll, constraint_st, all_lambda_kinds)) {
         return false;
@@ -790,6 +808,6 @@ bool rel_template_suit::instantiate_templates() {
 
     STRACE("predabst", tout << "Using accumulated constraint " << mk_pp(m_acc, m) << "\n";);
     STRACE("predabst", tout << "Using lambda constraint " << mk_pp(lambda_cs, m) << "\n";);
-    expr_ref constraint(m.mk_and(constraint_st, lambda_cs), m);
+    expr_ref constraint(m.mk_and(mk_conj(constraint_st), lambda_cs), m);
     return instantiate_templates(constraint);
 }

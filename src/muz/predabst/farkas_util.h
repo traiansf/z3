@@ -26,7 +26,7 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
 
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease);
 
-bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref& sol_bound, expr_ref& sol_decrease);
+bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* sol_bound, expr_ref* sol_decrease);
 
 struct rel_template {
     app_ref m_head;

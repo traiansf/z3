@@ -23,11 +23,34 @@ Revision History:
 #include "smt_kernel.h"
 #include "smt_params.h"
 
+static void get_disj_terms(expr* e, ast_manager& m, expr_ref_vector& terms) {
+    if (m.is_or(e)) {
+        for (unsigned i = 0; i < to_app(e)->get_num_args(); ++i) {
+            get_disj_terms(to_app(e)->get_arg(i), m, terms);
+        }
+    }
+    else if (m.is_false(e)) {
+        // do nothing
+    }
+    else {
+        terms.push_back(e);
+    }
+}
+
+expr_ref_vector get_disj_terms(expr_ref const& e) {
+    expr_ref_vector terms(e.m());
+    get_disj_terms(e, e.m(), terms);
+    return terms;
+}
+
 static void get_conj_terms(expr* e, ast_manager& m, expr_ref_vector& terms) {
     if (m.is_and(e)) {
         for (unsigned i = 0; i < to_app(e)->get_num_args(); ++i) {
             get_conj_terms(to_app(e)->get_arg(i), m, terms);
         }
+    }
+    else if (m.is_true(e)) {
+        // do nothing
     }
     else {
         terms.push_back(e);
@@ -317,59 +340,46 @@ static expr_ref non_neg_formula(expr_ref const& fml);
 
 static expr_ref neg_formula(expr_ref const& fml) {
     ast_manager& m = fml.get_manager();
-    expr_ref_vector sub_formulas(m);
-    expr_ref_vector new_sub_formulas(m);
     if (m.is_and(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas.get(i), m)));
+        expr_ref_vector new_sub_formulas(m);
+        for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
+            new_sub_formulas.push_back(neg_formula(expr_ref(to_app(fml)->get_arg(i), m)));
         }
-        expr_ref ee1(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee1;
+        return mk_disj(new_sub_formulas);
     }
     else if (m.is_or(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(neg_formula(expr_ref(sub_formulas.get(i), m)));
+        expr_ref_vector new_sub_formulas(m);
+        for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
+            new_sub_formulas.push_back(neg_formula(expr_ref(to_app(fml)->get_arg(i), m)));
         }
-        expr_ref ee2(m.mk_and(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee2;
+        return mk_conj(new_sub_formulas);
     }
     else if (m.is_not(fml)) {
-        expr_ref ee3(to_app(fml)->get_arg(0), m);
-        expr_ref ee5(non_neg_formula(ee3));
-        return ee5;
+        return non_neg_formula(expr_ref(to_app(fml)->get_arg(0), m));
     }
     else {
-        expr_ref ee4(neg_expr(fml), m);
-        return ee4;
+        return neg_expr(fml);
     }
 }
 
 static expr_ref non_neg_formula(expr_ref const& fml) {
     ast_manager& m = fml.get_manager();
-    expr_ref_vector sub_formulas(m);
-    expr_ref_vector new_sub_formulas(m);
     if (m.is_and(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas.get(i), m)));
+        expr_ref_vector new_sub_formulas(m);
+        for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
+            new_sub_formulas.push_back(non_neg_formula(expr_ref(to_app(fml)->get_arg(i), m)));
         }
-        expr_ref ee1(m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee1;
+        return mk_conj(new_sub_formulas);
     }
     else if (m.is_or(fml)) {
-        sub_formulas.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
-        for (unsigned i = 0; i < sub_formulas.size(); ++i) {
-            new_sub_formulas.push_back(non_neg_formula(expr_ref(sub_formulas.get(i), m)));
+        expr_ref_vector new_sub_formulas(m);
+        for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
+            new_sub_formulas.push_back(non_neg_formula(expr_ref(to_app(fml)->get_arg(i), m)));
         }
-        expr_ref ee2(m.mk_or(sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-        return ee2;
+        return mk_disj(new_sub_formulas);
     }
     else if (m.is_not(fml)) {
-        expr_ref ee3(to_app(fml)->get_arg(0), m);
-        expr_ref ee5(neg_formula(ee3));
-        return ee5;
+        return neg_formula(expr_ref(to_app(fml)->get_arg(0), m));
     }
     else {
         return fml;
@@ -383,15 +393,14 @@ expr_ref neg_and_2dnf(expr_ref const& fml) {
     for (unsigned i = 0; i < dnf_struct.size(); ++i) {
         smt_params new_param;
         smt::kernel solver(fml.m(), new_param);
-        expr_ref conj(fml.m().mk_and(dnf_struct[i].size(), dnf_struct[i].c_ptr()), fml.m());
-
-        solver.assert_expr(conj);
-        if (solver.check() == l_true) {
-            disjs.push_back(conj);
+        for (unsigned j = 0; j < dnf_struct[i].size(); ++j) {
+            solver.assert_expr(dnf_struct[i].get(j));
         }
-        solver.reset();
+        if (solver.check() == l_true) {
+            disjs.push_back(mk_conj(dnf_struct[i]));
+        }
     }
-    return expr_ref(fml.m().mk_or(disjs.size(), disjs.c_ptr()), fml.m());
+    return mk_disj(disjs);
 }
 
 void print_expr_ref_vector(std::ostream& out, expr_ref_vector const& v, bool newline) {

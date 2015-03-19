@@ -28,6 +28,8 @@ inline ref_vector<T, TManager> vector_concat(ref_vector<T, TManager> const& v1, 
     return v;
 }
 
+expr_ref_vector get_disj_terms(expr_ref const& e);
+
 expr_ref_vector get_conj_terms(expr_ref const& e);
 
 expr_ref_vector get_additive_terms(expr_ref const& e);

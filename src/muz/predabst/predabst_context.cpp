@@ -1634,9 +1634,7 @@ namespace datalog {
             expr_ref_vector args = get_fresh_args(fdecl, "s");
             expr_ref to_rank = apply_subst(expr, build_subst(vars, args));
 
-            expr_ref bound(m);
-            expr_ref decrease(m);
-            return well_founded(args, to_rank, bound, decrease);
+            return well_founded(args, to_rank, NULL, NULL);
         }
 
         unsigned add_node(func_decl* fdecl, cube_t const& cube, unsigned r_id, node_vector const& nodes = node_vector()) {
@@ -1685,7 +1683,7 @@ namespace datalog {
         bool should_refine_predicates_not_wf(unsigned node_id, core_tree_wf_info& core_wf_info) {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "s");
             expr_ref to_wf = mk_core_tree_wf(node_id, args, core_wf_info.m_refine_info);
-            return well_founded(args, to_wf, core_wf_info.m_bound, core_wf_info.m_decrease);
+            return well_founded(args, to_wf, &core_wf_info.m_bound, &core_wf_info.m_decrease);
         }
 
         bool refine_predicates_not_wf(core_tree_wf_info const& core_wf_info) {

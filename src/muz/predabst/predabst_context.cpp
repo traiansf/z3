@@ -34,7 +34,8 @@ Revision History:
 #define PREDABST_COMPLETE_CUBE
 #define PREDABST_ORDER_CARTPROD_CHOICES
 #undef PREDABST_ASSERT_EXPR_UPFRONT
-#undef PREDABST_NO_SIMPLIFY
+#define PREDABST_PRE_SIMPLIFY
+#define PREDABST_NO_SIMPLIFY
 
 namespace datalog {
 
@@ -201,7 +202,7 @@ namespace datalog {
         };
 #else
         struct rule_instance_info {
-            expr_ref                m_body;
+            expr_ref_vector         m_body;
             expr_ref_vector         m_head_preds;
             vector<expr_ref_vector> m_body_preds;
             bool                    m_unsat;
@@ -212,6 +213,7 @@ namespace datalog {
                 return m_body_preds.size();
             }
             void reset() {
+                m_body.reset();
                 m_head_preds.reset();
                 m_body_preds.reset();
             }
@@ -220,7 +222,8 @@ namespace datalog {
             void alloc_solver(ast_manager& m, smt_params& fparams) {}
             void dealloc_solver() {}
             void display(std::ostream& out) const {
-                out << "      body: " << mk_pp(m_body, m_body.m()) << std::endl;
+                out << "      body: ";
+                print_expr_ref_vector(out, m_body);
                 out << "      head preds: ";
                 print_expr_ref_vector(out, m_head_preds);
                 for (unsigned i = 0; i < m_body_preds.size(); ++i) {
@@ -261,9 +264,11 @@ namespace datalog {
         ast_manager&           m;             // manager for ASTs. It is used for managing expressions
         fixedpoint_params const& m_fp_params;
         smt_params             m_fparams;     // parameters specific to smt solving
-        smt::kernel            m_solver;      // basic SMT solver class
-        mutable var_subst      m_var_subst;   // substitution object. It gets updated and reset.
 #ifndef PREDABST_ASSERT_EXPR_UPFRONT
+        smt::kernel            m_solver;      // basic SMT solver class
+#endif
+        mutable var_subst      m_var_subst;   // substitution object. It gets updated and reset.
+#ifdef PREDABST_PRE_SIMPLIFY
         simplifier             m_simplifier;
 #endif
         volatile bool          m_cancel;      // Boolean flag to track external cancelation.
@@ -316,9 +321,11 @@ namespace datalog {
         imp(ast_manager& m, fixedpoint_params const& fp_params) :
             m(m),
             m_fp_params(fp_params),
-            m_solver(m, m_fparams),
-            m_var_subst(m, false),
 #ifndef PREDABST_ASSERT_EXPR_UPFRONT
+            m_solver(m, m_fparams),
+#endif
+            m_var_subst(m, false),
+#ifdef PREDABST_PRE_SIMPLIFY
             m_simplifier(m),
 #endif
             m_cancel(false),
@@ -329,12 +336,10 @@ namespace datalog {
             m_fparams.m_soft_timeout = 1000;
             m_fparams.m_model = false;
 #ifdef PREDABST_NO_SIMPLIFY
-            m_fparams.m_nnf_cnf = false;
-            m_fparams.m_eliminate_and = false;
-            m_fparams.m_pre_simplifier = false;
+            m_fparams.m_preprocess = false;
 #endif
 
-#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+#ifdef PREDABST_PRE_SIMPLIFY
             basic_simplifier_plugin* bsimp = alloc(basic_simplifier_plugin, m);
             m_simplifier.register_plugin(bsimp);
             m_simplifier.register_plugin(alloc(arith_simplifier_plugin, m, *bsimp, m_fparams));
@@ -383,19 +388,25 @@ namespace datalog {
 
         void cancel() {
             m_cancel = true;
-            m_solver.cancel();
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
             for (unsigned i = 0; i < m_rule2info.size(); ++i) {
                 m_rule2info[i].m_instance_info.cancel();
             }
+#else
+            m_solver.cancel();
+#endif
         }
 
         void cleanup() {
             m_cancel = false;
             // TBD hmm?
-            m_solver.reset_cancel();
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
             for (unsigned i = 0; i < m_rule2info.size(); ++i) {
                 m_rule2info[i].m_instance_info.reset_cancel();
             }
+#else
+            m_solver.reset_cancel();
+#endif
         }
 
         void reset_statistics() {
@@ -1013,10 +1024,11 @@ namespace datalog {
                         for (unsigned k = 0; k < preds.size(); ++k) {
                             if (j != k) {
                                 // Does preds[j] imply preds[k]?
-                                scoped_push _push1(m_solver);
-                                m_solver.assert_expr(inst_preds.get(j));
-                                m_solver.assert_expr(expr_ref(m.mk_not(inst_preds.get(k)), m));
-                                if (!m_solver.check()) {
+                                smt_params new_param;
+                                smt::kernel solver(m, new_param);
+                                solver.assert_expr(inst_preds.get(j));
+                                solver.assert_expr(expr_ref(m.mk_not(inst_preds.get(k)), m));
+                                if (!solver.check()) {
                                     // preds[j] implies preds[k].
                                     preds[j].m_implied.push_back(k);
                                     preds[k].m_root_pred = false;
@@ -1120,6 +1132,23 @@ namespace datalog {
             m_rule2info[r_id].m_unsat = !rule_body_satisfiable(r_id);
         }
 
+        void invert(expr_ref_vector& exprs) {
+            for (unsigned i = 0; i < exprs.size(); ++i) {
+                exprs[i] = m.mk_not(exprs.get(i));
+            }
+        }
+
+        void pre_simplify(expr_ref_vector& exprs) {
+#ifdef PREDABST_PRE_SIMPLIFY
+            for (unsigned i = 0; i < exprs.size(); ++i) {
+                proof_ref pr(m);
+                expr_ref e(exprs.get(i), m);
+                m_simplifier(e, e, pr);
+                exprs[i] = e;
+            }
+#endif
+        }
+
         void instantiate_regular_rule(rule* r, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating rule " << r_id << "\n";);
             rule_instance_info& info = m_rule2info[r_id].m_instance_info;
@@ -1131,28 +1160,24 @@ namespace datalog {
             // create ground body
             unsigned usz = r->get_uninterpreted_tail_size();
             unsigned tsz = r->get_tail_size();
-            expr_ref conj = mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz));
-            conj = apply_subst(conj, rule_subst);
-            STRACE("predabst", tout << "  body: " << mk_pp(conj, m) << "\n";);
+            expr_ref_vector body = apply_subst(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz), rule_subst);
+            STRACE("predabst", tout << "  body: "; print_expr_ref_vector(tout, body););
+            pre_simplify(body);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
-            m_stats.m_num_solver_assert_invocations++;
-            info.m_rule_solver->assert_expr(conj);
+            for (unsigned i = 0; i < body.size(); ++i) {
+                m_stats.m_num_solver_assert_invocations++;
+                info.m_rule_solver->assert_expr(body.get(i));
+            }
 #else
-            info.m_body = conj;
+            info.m_body.swap(body);
 #endif
 
             // create instantiations for non-query head
             if (!m_func_decl2info[r->get_decl()]->m_is_output_predicate) {
                 expr_ref_vector heads = app_inst_preds(apply_subst(r->get_head(), rule_subst));
                 STRACE("predabst", tout << "  head preds: "; print_expr_ref_vector(tout, heads););
-                for (unsigned i = 0; i < heads.size(); ++i) {
-                    expr_ref e(m.mk_not(heads.get(i)), m);
-#ifndef PREDABST_ASSERT_EXPR_UPFRONT
-                    proof_ref pr(m);
-                    m_simplifier(e, e, pr);
-#endif
-                    heads[i] = e;
-                }
+                invert(heads);
+                pre_simplify(heads);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                 expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);
                 info.m_head_pred_cond_vars.swap(head_cond_vars);
@@ -1165,14 +1190,7 @@ namespace datalog {
             for (unsigned i = 0; i < usz; ++i) {
                 expr_ref_vector tails = app_inst_preds(apply_subst(r->get_tail(i), rule_subst));
                 STRACE("predabst", tout << "  body preds " << i << ": "; print_expr_ref_vector(tout, tails););
-                for (unsigned i = 0; i < tails.size(); ++i) {
-                    expr_ref e(tails.get(i), m);
-#ifndef PREDABST_ASSERT_EXPR_UPFRONT
-                    proof_ref pr(m);
-                    m_simplifier(e, e, pr);
-#endif
-                    tails[i] = e;
-                }
+                pre_simplify(tails);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                 expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
                 info.m_body_pred_cond_vars.push_back(tail_cond_vars);
@@ -1188,24 +1206,22 @@ namespace datalog {
             rule_instance_info& info = m_rule2info[r_id].m_instance_info;
             info.reset();
 
+            expr_ref_vector body = get_conj_terms(instance.m_body);
+            pre_simplify(body);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
-            m_stats.m_num_solver_assert_invocations++;
-            info.m_rule_solver->assert_expr(instance.m_body);
+            for (unsigned i = 0; i < body.size(); ++i) {
+                m_stats.m_num_solver_assert_invocations++;
+                info.m_rule_solver->assert_expr(body.get(i));
+            }
 #else
-            info.m_body = instance.m_body;
+            info.m_body.swap(body);
 #endif
 
             CASSERT("predabst", !m_func_decl2info[instance.m_head->get_decl()]->m_is_output_predicate);
             expr_ref_vector heads = app_inst_preds(instance.m_head);
             STRACE("predabst", tout << "  head preds: "; print_expr_ref_vector(tout, heads););
-            for (unsigned i = 0; i < heads.size(); ++i) {
-                expr_ref e(m.mk_not(heads.get(i)), m);
-#ifndef PREDABST_ASSERT_EXPR_UPFRONT
-                proof_ref pr(m);
-                m_simplifier(e, e, pr);
-#endif
-                heads[i] = e;
-            }
+            invert(heads);
+            pre_simplify(heads);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);
             info.m_head_pred_cond_vars.swap(head_cond_vars);
@@ -1243,8 +1259,10 @@ namespace datalog {
 
 #ifndef PREDABST_ASSERT_EXPR_UPFRONT
             scoped_push _push1(m_solver);
-            m_stats.m_num_solver_assert_invocations++;
-            m_solver.assert_expr(info.m_body);
+            for (unsigned i = 0; i < info.m_body.size(); ++i) {
+                m_stats.m_num_solver_assert_invocations++;
+                m_solver.assert_expr(info.m_body[i]);
+            }
 #endif
 
             m_stats.m_num_solver_check_interp_invocations++;
@@ -1294,6 +1312,8 @@ namespace datalog {
 		}
 
 		bool check_solution() {
+            smt_params new_param;
+            smt::kernel solver(m, new_param);
 			model_ref& md = get_model();
 			for (unsigned i = 0; i < m_rule2info.size(); ++i) {
 				rule* r = m_rule2info[i].m_rule;
@@ -1315,9 +1335,9 @@ namespace datalog {
                     head_exp = m.mk_false();
                 }
 
-				scoped_push push(m_solver);
-				m_solver.assert_expr(ground(mk_conj(body_exp, mk_not(head_exp)), "c"));
-				if (m_solver.check() != l_false) {
+				scoped_push push(solver);
+				solver.assert_expr(ground(mk_conj(body_exp, mk_not(head_exp)), "c"));
+				if (solver.check() != l_false) {
 					return false;
 				}
 			}
@@ -1418,8 +1438,10 @@ namespace datalog {
 
 #ifndef PREDABST_ASSERT_EXPR_UPFRONT
             scoped_push _push1(m_solver);
-            m_stats.m_num_solver_assert_invocations++;
-            m_solver.assert_expr(info.m_body);
+            for (unsigned i = 0; i < info.m_body.size(); ++i) {
+                m_stats.m_num_solver_assert_invocations++;
+                m_solver.assert_expr(info.m_body[i]);
+            }
 #endif
 
             node_vector nodes;

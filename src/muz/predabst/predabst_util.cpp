@@ -263,7 +263,7 @@ static ref_vector<T, TManager> vector_union(ref_vector<T, TManager> const& v1, r
     return result;
 }
 
-static vector<expr_ref_vector> cnf_to_dnf_struct(vector<vector<expr_ref_vector> > const& cnf_sets) {
+static vector<expr_ref_vector> cnf_to_dnf_struct(vector<vector<expr_ref_vector> > const& cnf_sets, ast_manager& m) {
     vector<expr_ref_vector> sofar;
     sofar.push_back(expr_ref_vector(m));
     for (unsigned k = 0; k < cnf_sets.size(); ++k) {
@@ -286,7 +286,7 @@ static vector<expr_ref_vector> to_dnf_struct(expr_ref const& fml) {
         for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
             dnf_sub_structs.push_back(to_dnf_struct(expr_ref(to_app(fml)->get_arg(i), m)));
         }
-        return cnf_to_dnf_struct(dnf_sub_structs);
+        return cnf_to_dnf_struct(dnf_sub_structs, m);
     }
     else {
         vector<expr_ref_vector> dnf_struct;

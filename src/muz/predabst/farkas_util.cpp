@@ -25,7 +25,7 @@ Revision History:
 #include "smt_kernel.h"
 #include "smt_params.h"
 
-typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
+typedef enum { bilin_sing, bilin } lambda_kind_sort;
 typedef enum { op_eq, op_le, op_ge, op_lt, op_gt } rel_op;
 
 std::ostream& operator<<(std::ostream& ostr, rel_op op) {
@@ -107,6 +107,13 @@ public:
                     var_factors.push_back(factor);
                 }
                 else {
+                    expr_ref_vector factor_vars = get_all_vars(factor);
+                    for (unsigned k = 0; k < factor_vars.size(); ++k) {
+                        if (m_vars.contains(factor_vars.get(k))) {
+                            STRACE("predabst", tout << "Found non-linear term " << mk_pp(factor, m) << "\n";);
+                            CASSERT("predabst", false);
+                        }
+                    }
                     const_factors.push_back(factor);
                     if (!arith_util(m).is_numeral(factor)) {
                         m_has_params = true;
@@ -322,7 +329,7 @@ public:
     }
 
     void set(expr_ref const& lhs_term, expr_ref const& rhs_term) {
-        STRACE("predabst", tout << "Solving " << mk_pp(lhs_term, m) << " => " << mk_pp(rhs_term, m) << "\n";);
+        STRACE("predabst", tout << "Solving " << mk_pp(lhs_term, m) << " => " << mk_pp(rhs_term, m) << ", in variables "; print_expr_ref_vector(tout, m_vars););
         expr_ref_vector conjs = get_conj_terms(lhs_term);
         for (unsigned i = 0; i < conjs.size(); ++i) {
             farkas_pred f_pred(m_vars);
@@ -371,11 +378,10 @@ public:
         return m_constraints;
     }
 
-    vector<lambda_kind> get_lambda_kinds() const {
+    vector<lambda_kind> get_bilin_lambda_kinds() const {
         vector<lambda_kind> lambda_kinds;
         for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
             if (m_lhs.has_params(i)) {
-                // bilinear
                 if (m_lhs.get_param_pred_count() == 1) {
                     if (m_lhs.get_op(i) == op_eq) {
                         lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin_sing, m_lhs.get_op(i)));
@@ -387,10 +393,6 @@ public:
                 else {
                     lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get_op(i)));
                 }
-            }
-            else {
-                // linear
-                lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), lin, m_lhs.get_op(i)));
             }
         }
         return lambda_kinds;
@@ -486,10 +488,10 @@ private:
     }
 };
 
-static expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, bool eliminate_unsat_disjuncts = false, vector<lambda_kind>* all_lambda_kinds = NULL) {
+static expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, vector<lambda_kind>& lambda_kinds, bool eliminate_unsat_disjuncts = false) {
     ast_manager& m = fml.m();
+    CASSERT("predabst", lambda_kinds.empty());
     expr_ref_vector constraint_st(m);
-    CASSERT("predabst", !all_lambda_kinds || all_lambda_kinds->empty());
     expr_ref norm_fml = to_dnf(expr_ref(m.mk_not(fml), m));
     expr_ref_vector disjs = get_disj_terms(norm_fml);
     for (unsigned i = 0; i < disjs.size(); ++i) {
@@ -504,9 +506,7 @@ static expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vec
         farkas_imp f_imp(vars);
         f_imp.set(expr_ref(disjs.get(i), m), expr_ref(m.mk_false(), m));
         constraint_st.append(f_imp.get_constraints());
-        if (all_lambda_kinds) {
-            all_lambda_kinds->append(f_imp.get_lambda_kinds());
-        }
+        lambda_kinds.append(f_imp.get_bilin_lambda_kinds());
     }
     return constraint_st;
 }
@@ -592,7 +592,9 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
     // Does passing true for eliminate_unsat_disjunts help in the refinement case?
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vsws);
+    vector<lambda_kind> lambda_kinds;
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vsws, lambda_kinds);
+    CASSERT("predabst", lambda_kinds.empty());
 
     smt_params new_param;
     if (!sol_bound && !sol_decrease) {
@@ -636,17 +638,14 @@ static expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& la
             CASSERT("predabst", lambda_kinds[i].m_op == op_eq);
             cons.push_back(m.mk_or(m.mk_eq(lambda_kinds[i].m_lambda, nminus1), m.mk_eq(lambda_kinds[i].m_lambda, n1)));
         }
-        else if (lambda_kinds[i].m_kind == bilin) {
+        else {
+            CASSERT("predabst", lambda_kinds[i].m_kind == bilin);
             int min_lambda = (lambda_kinds[i].m_op == op_eq) ? -max_lambda : 0;
             expr_ref_vector bilin_disj_terms(m);
             for (int j = min_lambda; j <= max_lambda; j++) {
                 bilin_disj_terms.push_back(m.mk_eq(lambda_kinds[i].m_lambda, arith.mk_numeral(rational(j), true)));
             }
             cons.push_back(mk_disj(bilin_disj_terms));
-        }
-        else {
-            CASSERT("predabst", lambda_kinds[i].m_kind == lin);
-            // No constraint necessary
         }
     }
     return cons;
@@ -712,7 +711,9 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     expr_ref fmlQ(arith.mk_le(sum_vars, ic), m);
 
     expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vars);
+    vector<lambda_kind> lambda_kinds;
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vars, lambda_kinds);
+    CASSERT("predabst", lambda_kinds.empty());
 
     smt_params new_param;
     smt::kernel solver(m, new_param);
@@ -787,11 +788,11 @@ bool rel_template_suit::instantiate_templates() {
     expr_ref c1 = subst_template_body(m_acc, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
-    vector<lambda_kind> all_lambda_kinds;
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(c1, args_coll, true, &all_lambda_kinds);
+    vector<lambda_kind> lambda_kinds;
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(c1, args_coll, lambda_kinds, true);
 
     int max_lambda = 2;
-    expr_ref_vector lambda_cs = mk_bilin_lambda_constraints(all_lambda_kinds, max_lambda, m);
+    expr_ref_vector lambda_cs = mk_bilin_lambda_constraints(lambda_kinds, max_lambda, m);
 
     STRACE("predabst", tout << "Using constraints: "; print_expr_ref_vector(tout, constraint_st););
     STRACE("predabst", tout << "Using lambda constraint: "; print_expr_ref_vector(tout, lambda_cs););

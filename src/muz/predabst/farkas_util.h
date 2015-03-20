@@ -63,7 +63,7 @@ class rel_template_suit {
         return false;
     }
 
-    bool instantiate_templates(expr_ref const& constraint);
+    bool instantiate_templates(expr_ref_vector const& constraints);
 
     // Apply a substitution vector to an expression, returning the result.
     expr_ref apply_subst(expr* expr, expr_ref_vector const& subst) const {

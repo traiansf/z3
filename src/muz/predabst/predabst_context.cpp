@@ -1683,6 +1683,7 @@ namespace datalog {
         bool should_refine_predicates_not_wf(unsigned node_id, core_tree_wf_info& core_wf_info) {
             expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "s");
             expr_ref to_wf = mk_core_tree_wf(node_id, args, core_wf_info.m_refine_info);
+            quantifier_elimination(args, to_wf);
             return well_founded(args, to_wf, &core_wf_info.m_bound, &core_wf_info.m_decrease);
         }
 
@@ -1769,18 +1770,7 @@ namespace datalog {
         }
 
         expr_ref template_constraint_not_wf(expr_ref_vector const& args, expr_ref cs) {
-            expr_ref_vector cs_vars = get_all_vars(cs);
-
-            app_ref_vector q_vars(m);
-            for (unsigned i = 0; i < cs_vars.size(); ++i) {
-                if (!args.contains(cs_vars.get(i))) {
-                    q_vars.push_back(to_app(cs_vars.get(i)));
-                }
-            }
-
-            qe_lite ql1(m);
-            ql1(q_vars, cs);
-
+            quantifier_elimination(args, cs);
             expr_ref bound(m);
             expr_ref decrease(m);
             well_founded_bound_and_decrease(args, bound, decrease);

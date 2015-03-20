@@ -52,7 +52,11 @@ expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, exp
 
 expr_ref_vector get_all_vars(expr_ref const& fml);
 
-expr_ref neg_and_2dnf(expr_ref const& fml);
+void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml);
+
+expr_ref to_nnf(expr_ref const& fml);
+
+expr_ref to_dnf(expr_ref const& fml);
 
 void print_expr_ref_vector(std::ostream& out, expr_ref_vector const& v, bool newline = true);
 

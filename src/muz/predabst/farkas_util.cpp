@@ -24,7 +24,6 @@ Revision History:
 #include "ast_pp.h"
 #include "smt_kernel.h"
 #include "smt_params.h"
-#include "qe_lite.h"
 
 typedef enum { bilin_sing, bilin, lin } lambda_kind_sort;
 typedef enum { op_eq, op_le, op_ge, op_lt, op_gt } rel_op;
@@ -57,15 +56,11 @@ struct lambda_kind {
     expr_ref m_lambda;
     lambda_kind_sort m_kind;
     rel_op m_op;
-    int m_lower_bound;
-    int m_upper_bound;
 
     lambda_kind(expr_ref lambda, lambda_kind_sort kind, rel_op op) :
         m_lambda(lambda),
         m_kind(kind),
-        m_op(op),
-        m_lower_bound(0),
-        m_upper_bound(0) {
+        m_op(op) {
     }
 };
 
@@ -143,7 +138,7 @@ public:
                 }
             }
             if (!found_coeff) {
-                m_coeffs.push_back(arith.mk_numeral(rational(0), true));
+                m_coeffs.push_back(arith.mk_numeral(rational::zero(), true));
             }
         }
     }
@@ -192,12 +187,12 @@ private:
         if (m.is_true(term)) {
             // true <=> (0 = 0)
             m_op = op_le;
-            return arith.mk_numeral(rational(0), true);
+            return arith.mk_numeral(rational::zero(), true);
         }
         else if (m.is_false(term)) {
             // false <=> (1 <= 0)
             m_op = op_le;
-            return arith.mk_numeral(rational(1), true);
+            return arith.mk_numeral(rational::one(), true);
         }
         else if (m.is_eq(term, e1, e2)) {
             // (e1 == e2) <=> (e1 - e2 == 0)
@@ -217,12 +212,12 @@ private:
         else if (arith.is_lt(term, e1, e2)) {
             // (e1 < e2) <=> (e1 - e2 + 1 <= 0)
             m_op = op_le;
-            return arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational(1), true));
+            return arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational::one(), true));
         }
         else if (arith.is_gt(term, e1, e2)) {
             // (e1 > e2) <=> (e2 - e1 + 1 <= 0)
             m_op = op_le;
-            return arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational(1), true));
+            return arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational::one(), true));
         }
         else {
             STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(term, m) << "\n";);
@@ -312,7 +307,6 @@ class farkas_imp {
     farkas_conj m_lhs;
     farkas_pred m_rhs;
     expr_ref_vector m_lambdas;
-    expr_ref_vector m_solutions;
     expr_ref_vector m_constraints;
 
     ast_manager& m;
@@ -323,7 +317,6 @@ public:
         m_lhs(vars),
         m_rhs(vars),
         m_lambdas(vars.get_manager()),
-        m_solutions(vars.get_manager()),
         m_constraints(vars.get_manager()),
         m(vars.get_manager()) {
     }
@@ -339,14 +332,16 @@ public:
 
         m_rhs.set(rhs_term);
 
-        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
-            m_lambdas.push_back(m.mk_fresh_const("t", arith_util(m).mk_int()));
-        }
-
+        m_lambdas.swap(make_lambdas());
         m_constraints.swap(make_constraints());
+
+#ifdef Z3DEBUG
+        check_solution();
+#endif
     }
 
-    bool solve_constraint() {
+#ifdef Z3DEBUG
+    void check_solution() const {
         smt_params new_param;
         smt::kernel solver(m, new_param);
         for (unsigned i = 0; i < m_constraints.size(); ++i) {
@@ -354,22 +349,23 @@ public:
         }
         if (solver.check() != l_true) {
             STRACE("predabst", tout << "Unable to find solution\n";);
-            return false;
+            return;
         }
 
         model_ref modref;
         solver.get_model(modref);
-        expr_ref solution(m);
+        expr_ref_vector solutions(m);
         for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+            expr_ref solution(m);
             if (!modref->eval(m_lambdas.get(j), solution, true)) {
-                return false;
+                return;
             }
-            m_solutions.push_back(solution);
+            solutions.push_back(solution);
         }
 
-        STRACE("predabst", tout << "Found solution ("; print_expr_ref_vector(tout, m_solutions, false); tout << ")\n";);
-        return true;
+        STRACE("predabst", tout << "Found solution: ("; print_expr_ref_vector(tout, solutions, false); tout << ")\n";);
     }
+#endif
 
     expr_ref_vector const& get_constraints() const {
         return m_constraints;
@@ -377,24 +373,24 @@ public:
 
     vector<lambda_kind> get_lambda_kinds() const {
         vector<lambda_kind> lambda_kinds;
-        if (m_lhs.get_param_pred_count() == 1) {
-            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
-                if (m_lhs.has_params(i)) {
+        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+            if (m_lhs.has_params(i)) {
+                // bilinear
+                if (m_lhs.get_param_pred_count() == 1) {
                     if (m_lhs.get_op(i) == op_eq) {
                         lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin_sing, m_lhs.get_op(i)));
                     }
-                    break;
-                }
-            }
-        }
-        else {
-            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
-                if (m_lhs.has_params(i)) {
-                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get_op(i)));
+                    else {
+                        // This lambda will be replaced with 1 and so will disappear from the constraints.
+                    }
                 }
                 else {
-                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), lin, m_lhs.get_op(i)));
+                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get_op(i)));
                 }
+            }
+            else {
+                // linear
+                lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), lin, m_lhs.get_op(i)));
             }
         }
         return lambda_kinds;
@@ -407,15 +403,39 @@ public:
         m_rhs.display(out);
         out << "Constraint:\n";
         print_expr_ref_vector(out, m_constraints);
-        if (m_solutions.size() > 0) {
-            out << "Solutions:\n";
-        }
-        for (unsigned i = 0; i < m_solutions.size(); ++i) {
-            out << mk_pp(m_lambdas[i], m) << " --> " << mk_pp(m_solutions[i], m) << "\n";
-        }
     }
 
 private:
+
+    expr_ref_vector make_lambdas() const {
+        bool is_bilin_sing = false;
+        unsigned bilin_sing_idx;
+        if (m_lhs.get_param_pred_count() == 1) {
+            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+                if (m_lhs.has_params(i)) {
+                    if (m_lhs.get_op(i) == op_le) {
+                        is_bilin_sing = true;
+                        bilin_sing_idx = i;
+                    }
+                    break;
+                }
+            }
+        }
+
+        expr_ref_vector lambdas(m);
+
+        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+            if (is_bilin_sing && (i == bilin_sing_idx)) {
+                arith_util arith(m);
+                lambdas.push_back(arith.mk_numeral(rational::one(), true));
+            }
+            else {
+                lambdas.push_back(m.mk_fresh_const("t", arith_util(m).mk_int()));
+            }
+        }
+
+        return lambdas;
+    }
 
     expr_ref_vector make_constraints() const {
         arith_util arith(m);
@@ -424,76 +444,71 @@ private:
 
         expr_ref_vector constraints(m);
 
-        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
-            if (m_lhs.get_op(i) == op_le) {
-                constraints.push_back(arith.mk_ge(m_lambdas.get(i), arith.mk_numeral(rational(0), true)));
-            }
-        }
-
-        if (m_lhs.get_param_pred_count() == 1) {
-            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
-                if (m_lhs.has_params(i)) {
-                    if (m_lhs.get_op(i) != op_eq) {
-                        constraints.push_back(m.mk_eq(m_lambdas.get(i), arith.mk_numeral(rational(1), true)));
-                    }
-                    break;
+        for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+            expr* lambda = m_lambdas.get(j);
+            rel_op op = m_lhs.get_op(j);
+            CASSERT("predabst", (op == op_le) || (op == op_eq));
+            if (op == op_le) {
+                if (!arith.is_one(lambda)) {
+                    constraints.push_back(arith.mk_ge(lambda, arith.mk_numeral(rational::zero(), true)));
                 }
             }
         }
 
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            expr_ref sum(arith.mk_numeral(rational(0), true), m);
+            expr_ref_vector terms(m);
             for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
-                sum = arith.mk_add(sum, arith.mk_mul(m_lambdas.get(j), m_lhs.get_coeff(i, j)));
+                expr* lambda = m_lambdas.get(j);
+                expr* coeff = m_lhs.get_coeff(i, j);
+                if (!arith.is_zero(coeff)) {
+                    if (arith.is_one(lambda)) {
+                        terms.push_back(coeff);
+                    }
+                    else {
+                        terms.push_back(arith.mk_mul(lambda, coeff));
+                    }
+                }
             }
-            constraints.push_back(m.mk_eq(sum, m_rhs.get_coeff(i)));
+            constraints.push_back(m.mk_eq(mk_sum(terms), m_rhs.get_coeff(i)));
         }
 
-        expr_ref sum_const(arith.mk_numeral(rational(0), true), m);
+        expr_ref_vector terms(m);
         for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
-            sum_const = arith.mk_add(sum_const, arith.mk_mul(m_lambdas.get(j), m_lhs.get_const(j)));
+            expr* lambda = m_lambdas.get(j);
+            expr* constant = m_lhs.get_const(j);
+            if (!arith.is_zero(constant)) {
+                terms.push_back(arith.mk_mul(lambda, constant));
+            }
         }
-        constraints.push_back(arith.mk_le(sum_const, m_rhs.get_const()));
+        constraints.push_back(arith.mk_le(mk_sum(terms), m_rhs.get_const()));
 
         return constraints;
     }
 };
 
-static bool exists_valid(expr_ref const& fml, expr_ref_vector const& vars, app_ref_vector const& q_vars, expr_ref_vector& constraint_st) {
+static expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, bool eliminate_unsat_disjuncts = false, vector<lambda_kind>* all_lambda_kinds = NULL) {
     ast_manager& m = fml.m();
-    CASSERT("predabst", constraint_st.empty());
-    expr_ref norm_fml = neg_and_2dnf(fml);
+    expr_ref_vector constraint_st(m);
+    CASSERT("predabst", !all_lambda_kinds || all_lambda_kinds->empty());
+    expr_ref norm_fml = to_dnf(expr_ref(m.mk_not(fml), m));
     expr_ref_vector disjs = get_disj_terms(norm_fml);
     for (unsigned i = 0; i < disjs.size(); ++i) {
-        expr_ref disj(disjs.get(i), m);
-        app_ref_vector q_vars_disj(q_vars);
-        qe_lite ql1(m);
-        ql1(q_vars_disj, disj);
-        farkas_imp f_imp(vars);
-        f_imp.set(disj, expr_ref(m.mk_false(), m));
-        if (!f_imp.solve_constraint()) {
-            return false;
+        if (eliminate_unsat_disjuncts) {
+            smt_params new_param;
+            smt::kernel solver(fml.m(), new_param);
+            solver.assert_expr(disjs.get(i));
+            if (solver.check() != l_true) {
+                continue;
+            }
         }
-        constraint_st.append(f_imp.get_constraints());
-    }
-    return true;
-}
-
-static bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraint_st, vector<lambda_kind>& all_lambda_kinds) {
-    ast_manager& m = fml.m();
-    CASSERT("predabst", constraint_st.empty());
-    expr_ref norm_fml = neg_and_2dnf(fml);
-    expr_ref_vector disjs = get_disj_terms(norm_fml);
-    for (unsigned i = 0; i < disjs.size(); ++i) {
         farkas_imp f_imp(vars);
         f_imp.set(expr_ref(disjs.get(i), m), expr_ref(m.mk_false(), m));
-        if (!f_imp.solve_constraint()) {
-            return false;
-        }
         constraint_st.append(f_imp.get_constraints());
-        all_lambda_kinds.append(f_imp.get_lambda_kinds());
+        if (all_lambda_kinds) {
+            all_lambda_kinds->append(f_imp.get_lambda_kinds());
+        }
     }
-    return true;
+    return constraint_st;
 }
 
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease) {
@@ -512,14 +527,16 @@ void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& boun
     }
 
     arith_util arith(m);
-    expr_ref sum_psvs(arith.mk_numeral(rational(0), true), m);
-    expr_ref sum_psws(arith.mk_numeral(rational(0), true), m);
 
+    expr_ref_vector sum_psvs_terms(m);
+    expr_ref_vector sum_psws_terms(m);
     for (unsigned i = 0; i < vs.size(); ++i) {
         expr_ref param(m.mk_fresh_const("p", arith.mk_int()), m);
-        sum_psvs = arith.mk_add(sum_psvs, arith.mk_mul(param, vs.get(i)));
-        sum_psws = arith.mk_add(sum_psws, arith.mk_mul(param, ws.get(i)));
+        sum_psvs_terms.push_back(arith.mk_mul(param, vs.get(i)));
+        sum_psws_terms.push_back(arith.mk_mul(param, ws.get(i)));
     }
+    expr_ref sum_psvs = mk_sum(sum_psvs_terms);
+    expr_ref sum_psws = mk_sum(sum_psws_terms);
 
     expr_ref delta0(m.mk_const(symbol("delta0"), arith.mk_int()), m);
 
@@ -541,6 +558,9 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     }
 
     expr_ref_vector lhs_vars = get_all_vars(lhs);
+    for (unsigned j = 0; j < lhs_vars.size(); j++) {
+        CASSERT("predabst", vsws.contains(lhs_vars.get(j)));
+    }
 
     bool hasv = false;
     for (unsigned i = 0; i < (vsws.size() / 2); i++) {
@@ -571,18 +591,8 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     well_founded_bound_and_decrease(vsws, bound, decrease);
     expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
-    app_ref_vector q_vars(m);
-    for (unsigned j = 0; j < lhs_vars.size(); j++) {
-        if (!vsws.contains(lhs_vars.get(j))) {
-            q_vars.push_back(to_app(lhs_vars.get(j)));
-        }
-    }
-
-    expr_ref_vector constraint_st(m);
-    if (!exists_valid(to_solve, vsws, q_vars, constraint_st)) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: lambda is unsatisfiable\n";);
-        return false;
-    }
+    // Does passing true for eliminate_unsat_disjunts help in the refinement case?
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vsws);
 
     smt_params new_param;
     if (!sol_bound && !sol_decrease) {
@@ -614,28 +624,29 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     return true;
 }
 
-static expr_ref mk_bilin_lambda_constraint(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m) {
+static expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m) {
     arith_util arith(m);
 
-    expr_ref n1(arith.mk_numeral(rational(1), true), m);
-    expr_ref nminus1(arith.mk_numeral(rational(-1), true), m);
+    expr_ref n1(arith.mk_numeral(rational::one(), true), m);
+    expr_ref nminus1(arith.mk_numeral(rational::minus_one(), true), m);
 
-    int min_lambda = -1 * max_lambda;
-
-    expr_ref cons(m.mk_true(), m);
+    expr_ref_vector cons(m);
     for (unsigned i = 0; i < lambda_kinds.size(); i++) {
         if (lambda_kinds[i].m_kind == bilin_sing) {
-            cons = m.mk_and(cons, m.mk_or(m.mk_eq(lambda_kinds[i].m_lambda, nminus1), m.mk_eq(lambda_kinds[i].m_lambda, n1)));
+            CASSERT("predabst", lambda_kinds[i].m_op == op_eq);
+            cons.push_back(m.mk_or(m.mk_eq(lambda_kinds[i].m_lambda, nminus1), m.mk_eq(lambda_kinds[i].m_lambda, n1)));
         }
         else if (lambda_kinds[i].m_kind == bilin) {
-            if (lambda_kinds[i].m_op != op_eq) {
-                min_lambda = 0;
-            }
-            expr_ref bilin_disj(m.mk_true(), m);
+            int min_lambda = (lambda_kinds[i].m_op == op_eq) ? -max_lambda : 0;
+            expr_ref_vector bilin_disj_terms(m);
             for (int j = min_lambda; j <= max_lambda; j++) {
-                bilin_disj = m.mk_or(bilin_disj, m.mk_eq(lambda_kinds[i].m_lambda, arith.mk_numeral(rational(j), true)));
+                bilin_disj_terms.push_back(m.mk_eq(lambda_kinds[i].m_lambda, arith.mk_numeral(rational(j), true)));
             }
-            cons = m.mk_and(cons, bilin_disj);
+            cons.push_back(mk_disj(bilin_disj_terms));
+        }
+        else {
+            CASSERT("predabst", lambda_kinds[i].m_kind == lin);
+            // No constraint necessary
         }
     }
     return cons;
@@ -685,44 +696,23 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, expr_ref_ve
     }
 }
 
-static void interpolate_helper(expr_ref_vector const& vars, expr_ref &fml) {
-    ast_manager& m = fml.get_manager();
-    qe_lite ql(m);
-    app_ref_vector q_vars(m);
-    expr_ref_vector all_vars = get_all_vars(fml);
-    for (unsigned j = 0; j < all_vars.size(); j++) {
-        if (!vars.contains(all_vars.get(j))) {
-            q_vars.push_back(to_app(all_vars.get(j)));
-        }
-    }
-    ql(q_vars, fml);
-}
-
 bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
-    interpolate_helper(vars, fmlA);
-    interpolate_helper(vars, fmlB);
+    quantifier_elimination(vars, fmlA);
+    quantifier_elimination(vars, fmlB);
 
     ast_manager& m = vars.get_manager();
     arith_util arith(m);
-    expr_ref_vector params(m);
-    expr_ref sum_vars(arith.mk_numeral(rational(0), true), m);
+    expr_ref_vector sum_vars_terms(m);
     for (unsigned i = 0; i < vars.size(); ++i) {
         expr_ref param(m.mk_fresh_const("i", arith.mk_int()), m);
-        params.push_back(param);
-        sum_vars = arith.mk_add(sum_vars, arith.mk_mul(param, vars.get(i)));
+        sum_vars_terms.push_back(arith.mk_mul(param, vars.get(i)));
     }
+    expr_ref sum_vars = mk_sum(sum_vars_terms);
     expr_ref ic(m.mk_const(symbol("ic"), arith.mk_int()), m);
-    params.push_back(ic);
     expr_ref fmlQ(arith.mk_le(sum_vars, ic), m);
 
     expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
-
-    app_ref_vector q_vars(m);
-    expr_ref_vector constraint_st(m);
-    if (!exists_valid(to_solve, vars, q_vars, constraint_st)) {
-        STRACE("predabst", tout << "Interpolation failed: not exists_valid\n";);
-        return false;
-    }
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vars);
 
     smt_params new_param;
     smt::kernel solver(m, new_param);
@@ -756,17 +746,17 @@ static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym
     out << "]) \n";
 }
 
-bool rel_template_suit::instantiate_templates(expr_ref const& constraint) {
+bool rel_template_suit::instantiate_templates(expr_ref_vector const& constraints) {
     smt_params new_param;
     smt::kernel solver(m, new_param);
     if (m_extras) {
         solver.assert_expr(m_extras);
     }
-    if (constraint) {
-        solver.assert_expr(constraint);
+    for (unsigned i = 0; i < constraints.size(); ++i) {
+        solver.assert_expr(constraints[i]);
     }
     if (solver.check() != l_true) {
-        STRACE("predabst", tout << "Failed to solve template constraint " << mk_pp(constraint, m) << "\n";);
+        STRACE("predabst", tout << "Failed to solve template constraints\n";);
         return false;
     }
     solver.get_model(m_modref);
@@ -797,17 +787,13 @@ bool rel_template_suit::instantiate_templates() {
     expr_ref c1 = subst_template_body(m_acc, args_coll);
     //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
-    expr_ref_vector constraint_st(m);
     vector<lambda_kind> all_lambda_kinds;
-    if (!mk_exists_forall_farkas(c1, args_coll, constraint_st, all_lambda_kinds)) {
-        return false;
-    }
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(c1, args_coll, true, &all_lambda_kinds);
 
     int max_lambda = 2;
-    expr_ref lambda_cs = mk_bilin_lambda_constraint(all_lambda_kinds, max_lambda, m);
+    expr_ref_vector lambda_cs = mk_bilin_lambda_constraints(all_lambda_kinds, max_lambda, m);
 
-    STRACE("predabst", tout << "Using accumulated constraint " << mk_pp(m_acc, m) << "\n";);
-    STRACE("predabst", tout << "Using lambda constraint " << mk_pp(lambda_cs, m) << "\n";);
-    expr_ref constraint(m.mk_and(mk_conj(constraint_st), lambda_cs), m);
-    return instantiate_templates(constraint);
+    STRACE("predabst", tout << "Using constraints: "; print_expr_ref_vector(tout, constraint_st););
+    STRACE("predabst", tout << "Using lambda constraint: "; print_expr_ref_vector(tout, lambda_cs););
+    return instantiate_templates(vector_concat(constraint_st, lambda_cs));
 }

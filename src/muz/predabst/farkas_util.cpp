@@ -25,9 +25,6 @@ Revision History:
 #include "smt_kernel.h"
 #include "smt_params.h"
 
-typedef enum { bilin_sing, bilin } lambda_kind_sort;
-typedef enum { op_eq, op_le } rel_op;
-
 std::ostream& operator<<(std::ostream& ostr, rel_op op) {
     CASSERT("predabst", (op == op_eq) || (op == op_le));
     switch (op) {
@@ -40,18 +37,6 @@ std::ostream& operator<<(std::ostream& ostr, rel_op op) {
     }
     return ostr;
 }
-
-struct lambda_kind {
-    expr_ref m_lambda;
-    lambda_kind_sort m_kind;
-    rel_op m_op;
-
-    lambda_kind(expr_ref lambda, lambda_kind_sort kind, rel_op op) :
-        m_lambda(lambda),
-        m_kind(kind),
-        m_op(op) {
-    }
-};
 
 class farkas_pred {
     // Represents the expression (Sigma_i (m_vars[i] * m_coeffs[i])) m_op m_const
@@ -404,7 +389,7 @@ private:
     }
 };
 
-static expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, vector<lambda_kind>& lambda_kinds, bool eliminate_unsat_disjuncts = false) {
+expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, vector<lambda_kind>& lambda_kinds, bool eliminate_unsat_disjuncts) {
     ast_manager& m = fml.m();
     CASSERT("predabst", lambda_kinds.empty());
     expr_ref_vector constraint_st(m);
@@ -583,7 +568,7 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     return true;
 }
 
-static expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m) {
+expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m) {
     arith_util arith(m);
 
     expr_ref n1(arith.mk_numeral(rational::one(), true), m);
@@ -607,100 +592,3 @@ static expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& la
     }
     return cons;
 }
-
-expr_ref_vector rel_template_suit::subst_template_body(expr_ref_vector const& fmls, expr_ref_vector& args_coll) const {
-    expr_ref_vector new_fmls(m);
-    for (unsigned i = 0; i < fmls.size(); ++i) {
-        new_fmls.push_back(subst_template_body(expr_ref(fmls.get(i), m), args_coll));
-    }
-    return new_fmls;
-}
-
-expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, expr_ref_vector& args_coll) const {
-    app_ref a(to_app(fml), m);
-    if (m.is_and(fml)) {
-        expr_ref_vector sub_formulas(m, a->get_num_args(), a->get_args());
-        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, args_coll);
-        return expr_ref(m.mk_and(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-    }
-    else if (m.is_or(fml)) {
-        expr_ref_vector sub_formulas(m, a->get_num_args(), a->get_args());
-        expr_ref_vector new_sub_formulas = subst_template_body(sub_formulas, args_coll);
-        return expr_ref(m.mk_or(new_sub_formulas.size(), new_sub_formulas.c_ptr()), m);
-    }
-    else if (m.is_not(fml)) {
-        CASSERT("predabst", a->get_num_args() == 1);
-        return expr_ref(m.mk_not(subst_template_body(expr_ref(a->get_arg(0), m), args_coll)), m);
-    }
-    else if (has_template(a->get_decl())) {
-        for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-            if (a->get_decl() == m_rel_templates.get(i).m_head->get_decl()) {
-                args_coll.append(a->get_num_args(), a->get_args());
-
-                expr_ref temp_body(m);
-                expr_ref_vector temp_vars(m);
-                get_template(i, temp_body, temp_vars);
-                expr_ref_vector subst = build_subst(temp_vars, a->get_args());
-                return apply_subst(temp_body, subst);
-            }
-        }
-        UNREACHABLE();
-        return expr_ref(m);
-    }
-    else {
-        return fml;
-    }
-}
-
-bool rel_template_suit::instantiate_templates() {
-    expr_ref_vector args_coll(m);
-    expr_ref c1 = subst_template_body(m_acc, args_coll);
-    //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
-
-    vector<lambda_kind> lambda_kinds;
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(c1, args_coll, lambda_kinds, true);
-
-    int max_lambda = 2;
-    expr_ref_vector lambda_cs = mk_bilin_lambda_constraints(lambda_kinds, max_lambda, m);
-
-    STRACE("predabst", tout << "Using constraints: "; print_expr_ref_vector(tout, constraint_st););
-    STRACE("predabst", tout << "Using lambda constraint: "; print_expr_ref_vector(tout, lambda_cs););
-
-    smt_params new_param;
-    smt::kernel solver(m, new_param);
-    if (m_extras) {
-        solver.assert_expr(m_extras);
-    }
-    for (unsigned i = 0; i < constraint_st.size(); ++i) {
-        solver.assert_expr(constraint_st.get(i));
-    }
-    for (unsigned i = 0; i < lambda_cs.size(); ++i) {
-        solver.assert_expr(lambda_cs.get(i));
-    }
-    if (solver.check() != l_true) {
-        STRACE("predabst", tout << "Failed to solve template constraints\n";);
-        return false;
-    }
-    solver.get_model(m_modref);
-
-    for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-        expr_ref temp_body(m);
-        expr_ref_vector temp_vars(m);
-        get_template(i, temp_body, temp_vars);
-        
-        // First, evaluate the template body with respect to the model, to give values for each of the extra template parameters.
-        expr_ref instance(m);
-        if (!m_modref->eval(temp_body, instance, true)) {
-            return false;
-        }
-
-        // Second, replace the variables corresponding to the query parameters with fresh constants.
-        expr_ref_vector subst = build_subst(temp_vars, m_rel_template_instances[i].m_head->get_args());
-        expr_ref body = apply_subst(instance, subst);
-
-        STRACE("predabst", tout << "Instantiated template " << i << ": " << mk_pp(m_rel_template_instances[i].m_head, m) << " := " << mk_pp(body, m) << "\n";);
-        m_rel_template_instances[i].m_body = body;
-    }
-    return true;
-}
-

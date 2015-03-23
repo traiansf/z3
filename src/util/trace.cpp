@@ -20,7 +20,11 @@ Revision History:
 #include"str_hashtable.h"
 
 #ifdef _TRACE
+#ifdef _TRACE_TO_STDOUT
+std::ostream &tout = std::cout;
+#else
 std::ofstream tout(".z3-trace"); 
+#endif
 #endif
 
 bool g_enable_all_trace_tags = false;
@@ -57,12 +61,16 @@ bool is_trace_enabled(const char * tag) {
 
 void close_trace() {
 #ifdef _TRACE
+#ifndef _TRACE_TO_STDOUT
     tout.close();
+#endif
 #endif
 }
 
 void open_trace() {
 #ifdef _TRACE
+#ifndef _TRACE_TO_STDOUT
     tout.open(".z3-trace");
+#endif
 #endif
 }

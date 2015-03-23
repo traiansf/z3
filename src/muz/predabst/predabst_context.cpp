@@ -2194,6 +2194,7 @@ namespace datalog {
                     end2 = it->m_value->m_preds.end(); it2 != end2; ++it2) {
                     out << it2->m_pred << " ";
                 }
+                out << std::endl;
             }
             out << "  Template instances:" << std::endl;
             for (unsigned i = 0; i < m_template.get_num_templates(); ++i) {

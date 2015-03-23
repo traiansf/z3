@@ -626,6 +626,46 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     return true;
 }
 
+bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
+    quantifier_elimination(vars, fmlA);
+    quantifier_elimination(vars, fmlB);
+
+    ast_manager& m = vars.get_manager();
+    arith_util arith(m);
+    expr_ref_vector sum_vars_terms(m);
+    for (unsigned i = 0; i < vars.size(); ++i) {
+        expr_ref param(m.mk_fresh_const("i", arith.mk_int()), m);
+        sum_vars_terms.push_back(arith.mk_mul(param, vars.get(i)));
+    }
+    expr_ref sum_vars = mk_sum(sum_vars_terms);
+    expr_ref ic(m.mk_const(symbol("ic"), arith.mk_int()), m);
+    expr_ref fmlQ(arith.mk_le(sum_vars, ic), m);
+
+    expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
+    vector<lambda_kind> lambda_kinds;
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vars, lambda_kinds);
+    CASSERT("predabst", lambda_kinds.empty());
+
+    smt_params new_param;
+    smt::kernel solver(m, new_param);
+    for (unsigned i = 0; i < constraint_st.size(); ++i) {
+        solver.assert_expr(constraint_st.get(i));
+    }
+    if (solver.check() != l_true) {
+        STRACE("predabst", tout << "Interpolation failed: constraint is unsatisfiable\n";);
+        return false;
+    }
+
+    model_ref modref;
+    solver.get_model(modref);
+    if (!modref->eval(fmlQ, fmlQ_sol)) {
+        return false;
+    }
+
+    STRACE("predabst", tout << "Interpolation succeeded\n";);
+    return true;
+}
+
 static expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m) {
     arith_util arith(m);
 
@@ -693,46 +733,6 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, expr_ref_ve
     else {
         return fml;
     }
-}
-
-bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
-    quantifier_elimination(vars, fmlA);
-    quantifier_elimination(vars, fmlB);
-
-    ast_manager& m = vars.get_manager();
-    arith_util arith(m);
-    expr_ref_vector sum_vars_terms(m);
-    for (unsigned i = 0; i < vars.size(); ++i) {
-        expr_ref param(m.mk_fresh_const("i", arith.mk_int()), m);
-        sum_vars_terms.push_back(arith.mk_mul(param, vars.get(i)));
-    }
-    expr_ref sum_vars = mk_sum(sum_vars_terms);
-    expr_ref ic(m.mk_const(symbol("ic"), arith.mk_int()), m);
-    expr_ref fmlQ(arith.mk_le(sum_vars, ic), m);
-
-    expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
-    vector<lambda_kind> lambda_kinds;
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vars, lambda_kinds);
-    CASSERT("predabst", lambda_kinds.empty());
-
-    smt_params new_param;
-    smt::kernel solver(m, new_param);
-    for (unsigned i = 0; i < constraint_st.size(); ++i) {
-        solver.assert_expr(constraint_st.get(i));
-    }
-    if (solver.check() != l_true) {
-        STRACE("predabst", tout << "Interpolation failed: constraint is unsatisfiable\n";);
-        return false;
-    }
-
-    model_ref modref;
-    solver.get_model(modref);
-    if (!modref->eval(fmlQ, fmlQ_sol)) {
-        return false;
-    }
-
-    STRACE("predabst", tout << "Interpolation succeeded\n";);
-    return true;
 }
 
 bool rel_template_suit::instantiate_templates(expr_ref_vector const& constraints) {

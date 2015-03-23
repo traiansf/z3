@@ -575,6 +575,23 @@ refine_sat_tests = [
      """
 (define-fun p ((x!1 Int)) Bool (<= x!1 0))"""),
 
+    ("templ-xxx",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun q (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __pred__q (Int) Bool)
+(declare-fun __temp__extra__ (Int) Bool)
+(declare-fun __temp__p (Int Int) Bool)
+(assert (forall ((x Int)) (=> (p x) (q x))))
+(assert (forall ((x Int)) (=> (= x 33) (q x))))
+(assert (forall ((x Int)) (=> (not (= x 33)) (not (q x)))))
+(assert (forall ((a Int)) (=> true (__temp__extra__ a))))
+(assert (forall ((x Int) (a Int)) (=> (= x a) (__temp__p x a))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (= x!1 33))
+(define-fun q ((x!1 Int)) Bool (= x!1 33))"""),
+
     # XXX over complex?  was I assuming that (x <> 3) => not(p(x)) was not allowed for templated p?
     ("templ",
      """

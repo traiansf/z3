@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from FiniteDomainSort.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    FiniteDomainSort.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/
 
 package com.microsoft.z3;
 
@@ -11,24 +22,25 @@ package com.microsoft.z3;
  **/
 public class FiniteDomainSort extends Sort
 {
-	/**
-	 * The size of the finite domain sort.
-	 **/
-	public long getSize() throws Z3Exception
-	{
-		Native.LongPtr res = new Native.LongPtr();
-		Native.getFiniteDomainSortSize(getContext().nCtx(), getNativeObject(), res);
-		return res.value;
-	}
+    /**
+     * The size of the finite domain sort.
+     * @throws Z3Exception on error
+     **/
+    public long getSize() throws Z3Exception
+    {
+        Native.LongPtr res = new Native.LongPtr();
+        Native.getFiniteDomainSortSize(getContext().nCtx(), getNativeObject(), res);
+        return res.value;
+    }
 
-	FiniteDomainSort(Context ctx, long obj) throws Z3Exception
-	{
-		super(ctx, obj);
-	}
+    FiniteDomainSort(Context ctx, long obj) throws Z3Exception
+    {
+        super(ctx, obj);
+    }
 
-	FiniteDomainSort(Context ctx, Symbol name, long size) throws Z3Exception
-	{
-		super(ctx, Native.mkFiniteDomainSort(ctx.nCtx(), name.getNativeObject(),
-				size));
-	}
+    FiniteDomainSort(Context ctx, Symbol name, long size) throws Z3Exception
+    {
+        super(ctx, Native.mkFiniteDomainSort(ctx.nCtx(), name.getNativeObject(),
+                size));
+    }
 }

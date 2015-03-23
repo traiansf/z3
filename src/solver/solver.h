@@ -72,7 +72,7 @@ public:
 
     /**
        \brief Add a new formula \c t to the assertion stack, and "tag" it with \c a.
-       The propositional varialbe \c a is used to track the use of \c t in a proof
+       The propositional variable \c a is used to track the use of \c t in a proof
        of unsatisfiability.
     */
     virtual void assert_expr(expr * t, expr * a) = 0;
@@ -99,7 +99,6 @@ public:
     */
     virtual lbool check_sat(unsigned num_assumptions, expr * const * assumptions) = 0;
 
-    virtual void set_cancel(bool f) {}
     /**
        \brief Interrupt this solver.
     */
@@ -127,18 +126,21 @@ public:
     virtual expr * get_assertion(unsigned idx) const;
 
     /**
+    \brief The number of tracked assumptions (see assert_expr(t, a)).
+    */
+    virtual unsigned get_num_assumptions() const = 0;
+
+    /**
+    \brief Retrieves the idx'th tracked assumption (see assert_expr(t, a)).
+    */
+    virtual expr * get_assumption(unsigned idx) const = 0;
+
+    /**
        \brief Display the content of this solver.
     */
     virtual void display(std::ostream & out) const;
-
-    class scoped_push {
-        solver& s;
-        bool    m_nopop;
-    public:
-        scoped_push(solver& s):s(s), m_nopop(false) { s.push();  }
-        ~scoped_push() { if (!m_nopop) s.pop(1); }
-        void disable_pop() { m_nopop = true; }
-    };
+protected:
+    virtual void set_cancel(bool f) = 0;
 
 };
 

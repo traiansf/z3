@@ -40,7 +40,7 @@ extern "C" {
         LOG_Z3_pop(c, num_scopes);
         RESET_ERROR_CODE();
         CHECK_SEARCHING(c);
-        if (num_scopes > mk_c(c)->get_smt_kernel().get_scope_level()) {
+        if (num_scopes > mk_c(c)->get_num_scopes()) {
             SET_ERROR_CODE(Z3_IOB);
             return;
         }
@@ -297,7 +297,7 @@ extern "C" {
         Z3_CATCH;
     }
 
-    char const * Z3_API Z3_context_to_string(Z3_context c) {
+    Z3_API char const * Z3_context_to_string(Z3_context c) {
         Z3_TRY;
         LOG_Z3_context_to_string(c);
         RESET_ERROR_CODE();

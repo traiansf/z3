@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from ArithSort.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    ArithSort.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/
 
 package com.microsoft.z3;
 
@@ -11,8 +22,8 @@ package com.microsoft.z3;
  **/
 public class ArithSort extends Sort
 {
-	ArithSort(Context ctx, long obj) throws Z3Exception
-	{
-		super(ctx, obj);
-	}
+    ArithSort(Context ctx, long obj) throws Z3Exception
+    {
+        super(ctx, obj);
+    }
 };

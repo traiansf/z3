@@ -23,7 +23,7 @@ using System.Diagnostics.Contracts;
 namespace Microsoft.Z3
 {
     /// <summary>
-    /// A ParameterSet represents a configuration in the form of Symbol/value pairs.
+    /// A Params objects represents a configuration in the form of Symbol/value pairs.
     /// </summary>
     [ContractVerification(true)]
     public class Params : Z3Object
@@ -56,6 +56,16 @@ namespace Microsoft.Z3
             Contract.Requires(name != null);
             
             Native.Z3_params_set_double(Context.nCtx, NativeObject, name.NativeObject, value);
+        }
+
+        /// <summary>
+        /// Adds a parameter setting.
+        /// </summary>
+        public void Add(Symbol name, string value)
+        {
+            Contract.Requires(value != null);
+
+            Native.Z3_params_set_symbol(Context.nCtx, NativeObject, name.NativeObject, Context.MkSymbol(value).NativeObject);
         }
 
         /// <summary>
@@ -104,6 +114,16 @@ namespace Microsoft.Z3
         }
 
         /// <summary>
+        /// Adds a parameter setting.
+        /// </summary>
+        public void Add(string name, string value)
+        {
+            Contract.Requires(value != null);
+
+            Native.Z3_params_set_symbol(Context.nCtx, NativeObject, Context.MkSymbol(name).NativeObject, Context.MkSymbol(value).NativeObject);
+        }
+
+        /// <summary>
         /// A string representation of the parameter set.
         /// </summary>
         public override string ToString()
@@ -120,12 +140,14 @@ namespace Microsoft.Z3
 
         internal class DecRefQueue : IDecRefQueue
         {
-            public override void IncRef(Context ctx, IntPtr obj)
+            public DecRefQueue() : base() { }
+            public DecRefQueue(uint move_limit) : base(move_limit) { }
+            internal override void IncRef(Context ctx, IntPtr obj)
             {
                 Native.Z3_params_inc_ref(ctx.nCtx, obj);
             }
 
-            public override void DecRef(Context ctx, IntPtr obj)
+            internal override void DecRef(Context ctx, IntPtr obj)
             {
                 Native.Z3_params_dec_ref(ctx.nCtx, obj);
             }

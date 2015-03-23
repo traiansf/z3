@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from Z3Object.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    Z3Object.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -104,7 +115,7 @@ public class Z3Object extends IDisposable
             return null;
         long[] an = new long[a.length];
         for (int i = 0; i < a.length; i++)
-	    an[i] = (a[i] == null) ? 0 : a[i].getNativeObject();
+        an[i] = (a[i] == null) ? 0 : a[i].getNativeObject();
         return an;
     }
 

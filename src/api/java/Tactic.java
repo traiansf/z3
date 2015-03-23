@@ -1,16 +1,27 @@
 /**
- * This file was automatically generated from Tactic.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    Tactic.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
 /**
  * Tactics are the basic building block for creating custom solvers for specific
  * problem domains. The complete list of tactics may be obtained using
- * <code>Context.NumTactics</code> and <code>Context.TacticNames</code>. It may
- * also be obtained using the command <code>(help-tactics)</code> in the SMT 2.0
+ * {@code Context.NumTactics} and {@code Context.TacticNames}. It may
+ * also be obtained using the command {@code (help-tactics)} in the SMT 2.0
  * front-end.
  **/
 public class Tactic extends Z3Object
@@ -38,7 +49,7 @@ public class Tactic extends Z3Object
      * @throws Z3Exception 
      **/
     public ApplyResult apply(Goal g) throws Z3Exception
-    {	
+    {    
         return apply(g, null);
     }
 
@@ -62,8 +73,8 @@ public class Tactic extends Z3Object
     }
 
     /**
-     * Creates a solver that is implemented using the given tactic. <seealso
-     * cref="Context.MkSolver(Tactic)"/>
+     * Creates a solver that is implemented using the given tactic. 
+     * @see Context#mkSolver(Tactic)
      * @throws Z3Exception 
      **/
     public Solver getSolver() throws Z3Exception
@@ -83,13 +94,13 @@ public class Tactic extends Z3Object
 
     void incRef(long o) throws Z3Exception
     {
-        getContext().tactic_DRQ().incAndClear(getContext(), o);
+        getContext().getTacticDRQ().incAndClear(getContext(), o);
         super.incRef(o);
     }
 
     void decRef(long o) throws Z3Exception
     {
-        getContext().tactic_DRQ().add(o);
+        getContext().getTacticDRQ().add(o);
         super.decRef(o);
     }
 }

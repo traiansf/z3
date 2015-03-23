@@ -46,11 +46,14 @@ namespace sat {
         m_qhead(0),
         m_scope_lvl(0),
         m_params(p) {
-        m_config.updt_params(p);
+        updt_params(p);
     }
 
     solver::~solver() {
+        SASSERT(check_invariant());
+        TRACE("sat", tout << "Delete clauses\n";);
         del_clauses(m_clauses.begin(), m_clauses.end());
+        TRACE("sat", tout << "Delete learned\n";);
         del_clauses(m_learned.begin(), m_learned.end());
     }
 
@@ -459,9 +462,6 @@ namespace sat {
     void solver::set_conflict(justification c, literal not_l) {
         if (m_inconsistent)
             return;
-        TRACE("sat_conflict", tout << "conflict\n";);
-        // int * p = 0;
-        // *p = 0;
         m_inconsistent = true;
         m_conflict = c;
         m_not_l    = not_l;
@@ -863,6 +863,7 @@ namespace sat {
         m_next_simplify           = 0;
         m_stopwatch.reset();
         m_stopwatch.start();
+        TRACE("sat", display(tout););
     }
 
     /**
@@ -1123,6 +1124,7 @@ namespace sat {
        \brief GC (the second) half of the clauses in the database.
     */
     void solver::gc_half(char const * st_name) {
+        TRACE("sat", tout << "gc\n";);
         unsigned sz     = m_learned.size();
         unsigned new_sz = sz/2;
         unsigned j      = new_sz;
@@ -1147,6 +1149,7 @@ namespace sat {
        \brief Use gc based on dynamic psm. Clauses are initially frozen.
     */
     void solver::gc_dyn_psm() {
+        TRACE("sat", tout << "gc\n";);
         // To do gc at scope_lvl() > 0, I will need to use the reinitialization stack, or live with the fact
         // that I may miss some propagations for reactivated clauses.
         SASSERT(scope_lvl() == 0);
@@ -1972,7 +1975,7 @@ namespace sat {
         m_asymm_branch.updt_params(p);
         m_probing.updt_params(p);
         m_scc.updt_params(p);
-        m_rand.set_seed(p.get_uint("random_seed", 0));
+        m_rand.set_seed(m_config.m_random_seed);
     }
 
     void solver::collect_param_descrs(param_descrs & d) {

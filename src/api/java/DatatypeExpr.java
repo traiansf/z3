@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from DatatypeExpr.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    DatatypeExpr.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/
 
 package com.microsoft.z3;
 
@@ -11,16 +22,11 @@ package com.microsoft.z3;
  **/
 public class DatatypeExpr extends Expr
 {
-	/**
-	 * Constructor for DatatypeExpr </summary>
-	 **/
-	protected DatatypeExpr(Context ctx)
-	{
-		super(ctx);
-	}
-
-	DatatypeExpr(Context ctx, long obj) throws Z3Exception
-	{
-		super(ctx, obj);
-	}
+    /**
+     * Constructor for DatatypeExpr
+     **/
+    DatatypeExpr(Context ctx, long obj) throws Z3Exception
+    {
+        super(ctx, obj);
+    }
 }

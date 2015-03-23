@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from Sort.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    Sort.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -14,41 +25,24 @@ import com.microsoft.z3.enumerations.Z3_sort_kind;
  **/
 public class Sort extends AST
 {
-    /**
-     * Comparison operator. <param name="a">A Sort</param> <param name="b">A
-     * Sort</param>
-     * 
-     * @return True if <paramref name="a"/> and <paramref name="b"/> are from
-     *         the same context and represent the same sort; false otherwise.
-     **/
     /* Overloaded operators are not translated. */
 
     /**
-     * Comparison operator. <param name="a">A Sort</param> <param name="b">A
-     * Sort</param>
-     * 
-     * @return True if <paramref name="a"/> and <paramref name="b"/> are not
-     *         from the same context or represent different sorts; false
-     *         otherwise.
-     **/
-    /* Overloaded operators are not translated. */
-
-    /**
-     * Equality operator for objects of type Sort. <param name="o"></param>
-     * 
+     * Equality operator for objects of type Sort. 
+     * @param o
      * @return
      **/
     public boolean equals(Object o)
     {
         Sort casted = null;
 
-	try {
-	    casted = Sort.class.cast(o);
-	} catch (ClassCastException e) {
-	    return false;
-	}
+    try {
+        casted = Sort.class.cast(o);
+    } catch (ClassCastException e) {
+        return false;
+    }
 
-	return this.getNativeObject() == casted.getNativeObject();
+    return this.getNativeObject() == casted.getNativeObject();
     }
 
     /**
@@ -104,18 +98,9 @@ public class Sort extends AST
     /**
      * Sort constructor
      **/
-    protected Sort(Context ctx) throws Z3Exception
-    {
-        super(ctx);
-        {
-        }
-    }
-
     Sort(Context ctx, long obj) throws Z3Exception
     {
         super(ctx, obj);
-        {
-        }
     }
 
     void checkNativeObject(long obj) throws Z3Exception
@@ -149,6 +134,10 @@ public class Sort extends AST
             return new FiniteDomainSort(ctx, obj);
         case Z3_RELATION_SORT:
             return new RelationSort(ctx, obj);
+        case Z3_FLOATING_POINT_SORT:
+            return new FPSort(ctx, obj);
+        case Z3_ROUNDING_MODE_SORT:
+            return new FPRMSort(ctx, obj);
         default:
             throw new Z3Exception("Unknown sort kind");
         }

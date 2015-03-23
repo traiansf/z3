@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from TupleSort.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    TupleSort.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -48,7 +59,7 @@ public class TupleSort extends Sort
     TupleSort(Context ctx, Symbol name, int numFields, Symbol[] fieldNames,
             Sort[] fieldSorts) throws Z3Exception
     {
-        super(ctx);
+        super(ctx, 0);
 
         Native.LongPtr t = new Native.LongPtr();
         setNativeObject(Native.mkTupleSort(ctx.nCtx(), name.getNativeObject(),

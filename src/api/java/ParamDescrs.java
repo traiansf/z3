@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from ParamDescrs.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    ParamDescrs.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -79,13 +90,13 @@ public class ParamDescrs extends Z3Object
 
     void incRef(long o) throws Z3Exception
     {
-        getContext().paramDescrs_DRQ().incAndClear(getContext(), o);
+        getContext().getParamDescrsDRQ().incAndClear(getContext(), o);
         super.incRef(o);
     }
 
     void decRef(long o) throws Z3Exception
     {
-        getContext().paramDescrs_DRQ().add(o);
+        getContext().getParamDescrsDRQ().add(o);
         super.decRef(o);
     }
 }

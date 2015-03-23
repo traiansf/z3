@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from RatNum.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    RatNum.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -50,8 +61,9 @@ public class RatNum extends RealExpr
     }
 
     /**
-     * Returns a string representation in decimal notation. <remarks>The result
-     * has at most <paramref name="precision"/> decimal places.</remarks>
+     * Returns a string representation in decimal notation.
+     * Remarks: The result
+     * has at most {@code precision} decimal places.
      **/
     public String toDecimalString(int precision) throws Z3Exception
     {

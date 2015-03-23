@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from ListSort.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    ListSort.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -77,7 +88,7 @@ public class ListSort extends Sort
 
     ListSort(Context ctx, Symbol name, Sort elemSort) throws Z3Exception
     {
-        super(ctx);
+        super(ctx, 0);
 
         Native.LongPtr inil = new Native.LongPtr(), iisnil = new Native.LongPtr();
         Native.LongPtr icons = new Native.LongPtr(), iiscons = new Native.LongPtr();

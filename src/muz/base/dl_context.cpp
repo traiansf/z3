@@ -187,10 +187,10 @@ namespace datalog {
         if (m_trail.get_num_scopes() == 0) {
             throw default_exception("there are no backtracking points to pop to");
         }
-	if(m_engine.get()){
-	  if(get_engine() != DUALITY_ENGINE)
-	    throw default_exception("operation is not supported by engine");
-	}
+        if(m_engine.get()){
+            if(get_engine() != DUALITY_ENGINE)
+            throw default_exception("operation is not supported by engine");
+        }
         m_trail.pop_scope(1); 
     }
 
@@ -246,6 +246,7 @@ namespace datalog {
         m_rule_fmls_head = 0;
         m_rule_fmls.reset();
         m_rule_names.reset();
+        m_rule_bounds.reset();
         m_argument_var_names.reset();
         m_preds.reset();
         m_preds_by_name.reset();
@@ -287,7 +288,7 @@ namespace datalog {
     bool context::unbound_compressor() const { return m_params->unbound_compressor(); }
     bool context::similarity_compressor() const { return m_params->similarity_compressor(); }
     unsigned context::similarity_compressor_threshold() const { return m_params->similarity_compressor_threshold(); }
-    unsigned context::soft_timeout() const { return m_fparams.m_soft_timeout; }
+    unsigned context::timeout() const { return m_fparams.m_timeout; }
     unsigned context::initial_restart_timeout() const { return m_params->initial_restart_timeout(); } 
     bool context::generate_explanations() const { return m_params->generate_explanations(); }
     bool context::explanations_on_relation_level() const { return m_params->explanations_on_relation_level(); }
@@ -474,9 +475,10 @@ namespace datalog {
         return new_pred;
     }
 
-    void context::add_rule(expr* rl, symbol const& name) {
+  void context::add_rule(expr* rl, symbol const& name, unsigned bound) {
         m_rule_fmls.push_back(rl);
         m_rule_names.push_back(name);
+        m_rule_bounds.push_back(bound);
     }
 
     void context::flush_add_rules() {
@@ -704,7 +706,7 @@ namespace datalog {
             check_existential_tail(r);
             check_positive_predicates(r);
             break;
-	case DUALITY_ENGINE:
+        case DUALITY_ENGINE:
             check_existential_tail(r);
             check_positive_predicates(r);
             break;
@@ -968,12 +970,12 @@ namespace datalog {
         // TODO: what?
         if(get_engine() != DUALITY_ENGINE) {
           new_query();
-	  rule_set::iterator it = m_rule_set.begin(), end = m_rule_set.end();
-	  rule_ref r(m_rule_manager);
-	  for (; it != end; ++it) {
+      rule_set::iterator it = m_rule_set.begin(), end = m_rule_set.end();
+      rule_ref r(m_rule_manager);
+      for (; it != end; ++it) {
             r = *it;
             check_rule(r);
-	  }     
+      }     
         }   
 #endif
         m_mc = mk_skip_model_converter();
@@ -991,7 +993,10 @@ namespace datalog {
             flush_add_rules();
             break;
         case DUALITY_ENGINE:
-	    break;
+            // this lets us use duality with SAS 2013 abstraction
+            if(quantify_arrays())
+              flush_add_rules();
+            break;
         default:
             UNREACHABLE();
         }
@@ -1110,12 +1115,13 @@ namespace datalog {
         }
     }
    
-    void context::get_raw_rule_formulas(expr_ref_vector& rules, svector<symbol>& names){
+  void context::get_raw_rule_formulas(expr_ref_vector& rules, svector<symbol>& names, vector<unsigned> &bounds){
         for (unsigned i = 0; i < m_rule_fmls.size(); ++i) {
-	  expr_ref r = bind_variables(m_rule_fmls[i].get(), true);
-	  rules.push_back(r.get());
-	  //            rules.push_back(m_rule_fmls[i].get());
-	  names.push_back(m_rule_names[i]);
+            expr_ref r = bind_variables(m_rule_fmls[i].get(), true);
+            rules.push_back(r.get());
+            //            rules.push_back(m_rule_fmls[i].get());
+            names.push_back(m_rule_names[i]);
+            bounds.push_back(m_rule_bounds[i]);
         }
     }
 
@@ -1133,6 +1139,7 @@ namespace datalog {
                 m_rule_names[i] = m_rule_names.back();
                 m_rule_fmls.pop_back();
                 m_rule_names.pop_back();
+                m_rule_bounds.pop_back();
                 --i;
             }
         }

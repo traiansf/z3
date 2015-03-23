@@ -68,15 +68,16 @@ namespace Microsoft.Z3
 
         #region Internal
         internal TupleSort(Context ctx, Symbol name, uint numFields, Symbol[] fieldNames, Sort[] fieldSorts)
-            : base(ctx)
+            : base(ctx, IntPtr.Zero)
         {
             Contract.Requires(ctx != null);
             Contract.Requires(name != null);
 
             IntPtr t = IntPtr.Zero;
+            IntPtr[] f = new IntPtr[numFields];
             NativeObject = Native.Z3_mk_tuple_sort(ctx.nCtx, name.NativeObject, numFields,
                                                    Symbol.ArrayToNative(fieldNames), AST.ArrayToNative(fieldSorts),
-                                                   ref t, new IntPtr[numFields]);
+                                                   ref t, f);
         }
         #endregion
     };

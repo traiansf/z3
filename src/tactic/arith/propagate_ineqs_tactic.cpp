@@ -115,6 +115,7 @@ struct propagate_ineqs_tactic::imp {
                 out << "< oo";
             out << "\n";
         }
+        nm.del(k);
     }
 
     a_var mk_var(expr * t) {
@@ -234,6 +235,7 @@ struct propagate_ineqs_tactic::imp {
             SASSERT(k == GE);
             bp.assert_lower(x, c_prime, strict);
         }
+        nm.del(c_prime);
         return true;
     }
 
@@ -309,6 +311,8 @@ struct propagate_ineqs_tactic::imp {
                     m_new_goal->assert_expr(m_util.mk_le(p, m_util.mk_numeral(rational(u), m_util.is_int(p))));
             }
         }
+        nm.del(l);
+        nm.del(u);
     }
     
     bool is_x_minus_y_eq_0(expr * t, expr * & x, expr * & y) {
@@ -548,16 +552,10 @@ void propagate_ineqs_tactic::set_cancel(bool f) {
 }
  
 void propagate_ineqs_tactic::cleanup() {
-    ast_manager & m = m_imp->m;
-    imp * d = m_imp;
+    imp * d = alloc(imp, m_imp->m, m_params);
     #pragma omp critical (tactic_cancel)
     {
-        d = m_imp;
+        std::swap(d, m_imp);
     }
     dealloc(d);
-    d = alloc(imp, m, m_params);
-    #pragma omp critical (tactic_cancel) 
-    {
-        m_imp = d;
-    }
 }

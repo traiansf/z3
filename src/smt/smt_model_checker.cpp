@@ -136,9 +136,8 @@ namespace smt {
         if (cex == 0)
             return false; // no model available.
         unsigned num_decls = q->get_num_decls();
-        unsigned   num_sks = sks.size();
         // Remark: sks were created for the flat version of q.
-        SASSERT(num_sks >= num_decls); 
+        SASSERT(sks.size() >= num_decls);
         expr_ref_buffer bindings(m_manager);
         bindings.resize(num_decls);
         unsigned max_generation = 0;
@@ -283,6 +282,7 @@ namespace smt {
         if (!m_fparams) {
             m_fparams = alloc(smt_params, m_context->get_fparams());
             m_fparams->m_relevancy_lvl = 0; // no relevancy since the model checking problems are quantifier free
+            m_fparams->m_case_split_strategy = CS_ACTIVITY; // avoid warning messages about smt.case_split >= 3.
         }
         if (!m_aux_context) {
             symbol logic;

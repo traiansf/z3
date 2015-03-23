@@ -227,6 +227,7 @@ namespace sat {
     }
 
     void simplifier::cleanup_clauses(clause_vector & cs, bool learned, bool vars_eliminated, bool in_use_lists) {
+        TRACE("sat", tout << "cleanup_clauses\n";);
         clause_vector::iterator it  = cs.begin();
         clause_vector::iterator it2 = it;
         clause_vector::iterator end = cs.end();
@@ -918,7 +919,11 @@ namespace sat {
         void process(literal l) {
             TRACE("blocked_clause", tout << "processing: " << l << "\n";);
             model_converter::entry * new_entry = 0;
+            if (s.is_external(l.var()) || s.was_eliminated(l.var())) 
+                return;
+
             {
+
                 m_to_remove.reset();
                 {
                     clause_use_list & occs = s.m_use_list.get(l);
@@ -1339,6 +1344,7 @@ namespace sat {
         }
         TRACE("resolution", tout << "found var to eliminate, before: " << before_clauses << " after: " << after_clauses << "\n";);
 
+        
         // eliminate variable
         model_converter::entry & mc_entry = s.m_mc.mk(model_converter::ELIM_VAR, v);
         save_clauses(mc_entry, m_pos_cls);
@@ -1466,7 +1472,7 @@ namespace sat {
         sat_simplifier_params::collect_param_descrs(r);
     }
 
-    void simplifier::collect_statistics(statistics & st) {
+    void simplifier::collect_statistics(statistics & st) const {
         st.update("subsumed", m_num_subsumed);
         st.update("subsumption resolution", m_num_sub_res);
         st.update("elim literals", m_num_elim_lits);

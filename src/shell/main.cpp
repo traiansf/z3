@@ -65,7 +65,7 @@ void display_usage() {
 #ifdef Z3GITHASH
     std::cout << " - build hashcode " << STRINGIZE_VALUE_OF(Z3GITHASH);
 #endif
-    std::cout << "]. (C) Copyright 2006-2013 Microsoft Corp.\n";
+    std::cout << "]. (C) Copyright 2006-2014 Microsoft Corp.\n";
     std::cout << "Usage: z3 [options] [-file:]file\n";
     std::cout << "\nInput format:\n";
     std::cout << "  -smt        use parser for SMT input format.\n";
@@ -297,7 +297,7 @@ int main(int argc, char ** argv) {
         }
         
         if (g_input_kind == IN_UNSPECIFIED) {
-            g_input_kind = IN_SMTLIB;
+            g_input_kind = IN_SMTLIB_2;
             char const * ext = get_extension(g_input_file);
             if (ext) {
                 if (strcmp(ext, "datalog") == 0 || strcmp(ext, "dl") == 0) {
@@ -337,6 +337,7 @@ int main(int argc, char ** argv) {
         default:
             UNREACHABLE();
         }
+		memory::finalize();
 #ifdef _WINDOWS
         _CrtDumpMemoryLeaks();
 #endif

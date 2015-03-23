@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from AST.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    AST.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/
 
 package com.microsoft.z3;
 
@@ -13,28 +24,13 @@ import com.microsoft.z3.enumerations.Z3_ast_kind;
  **/
 public class AST extends Z3Object
 {
-    /**
-     * Comparison operator. <param name="a">An AST</param> <param name="b">An
-     * AST</param>
-     * 
-     * @return True if <paramref name="a"/> and <paramref name="b"/> are from
-     *         the same context and represent the same sort; false otherwise.
-     **/
-    /* Overloaded operators are not translated. */
-
-    /**
-     * Comparison operator. <param name="a">An AST</param> <param name="b">An
-     * AST</param>
-     * 
-     * @return True if <paramref name="a"/> and <paramref name="b"/> are not
-     *         from the same context or represent different sorts; false
-     *         otherwise.
-     **/
     /* Overloaded operators are not translated. */
 
     /**
      * Object comparison.
-     **/
+     * 
+     * @param o another AST
+     **/    
     public boolean equals(Object o)
     {
         AST casted = null;
@@ -51,10 +47,12 @@ public class AST extends Z3Object
     }
 
     /**
-     * Object Comparison. <param name="other">Another AST</param>
+     * Object Comparison. 
+     * @param other Another AST
      * 
-     * @return Negative if the object should be sorted before <paramref
-     *         name="other"/>, positive if after else zero.
+     * @return Negative if the object should be sorted before {@code other}, 
+     * positive if after else zero.
+     * @throws Z3Exception on error
      **/
     public int compareTo(Object other) throws Z3Exception
     {
@@ -95,6 +93,7 @@ public class AST extends Z3Object
 
     /**
      * A unique identifier for the AST (unique among all ASTs).
+     * @throws Z3Exception on error
      **/
     public int getId() throws Z3Exception
     {
@@ -102,10 +101,11 @@ public class AST extends Z3Object
     }
 
     /**
-     * Translates (copies) the AST to the Context <paramref name="ctx"/>. <param
-     * name="ctx">A context</param>
+     * Translates (copies) the AST to the Context {@code ctx}. 
+     * @param ctx A context
      * 
-     * @return A copy of the AST which is associated with <paramref name="ctx"/>
+     * @return A copy of the AST which is associated with {@code ctx}
+     * @throws Z3Exception on error
      **/
     public AST translate(Context ctx) throws Z3Exception
     {
@@ -119,6 +119,7 @@ public class AST extends Z3Object
 
     /**
      * The kind of the AST.
+     * @throws Z3Exception on error
      **/
     public Z3_ast_kind getASTKind() throws Z3Exception
     {
@@ -128,6 +129,8 @@ public class AST extends Z3Object
 
     /**
      * Indicates whether the AST is an Expr
+     * @throws Z3Exception on error
+     * @throws Z3Exception on error
      **/
     public boolean isExpr() throws Z3Exception
     {
@@ -145,6 +148,8 @@ public class AST extends Z3Object
 
     /**
      * Indicates whether the AST is an application
+     * @return a boolean
+     * @throws Z3Exception on error
      **/
     public boolean isApp() throws Z3Exception
     {
@@ -152,7 +157,9 @@ public class AST extends Z3Object
     }
 
     /**
-     * Indicates whether the AST is a BoundVariable
+     * Indicates whether the AST is a BoundVariable.
+     * @return a boolean
+     * @throws Z3Exception on error
      **/
     public boolean isVar() throws Z3Exception
     {
@@ -161,6 +168,8 @@ public class AST extends Z3Object
 
     /**
      * Indicates whether the AST is a Quantifier
+     * @return a boolean
+     * @throws Z3Exception on error
      **/
     public boolean isQuantifier() throws Z3Exception
     {
@@ -218,22 +227,18 @@ public class AST extends Z3Object
     void incRef(long o) throws Z3Exception
     {
         // Console.WriteLine("AST IncRef()");
-        if (getContext() == null)
-            throw new Z3Exception("inc() called on null context");
-        if (o == 0)
-            throw new Z3Exception("inc() called on null AST");
-        getContext().ast_DRQ().incAndClear(getContext(), o);
+        if (getContext() == null || o == 0)
+            return;
+        getContext().getASTDRQ().incAndClear(getContext(), o);
         super.incRef(o);
     }
 
     void decRef(long o) throws Z3Exception
     {
         // Console.WriteLine("AST DecRef()");
-        if (getContext() == null)
-            throw new Z3Exception("dec() called on null context");
-        if (o == 0)
-            throw new Z3Exception("dec() called on null AST");
-        getContext().ast_DRQ().add(o);
+        if (getContext() == null || o == 0)
+            return;
+        getContext().getASTDRQ().add(o);
         super.decRef(o);
     }
 

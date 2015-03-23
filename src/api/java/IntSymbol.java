@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from IntSymbol.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    IntSymbol.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -14,8 +25,9 @@ import com.microsoft.z3.enumerations.Z3_symbol_kind;
 public class IntSymbol extends Symbol
 {
     /**
-     * The int value of the symbol. <remarks>Throws an exception if the symbol
-     * is not of int kind. </remarks>
+     * The int value of the symbol.
+     * Remarks: Throws an exception if the symbol
+     * is not of int kind. 
      **/
     public int getInt() throws Z3Exception
     {

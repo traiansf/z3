@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from Quantifier.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    Quantifier.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -138,7 +149,7 @@ public class Quantifier extends BoolExpr
             Expr body, int weight, Pattern[] patterns, Expr[] noPatterns,
             Symbol quantifierID, Symbol skolemID) throws Z3Exception
     {
-        super(ctx);
+        super(ctx, 0);
 
         getContext().checkContextMatch(patterns);
         getContext().checkContextMatch(noPatterns);
@@ -160,13 +171,13 @@ public class Quantifier extends BoolExpr
         } else
         {
             setNativeObject(Native.mkQuantifierEx(ctx.nCtx(), 
-		    (isForall) ? true : false, weight, AST.getNativeObject(quantifierID), 
-		     AST.getNativeObject(skolemID), 
-		     AST.arrayLength(patterns), AST.arrayToNative(patterns), 
-		     AST.arrayLength(noPatterns), AST.arrayToNative(noPatterns), 
-		     AST.arrayLength(sorts), AST.arrayToNative(sorts), 
-		     Symbol.arrayToNative(names), 
-		     body.getNativeObject()));
+            (isForall) ? true : false, weight, AST.getNativeObject(quantifierID), 
+             AST.getNativeObject(skolemID), 
+             AST.arrayLength(patterns), AST.arrayToNative(patterns), 
+             AST.arrayLength(noPatterns), AST.arrayToNative(noPatterns), 
+             AST.arrayLength(sorts), AST.arrayToNative(sorts), 
+             Symbol.arrayToNative(names), 
+             body.getNativeObject()));
         }
     }
 
@@ -174,7 +185,7 @@ public class Quantifier extends BoolExpr
             int weight, Pattern[] patterns, Expr[] noPatterns,
             Symbol quantifierID, Symbol skolemID) throws Z3Exception
     {
-        super(ctx);
+        super(ctx, 0);
 
         getContext().checkContextMatch(noPatterns);
         getContext().checkContextMatch(patterns);

@@ -1,13 +1,25 @@
 /**
- * This file was automatically generated from Version.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    Version.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
 /**
- * Version information. <remarks>Note that this class is static.</remarks>
+ * Version information. 
+     * Remarks: Note that this class is static.
  **/
 public class Version
 {

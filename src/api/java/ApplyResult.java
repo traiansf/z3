@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from ApplyResult.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    ApplyResult.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/
 
 package com.microsoft.z3;
 
@@ -37,10 +48,10 @@ public class ApplyResult extends Z3Object
     }
 
     /**
-     * Convert a model for the subgoal <paramref name="i"/> into a model for the
-     * original goal <code>g</code>, that the ApplyResult was obtained from.
+     * Convert a model for the subgoal {@code i} into a model for the
+     * original goal {@code g}, that the ApplyResult was obtained from.
      * 
-     * @return A model for <code>g</code>
+     * @return A model for {@code g}
      * @throws Z3Exception
      **/
     public Model convertModel(int i, Model m) throws Z3Exception
@@ -70,13 +81,13 @@ public class ApplyResult extends Z3Object
 
     void incRef(long o) throws Z3Exception
     {
-        getContext().applyResult_DRQ().incAndClear(getContext(), o);
+        getContext().getApplyResultDRQ().incAndClear(getContext(), o);
         super.incRef(o);
     }
 
     void decRef(long o) throws Z3Exception
     {
-        getContext().applyResult_DRQ().add(o);
+        getContext().getApplyResultDRQ().add(o);
         super.decRef(o);
     }
 }

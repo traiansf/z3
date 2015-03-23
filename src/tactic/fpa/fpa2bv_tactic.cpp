@@ -96,8 +96,8 @@ class fpa2bv_tactic : public tactic {
             g->inc_depth();
             result.push_back(g.get());
 
-            for (unsigned i = 0; i < m_conv.extra_assertions.size(); i++)
-                result.back()->assert_expr(m_conv.extra_assertions[i].get());
+            for (unsigned i = 0; i < m_conv.m_extra_assertions.size(); i++)
+                result.back()->assert_expr(m_conv.m_extra_assertions[i].get());
 
             SASSERT(g->is_well_sorted());
             TRACE("fpa2bv", tout << "AFTER: " << std::endl; g->display(tout); 
@@ -138,19 +138,13 @@ public:
         (*m_imp)(in, result, mc, pc, core);
     }
     
-    virtual void cleanup() {
-        ast_manager & m = m_imp->m;
-        imp * d = m_imp;
+    virtual void cleanup() {        
+        imp * d = alloc(imp, m_imp->m, m_params);
         #pragma omp critical (tactic_cancel)
         {
-            d = m_imp;
+            std::swap(d, m_imp);
         }
         dealloc(d);
-        d = alloc(imp, m, m_params);
-        #pragma omp critical (tactic_cancel) 
-        {
-            m_imp = d;
-        }
     }
 
 protected:

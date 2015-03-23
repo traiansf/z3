@@ -1,8 +1,19 @@
 /**
- * This file was automatically generated from Fixedpoint.cs 
- * w/ further modifications by:
- * @author Christoph M. Wintersteiger (cwinter)
- **/
+Copyright (c) 2012-2014 Microsoft Corporation
+   
+Module Name:
+
+    Fixedpoint.java
+
+Abstract:
+
+Author:
+
+    @author Christoph Wintersteiger (cwinter) 2012-03-15
+
+Notes:
+    
+**/ 
 
 package com.microsoft.z3;
 
@@ -152,7 +163,8 @@ public class Fixedpoint extends Z3Object
     }
 
     /**
-     * Creates a backtracking point. <seealso cref="Pop"/>
+     * Creates a backtracking point. 
+     * @see pop
      **/
     public void push() throws Z3Exception
     {
@@ -160,9 +172,11 @@ public class Fixedpoint extends Z3Object
     }
 
     /**
-     * Backtrack one backtracking point. <remarks>Note that an exception is
-     * thrown if Pop is called without a corresponding <code>Push</code>
-     * </remarks> <seealso cref="Push"/>
+     * Backtrack one backtracking point.
+     * Remarks: Note that an exception is thrown if {@code pop} 
+     * is called without a corresponding {@code push}
+     *  
+     * @see push
      **/
     public void pop() throws Z3Exception
     {
@@ -320,13 +334,13 @@ public class Fixedpoint extends Z3Object
 
     void incRef(long o) throws Z3Exception
     {
-        getContext().fixedpoint_DRQ().incAndClear(getContext(), o);
+        getContext().getFixedpointDRQ().incAndClear(getContext(), o);
         super.incRef(o);
     }
 
     void decRef(long o) throws Z3Exception
     {
-        getContext().fixedpoint_DRQ().add(o);
+        getContext().getFixedpointDRQ().add(o);
         super.decRef(o);
     }
 }

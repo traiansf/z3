@@ -652,14 +652,30 @@ expr_ref rel_template_suit::subst_template_body(expr_ref const& fml, expr_ref_ve
     }
 }
 
-bool rel_template_suit::instantiate_templates(expr_ref_vector const& constraints) {
+bool rel_template_suit::instantiate_templates() {
+    expr_ref_vector args_coll(m);
+    expr_ref c1 = subst_template_body(m_acc, args_coll);
+    //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
+
+    vector<lambda_kind> lambda_kinds;
+    expr_ref_vector constraint_st = mk_exists_forall_farkas(c1, args_coll, lambda_kinds, true);
+
+    int max_lambda = 2;
+    expr_ref_vector lambda_cs = mk_bilin_lambda_constraints(lambda_kinds, max_lambda, m);
+
+    STRACE("predabst", tout << "Using constraints: "; print_expr_ref_vector(tout, constraint_st););
+    STRACE("predabst", tout << "Using lambda constraint: "; print_expr_ref_vector(tout, lambda_cs););
+
     smt_params new_param;
     smt::kernel solver(m, new_param);
     if (m_extras) {
         solver.assert_expr(m_extras);
     }
-    for (unsigned i = 0; i < constraints.size(); ++i) {
-        solver.assert_expr(constraints[i]);
+    for (unsigned i = 0; i < constraint_st.size(); ++i) {
+        solver.assert_expr(constraint_st.get(i));
+    }
+    for (unsigned i = 0; i < lambda_cs.size(); ++i) {
+        solver.assert_expr(lambda_cs.get(i));
     }
     if (solver.check() != l_true) {
         STRACE("predabst", tout << "Failed to solve template constraints\n";);
@@ -688,18 +704,3 @@ bool rel_template_suit::instantiate_templates(expr_ref_vector const& constraints
     return true;
 }
 
-bool rel_template_suit::instantiate_templates() {
-    expr_ref_vector args_coll(m);
-    expr_ref c1 = subst_template_body(m_acc, args_coll);
-    //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
-
-    vector<lambda_kind> lambda_kinds;
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(c1, args_coll, lambda_kinds, true);
-
-    int max_lambda = 2;
-    expr_ref_vector lambda_cs = mk_bilin_lambda_constraints(lambda_kinds, max_lambda, m);
-
-    STRACE("predabst", tout << "Using constraints: "; print_expr_ref_vector(tout, constraint_st););
-    STRACE("predabst", tout << "Using lambda constraint: "; print_expr_ref_vector(tout, lambda_cs););
-    return instantiate_templates(vector_concat(constraint_st, lambda_cs));
-}

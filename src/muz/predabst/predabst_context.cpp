@@ -333,7 +333,6 @@ namespace datalog {
             m_template(m) {
 
             m_fparams.m_mbqi = false;
-            m_fparams.m_soft_timeout = 1000;
             m_fparams.m_model = false;
 #ifdef PREDABST_NO_SIMPLIFY
             m_fparams.m_preprocess = false;

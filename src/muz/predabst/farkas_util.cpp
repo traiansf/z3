@@ -26,27 +26,16 @@ Revision History:
 #include "smt_params.h"
 
 typedef enum { bilin_sing, bilin } lambda_kind_sort;
-typedef enum { op_eq, op_le, op_ge, op_lt, op_gt } rel_op;
+typedef enum { op_eq, op_le } rel_op;
 
 std::ostream& operator<<(std::ostream& ostr, rel_op op) {
+    CASSERT("predabst", (op == op_eq) || (op == op_le));
     switch (op) {
     case op_eq:
         ostr << "=";
         break;
     case op_le:
         ostr << "<=";
-        break;
-    case op_ge:
-        ostr << ">=";
-        break;
-    case op_lt:
-        ostr << "<";
-        break;
-    case op_gt:
-        ostr << ">";
-        break;
-    default:
-        ostr << "<unknown>";
         break;
     }
     return ostr;

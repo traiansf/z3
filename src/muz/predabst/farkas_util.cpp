@@ -735,18 +735,6 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     return true;
 }
 
-static void print_node_info(std::ostream& out, unsigned added_id, func_decl* sym, vector<bool> const& cube, unsigned r_id, vector<unsigned> const& parent_nodes) {
-    out << "Node added: (" << added_id << ", " << sym->get_name().str() << ", " << r_id << ", [";
-    for (unsigned i = 0; i < parent_nodes.size(); i++) {
-        out << parent_nodes.get(i) << " ";
-    }
-    out << "]) " << ", [";
-    for (unsigned i = 0; i < cube.size(); i++) {
-        out << cube.get(i) << " ";
-    }
-    out << "]) \n";
-}
-
 bool rel_template_suit::instantiate_templates(expr_ref_vector const& constraints) {
     smt_params new_param;
     smt::kernel solver(m, new_param);

@@ -49,7 +49,7 @@ void tst_farkas_app() {
     expr_ref fml1(m);
     fml1 = parse_fml(m, example2);
 
-    if (well_founded(vars1, vars2, fml1, values)) {
+    if (false /* well_founded(vars1, vars2, fml1, values) */) {
         std::cout << "===================================== \n";
         std::cout << "Formula is well-founded! \n";
         std::cout << "===================================== \n";

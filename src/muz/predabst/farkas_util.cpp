@@ -139,10 +139,6 @@ public:
         }
     }
 
-    expr_ref_vector const& get_coeffs() const {
-        return m_coeffs;
-    }
-
     expr_ref get_coeff(unsigned i) const {
         return expr_ref(m_coeffs.get(i), m);
     }
@@ -223,85 +219,11 @@ private:
     }
 };
 
-class farkas_conj {
-    expr_ref_vector m_vars;
-    vector<expr_ref_vector> m_coeffs;
-    vector<rel_op> m_ops;
-    vector<expr_ref> m_consts;
-    vector<bool> m_has_params;
-
-    unsigned m_param_pred_count;
-    ast_manager& m;
-
-public:
-    farkas_conj(expr_ref_vector const& vars) :
-        m_vars(vars),
-        m_param_pred_count(0),
-        m(vars.get_manager()) {
-    }
-
-    void add(farkas_pred const& f_pred) {
-        m_coeffs.push_back(f_pred.get_coeffs());
-        m_ops.push_back(f_pred.get_op());
-        m_consts.push_back(f_pred.get_const());
-        m_has_params.push_back(f_pred.has_params());
-
-        if (f_pred.has_params()) {
-            m_param_pred_count++;
-        }
-    }
-
-    unsigned get_size() const {
-        return m_ops.size();
-    }
-
-    expr_ref get_coeff(unsigned j, unsigned i) const {
-        return expr_ref(m_coeffs.get(i).get(j), m);
-    }
-
-    rel_op get_op(unsigned i) const {
-        return m_ops.get(i);
-    }
-
-    expr_ref get_const(unsigned i) const {
-        return expr_ref(m_consts.get(i), m);
-    }
-
-    bool has_params(unsigned i) const {
-        return m_has_params.get(i);
-    }
-
-    unsigned get_param_pred_count() const {
-        return m_param_pred_count;
-    }
-
-    void display(std::ostream& out) const {
-        out << "  Vars: ";
-        for (unsigned i = 0; i < m_vars.size(); ++i) {
-            out << mk_pp(m_vars[i], m) << " ";
-        }
-        out << "\n";
-        for (unsigned i = 0; i < m_ops.size(); ++i) {
-            out << "  Equation " << i << ": ";
-            for (unsigned j = 0; j < m_vars.size(); ++j) {
-                if (j != 0) {
-                    out << " + ";
-                }
-                out << mk_pp(m_coeffs[i][j], m) << " * " << mk_pp(m_vars[j], m);
-            }
-            out << " " << m_ops[i] << " " << mk_pp(m_consts[i], m);
-            if (m_has_params[i]) {
-                out << " (with params)";
-            }
-            out << "\n";
-        }
-    }
-};
-
 class farkas_imp {
     expr_ref_vector m_vars;
-    farkas_conj m_lhs;
+    vector<farkas_pred> m_lhs;
     farkas_pred m_rhs;
+    unsigned m_param_pred_count;
     expr_ref_vector m_lambdas;
     expr_ref_vector m_constraints;
 
@@ -310,8 +232,8 @@ class farkas_imp {
 public:
     farkas_imp(expr_ref_vector const& vars) :
         m_vars(vars),
-        m_lhs(vars),
         m_rhs(vars),
+        m_param_pred_count(0),
         m_lambdas(vars.get_manager()),
         m_constraints(vars.get_manager()),
         m(vars.get_manager()) {
@@ -323,7 +245,10 @@ public:
         for (unsigned i = 0; i < conjs.size(); ++i) {
             farkas_pred f_pred(m_vars);
             f_pred.set(expr_ref(conjs.get(i), m));
-            m_lhs.add(f_pred);
+            m_lhs.push_back(f_pred);
+            if (f_pred.has_params()) {
+                m_param_pred_count++;
+            }
         }
 
         m_rhs.set(rhs_term);
@@ -332,12 +257,12 @@ public:
         m_constraints.swap(make_constraints());
 
 #ifdef Z3DEBUG
-        check_solution();
+        dump_solution();
 #endif
     }
 
 #ifdef Z3DEBUG
-    void check_solution() const {
+    void dump_solution() const {
         smt_params new_param;
         smt::kernel solver(m, new_param);
         for (unsigned i = 0; i < m_constraints.size(); ++i) {
@@ -351,7 +276,7 @@ public:
         model_ref modref;
         solver.get_model(modref);
         expr_ref_vector solutions(m);
-        for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+        for (unsigned j = 0; j < m_lhs.size(); ++j) {
             expr_ref solution(m);
             if (!modref->eval(m_lambdas.get(j), solution, true)) {
                 return;
@@ -369,18 +294,18 @@ public:
 
     vector<lambda_kind> get_bilin_lambda_kinds() const {
         vector<lambda_kind> lambda_kinds;
-        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
-            if (m_lhs.has_params(i)) {
-                if (m_lhs.get_param_pred_count() == 1) {
-                    if (m_lhs.get_op(i) == op_eq) {
-                        lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin_sing, m_lhs.get_op(i)));
+        for (unsigned i = 0; i < m_lhs.size(); ++i) {
+            if (m_lhs.get(i).has_params()) {
+                if (m_param_pred_count == 1) {
+                    if (m_lhs.get(i).get_op() == op_eq) {
+                        lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin_sing, m_lhs.get(i).get_op()));
                     }
                     else {
                         // This lambda will be replaced with 1 and so will disappear from the constraints.
                     }
                 }
                 else {
-                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get_op(i)));
+                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get(i).get_op()));
                 }
             }
         }
@@ -389,7 +314,9 @@ public:
 
     void display(std::ostream& out) const {
         out << "LHS:\n";
-        m_lhs.display(out);
+        for (unsigned i = 0; i < m_lhs.size(); ++i) {
+            m_lhs.get(i).display(out);
+        }
         out << "RHS:\n";
         m_rhs.display(out);
         out << "Constraint:\n";
@@ -401,10 +328,10 @@ private:
     expr_ref_vector make_lambdas() const {
         bool is_bilin_sing = false;
         unsigned bilin_sing_idx;
-        if (m_lhs.get_param_pred_count() == 1) {
-            for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
-                if (m_lhs.has_params(i)) {
-                    if (m_lhs.get_op(i) == op_le) {
+        if (m_param_pred_count == 1) {
+            for (unsigned i = 0; i < m_lhs.size(); ++i) {
+                if (m_lhs.get(i).has_params()) {
+                    if (m_lhs.get(i).get_op() == op_le) {
                         is_bilin_sing = true;
                         bilin_sing_idx = i;
                     }
@@ -415,7 +342,7 @@ private:
 
         expr_ref_vector lambdas(m);
 
-        for (unsigned i = 0; i < m_lhs.get_size(); ++i) {
+        for (unsigned i = 0; i < m_lhs.size(); ++i) {
             if (is_bilin_sing && (i == bilin_sing_idx)) {
                 arith_util arith(m);
                 lambdas.push_back(arith.mk_numeral(rational::one(), true));
@@ -435,9 +362,9 @@ private:
 
         expr_ref_vector constraints(m);
 
-        for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+        for (unsigned j = 0; j < m_lhs.size(); ++j) {
             expr* lambda = m_lambdas.get(j);
-            rel_op op = m_lhs.get_op(j);
+            rel_op op = m_lhs.get(j).get_op();
             CASSERT("predabst", (op == op_le) || (op == op_eq));
             if (op == op_le) {
                 if (!arith.is_one(lambda)) {
@@ -448,9 +375,9 @@ private:
 
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             expr_ref_vector terms(m);
-            for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+            for (unsigned j = 0; j < m_lhs.size(); ++j) {
                 expr* lambda = m_lambdas.get(j);
-                expr* coeff = m_lhs.get_coeff(i, j);
+                expr* coeff = m_lhs.get(j).get_coeff(i);
                 if (!arith.is_zero(coeff)) {
                     if (arith.is_one(lambda)) {
                         terms.push_back(coeff);
@@ -464,9 +391,9 @@ private:
         }
 
         expr_ref_vector terms(m);
-        for (unsigned j = 0; j < m_lhs.get_size(); ++j) {
+        for (unsigned j = 0; j < m_lhs.size(); ++j) {
             expr* lambda = m_lambdas.get(j);
-            expr* constant = m_lhs.get_const(j);
+            expr* constant = m_lhs.get(j).get_const();
             if (!arith.is_zero(constant)) {
                 terms.push_back(arith.mk_mul(lambda, constant));
             }
@@ -494,6 +421,7 @@ static expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vec
         }
         farkas_imp f_imp(vars);
         f_imp.set(expr_ref(disjs.get(i), m), expr_ref(m.mk_false(), m));
+        STRACE("predabst", f_imp.display(tout););
         constraint_st.append(f_imp.get_constraints());
         lambda_kinds.append(f_imp.get_bilin_lambda_kinds());
     }

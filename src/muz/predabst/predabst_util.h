@@ -28,6 +28,34 @@ inline ref_vector<T, TManager> vector_concat(ref_vector<T, TManager> const& v1, 
     return v;
 }
 
+template<typename T, typename TManager>
+inline unsigned vector_find(ref_vector<T, TManager> const& v, T const* elem) {
+    for (unsigned i = 0; i < v.size(); ++i) {
+        if (v.get(i) == elem) {
+            return i;
+        }
+    }
+    UNREACHABLE();
+    return UINT_MAX;
+}
+
+template<typename T, typename TManager>
+std::ostream& operator<<(std::ostream& out, ref_vector<T, TManager> const& v) {
+    TManager& m = v.m();
+    for (unsigned i = 0; i < v.size(); ++i) {
+        if (v[i]) {
+            out << mk_pp(v[i], m);
+        }
+        else {
+            out << "NULL";
+        }
+        if (i + 1 < v.size()) {
+            out << ", ";
+        }
+    }
+    return out;
+}
+
 expr_ref_vector get_disj_terms(expr_ref const& e);
 
 expr_ref_vector get_conj_terms(expr_ref const& e);
@@ -57,7 +85,5 @@ void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml);
 expr_ref to_nnf(expr_ref const& fml);
 
 expr_ref to_dnf(expr_ref const& fml);
-
-void print_expr_ref_vector(std::ostream& out, expr_ref_vector const& v, bool newline = true);
 
 #endif /* _PREDABST_UTIL_H */

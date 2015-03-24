@@ -397,21 +397,3 @@ expr_ref to_dnf(expr_ref const& fml) {
     }
     return mk_disj(disjs);
 }
-
-void print_expr_ref_vector(std::ostream& out, expr_ref_vector const& v, bool newline) {
-    ast_manager& m = v.m();
-	for (unsigned i = 0; i < v.size(); ++i) {
-		if (v[i]) {
-			out << mk_pp(v[i], m);
-		}
-		else {
-			out << "NULL";
-		}
-        if (i + 1 < v.size()) {
-            out << ", ";
-        }
-    }
-    if (newline) {
-        out << std::endl;
-    }
-}

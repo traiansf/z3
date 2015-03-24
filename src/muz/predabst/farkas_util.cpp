@@ -16,65 +16,139 @@ Author:
 Revision History:
 
 --*/
-#include "predabst_util.h"
 #include "farkas_util.h"
+#include "predabst_util.h"
 #include "th_rewriter.h"
 #include "arith_decl_plugin.h"
-#include "reg_decl_plugins.h"
 #include "ast_pp.h"
 #include "smt_kernel.h"
 #include "smt_params.h"
 
-std::ostream& operator<<(std::ostream& ostr, rel_op op) {
-    CASSERT("predabst", (op == op_eq) || (op == op_le));
+std::ostream& operator<<(std::ostream& out, rel_op op) {
     switch (op) {
     case op_eq:
-        ostr << "=";
+        out << "=";
         break;
     case op_le:
-        ostr << "<=";
+        out << "<=";
+        break;
+    default:
+        UNREACHABLE();
         break;
     }
-    return ostr;
+    return out;
 }
 
-class farkas_pred {
-    // Represents the expression (Sigma_i (m_vars[i] * m_coeffs[i])) m_op m_const
+// Rewrites an (in)equality (E1 op E2) to be of the form (E' op' 0), where
+// op' is either = or <=.
+static expr* rewrite_inequality(expr_ref const& e, rel_op& op) {
+    ast_manager& m = e.m();
+    arith_util arith(m);
+    if (m.is_true(e)) {
+        // true <=> (0 <= 0)
+        op = op_le;
+        return arith.mk_numeral(rational::zero(), true);
+    }
+    else if (m.is_false(e)) {
+        // false <=> (1 <= 0)
+        op = op_le;
+        return arith.mk_numeral(rational::one(), true);
+    }
+    else {
+        expr *e1;
+        expr *e2;
+        if (m.is_eq(e, e1, e2)) {
+            // (e1 == e2) <=> (e1 - e2 == 0)
+            op = op_eq;
+            return arith.mk_sub(e1, e2);
+        }
+        else if (arith.is_le(e, e1, e2)) {
+            // (e1 <= e2) <=> (e1 - e2 <= 0)
+            op = op_le;
+            return arith.mk_sub(e1, e2);
+        }
+        else if (arith.is_ge(e, e1, e2)) {
+            // (e1 >= e2) <=> (e2 - e1 <= 0)
+            op = op_le;
+            return arith.mk_sub(e2, e1);
+        }
+        else if (arith.is_lt(e, e1, e2)) {
+            // (e1 < e2) <=> (e1 - e2 + 1 <= 0)
+            op = op_le;
+            return arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational::one(), true));
+        }
+        else if (arith.is_gt(e, e1, e2)) {
+            // (e1 > e2) <=> (e2 - e1 + 1 <= 0)
+            op = op_le;
+            return arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational::one(), true));
+        }
+        else {
+            STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(e, m) << "\n";);
+            UNREACHABLE();
+            return NULL;
+        }
+    }
+}
+
+class linear_inequality {
+    // Represents a linear (in)equality in the variables m_vars.
+    //
+    // Specifically, represents the (in)equality:
+    //     (Sigma_i (m_vars[i] * m_coeffs[i])) m_op m_const
+    // where m_vars are distinct (grounded) variables, and m_coeffs and
+    // m_const do not contain any of those variables.
+
     expr_ref_vector m_vars;
     expr_ref_vector m_coeffs;
     rel_op m_op;
     expr_ref m_const;
 
-    bool m_has_params;
+    bool m_has_params; // true if m_coeffs or m_const contain any uninterpreted constants
+    
     ast_manager& m;
 
 public:
 
-    farkas_pred(expr_ref_vector const& vars) :
+    linear_inequality(expr_ref_vector const& vars) :
         m_vars(vars),
         m_coeffs(vars.get_manager()),
         m_const(vars.get_manager()),
+        m_has_params(false),
         m(vars.get_manager()) {
     }
 
-    // Convert an expression of the form (E1 op E2), where E1 and E2 are formulae
+    // Convert an (in)equality of the form (E1 op E2), where E1 and E2 are formulae
     // involving m_vars, into an equivalent expression of the form stored by this class.
-    void set(expr_ref e) {
+    // Returns false if this is impossible, i.e. if the (in)equality is not linear in
+    // m_vars.
+    bool set(expr_ref e) {
         arith_util arith(m);
         th_rewriter rw(m);
-        e = rewrite_pred(e);
+
+        // Push all terms to the LHS of the (in)equality.
+        e = rewrite_inequality(e, m_op);
+
+        // Simplify the LHS of the (in)equality.  The simplified expression
+        // will be a sum of terms, each of which is a product of factors.
         rw(e);
-        m_has_params = false;
+
+        // Split the terms into those which have one of the m_vars as a
+        // factor (var_terms), and those which do not (const_terms), while
+        // checking that all the terms are linear in m_vars.
+        vector<expr_ref_vector> var_terms;
+        var_terms.reserve(m_vars.size(), expr_ref_vector(m));
+        expr_ref_vector const_terms(m);
+
         expr_ref_vector terms = get_additive_terms(e);
-        expr_ref_vector p_consts(m);
-        expr_ref_vector p_vars(m);
-        expr_ref_vector p_coeffs(m);
         for (unsigned i = 0; i < terms.size(); ++i) {
             expr_ref term(terms.get(i), m);
-            expr_ref_vector factors = get_multiplicative_factors(term);
+            
+            // Split the factors into those which are one of the m_vars
+            // (var_factors) and those which are not (const_factors).
             expr_ref_vector var_factors(m);
             expr_ref_vector const_factors(m);
 
+            expr_ref_vector factors = get_multiplicative_factors(term);
             for (unsigned j = 0; j < factors.size(); ++j) {
                 expr_ref factor(factors.get(j), m);
                 if (m_vars.contains(factor)) {
@@ -84,44 +158,39 @@ public:
                     expr_ref_vector factor_vars = get_all_vars(factor);
                     for (unsigned k = 0; k < factor_vars.size(); ++k) {
                         if (m_vars.contains(factor_vars.get(k))) {
-                            STRACE("predabst", tout << "Found non-linear term " << mk_pp(factor, m) << "\n";);
-                            CASSERT("predabst", false);
+                            STRACE("predabst", tout << "Found non-linear factor " << mk_pp(factor, m) << "\n";);
+                            return false;
                         }
                     }
-                    const_factors.push_back(factor);
-                    if (!arith_util(m).is_numeral(factor)) {
+                    if (!factor_vars.empty()) {
                         m_has_params = true;
                     }
+                    const_factors.push_back(factor);
                 }
             }
 
             if (var_factors.size() == 0) {
-                p_consts.push_back(term);
+                const_terms.push_back(term);
+            }
+            else if (var_factors.size() == 1) {
+                unsigned j = vector_find(m_vars, var_factors.get(0));
+                var_terms[j].push_back(mk_prod(const_factors));
             }
             else {
-                CASSERT("predabst", var_factors.size() == 1);
-                p_vars.push_back(var_factors.get(0));
-                p_coeffs.push_back(mk_prod(const_factors));
+                STRACE("predabst", tout << "Found non-linear term " << mk_pp(term, m) << "\n";);
+                return false;
             }
         }
 
-        m_const = arith.mk_uminus(mk_sum(p_consts));
+        // Move the constant terms to the RHS of the (inequality).
+        m_const = arith.mk_uminus(mk_sum(const_terms));
         rw(m_const);
+
         for (unsigned i = 0; i < m_vars.size(); ++i) {
-            bool found_coeff = false;
-            for (unsigned j = 0; j < p_vars.size(); ++j) {
-                if (m_vars.get(i) == p_vars.get(j)) {
-                    m_coeffs.push_back(p_coeffs.get(j));
-                    p_vars.erase(j);
-                    p_coeffs.erase(j);
-                    found_coeff = true;
-                    break;
-                }
-            }
-            if (!found_coeff) {
-                m_coeffs.push_back(arith.mk_numeral(rational::zero(), true));
-            }
+            m_coeffs.push_back(mk_sum(var_terms.get(i)));
         }
+
+        return true;
     }
 
     expr_ref get_coeff(unsigned i) const {
@@ -140,74 +209,28 @@ public:
         return m_has_params;
     }
 
-    void display(std::ostream& out) const {
-        out << "  ";
-        for (unsigned i = 0; i < m_vars.size(); ++i) {
-            if (i != 0) {
-                out << " + ";
-            }
-            out << mk_pp(m_coeffs[i], m) << " * " << mk_pp(m_vars[i], m);
-        }
-        out << " " << m_op << " " << mk_pp(m_const, m);
-        if (m_has_params) {
-            out << " (with params)";
-        }
-        out << "\n";
-    }
-
-private:
-
-    expr* rewrite_pred(expr_ref const& term) {
-        arith_util arith(m);
-        expr *e1;
-        expr *e2;
-        if (m.is_true(term)) {
-            // true <=> (0 = 0)
-            m_op = op_le;
-            return arith.mk_numeral(rational::zero(), true);
-        }
-        else if (m.is_false(term)) {
-            // false <=> (1 <= 0)
-            m_op = op_le;
-            return arith.mk_numeral(rational::one(), true);
-        }
-        else if (m.is_eq(term, e1, e2)) {
-            // (e1 == e2) <=> (e1 - e2 == 0)
-            m_op = op_eq;
-            return arith.mk_sub(e1, e2);
-        }
-        else if (arith.is_le(term, e1, e2)) {
-            // (e1 <= e2) <=> (e1 - e2 <= 0)
-            m_op = op_le;
-            return arith.mk_sub(e1, e2);
-        }
-        else if (arith.is_ge(term, e1, e2)) {
-            // (e1 >= e2) <=> (e2 - e1 <= 0)
-            m_op = op_le;
-            return arith.mk_sub(e2, e1);
-        }
-        else if (arith.is_lt(term, e1, e2)) {
-            // (e1 < e2) <=> (e1 - e2 + 1 <= 0)
-            m_op = op_le;
-            return arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational::one(), true));
-        }
-        else if (arith.is_gt(term, e1, e2)) {
-            // (e1 > e2) <=> (e2 - e1 + 1 <= 0)
-            m_op = op_le;
-            return arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational::one(), true));
-        }
-        else {
-            STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(term, m) << "\n";);
-            UNREACHABLE();
-            return nullptr;
-        }
-    }
+    friend std::ostream& operator<<(std::ostream& out, linear_inequality const& lineq);
 };
+
+std::ostream& operator<<(std::ostream& out, linear_inequality const& lineq) {
+    ast_manager& m = lineq.m;
+    for (unsigned i = 0; i < lineq.m_vars.size(); ++i) {
+        if (i != 0) {
+            out << " + ";
+        }
+        out << mk_pp(lineq.m_coeffs[i], m) << " * " << mk_pp(lineq.m_vars[i], m);
+    }
+    out << " " << lineq.m_op << " " << mk_pp(lineq.m_const, m);
+    if (lineq.m_has_params) {
+        out << " (has params)";
+    }
+    return out;
+}
 
 class farkas_imp {
     expr_ref_vector m_vars;
-    vector<farkas_pred> m_lhs;
-    farkas_pred m_rhs;
+    vector<linear_inequality> m_lhs;
+    linear_inequality m_rhs;
     unsigned m_param_pred_count;
     expr_ref_vector m_lambdas;
     expr_ref_vector m_constraints;
@@ -224,19 +247,24 @@ public:
         m(vars.get_manager()) {
     }
 
-    void set(expr_ref const& lhs_term, expr_ref const& rhs_term) {
-        STRACE("predabst", tout << "Solving " << mk_pp(lhs_term, m) << " => " << mk_pp(rhs_term, m) << ", in variables "; print_expr_ref_vector(tout, m_vars););
-        expr_ref_vector conjs = get_conj_terms(lhs_term);
-        for (unsigned i = 0; i < conjs.size(); ++i) {
-            farkas_pred f_pred(m_vars);
-            f_pred.set(expr_ref(conjs.get(i), m));
+    bool set(expr_ref_vector const& lhs_terms, expr_ref const& rhs_term) {
+        STRACE("predabst", tout << "Solving " << lhs_terms << " => " << mk_pp(rhs_term, m) << ", in variables " << m_vars << "\n";);
+        for (unsigned i = 0; i < lhs_terms.size(); ++i) {
+            linear_inequality f_pred(m_vars);
+            bool result = f_pred.set(expr_ref(lhs_terms.get(i), m));
+            if (!result) {
+                return false;
+            }
             m_lhs.push_back(f_pred);
             if (f_pred.has_params()) {
                 m_param_pred_count++;
             }
         }
 
-        m_rhs.set(rhs_term);
+        bool result = m_rhs.set(rhs_term);
+        if (!result) {
+            return false;
+        }
 
         m_lambdas.swap(make_lambdas());
         m_constraints.swap(make_constraints());
@@ -244,6 +272,8 @@ public:
 #ifdef Z3DEBUG
         dump_solution();
 #endif
+
+        return true;
     }
 
 #ifdef Z3DEBUG
@@ -269,7 +299,7 @@ public:
             solutions.push_back(solution);
         }
 
-        STRACE("predabst", tout << "Found solution: ("; print_expr_ref_vector(tout, solutions, false); tout << ")\n";);
+        STRACE("predabst", tout << "Found solution: (" << solutions << ")\n";);
     }
 #endif
 
@@ -300,12 +330,12 @@ public:
     void display(std::ostream& out) const {
         out << "LHS:\n";
         for (unsigned i = 0; i < m_lhs.size(); ++i) {
-            m_lhs.get(i).display(out);
+            out << "  " << m_lhs.get(i) << std::endl;
         }
         out << "RHS:\n";
-        m_rhs.display(out);
+        out << "  " << m_rhs << std::endl;
         out << "Constraint:\n";
-        print_expr_ref_vector(out, m_constraints);
+        out << "  " << m_constraints << std::endl;
     }
 
 private:
@@ -396,16 +426,23 @@ expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector con
     expr_ref norm_fml = to_dnf(expr_ref(m.mk_not(fml), m));
     expr_ref_vector disjs = get_disj_terms(norm_fml);
     for (unsigned i = 0; i < disjs.size(); ++i) {
+        expr_ref_vector conjs = get_conj_terms(expr_ref(disjs.get(i), m));
         if (eliminate_unsat_disjuncts) {
             smt_params new_param;
             smt::kernel solver(fml.m(), new_param);
-            solver.assert_expr(disjs.get(i));
+            for (unsigned j = 0; j < conjs.size(); ++j) {
+                solver.assert_expr(conjs.get(j));
+            }
             if (solver.check() != l_true) {
                 continue;
             }
         }
         farkas_imp f_imp(vars);
-        f_imp.set(expr_ref(disjs.get(i), m), expr_ref(m.mk_false(), m));
+        bool result = f_imp.set(conjs, expr_ref(m.mk_false(), m));
+        if (!result) {
+            STRACE("predabst", tout << "System of inequalities is non-linear\n";);
+            CASSERT("predabst", false);
+        }
         STRACE("predabst", f_imp.display(tout););
         constraint_st.append(f_imp.get_constraints());
         lambda_kinds.append(f_imp.get_bilin_lambda_kinds());

@@ -62,7 +62,7 @@ static unsigned count_bilinear_uninterp_const(vector<lambda_info> const& lambdas
 
 // Rewrites a binary (in)equality (E1 op E2) to be of the form (E' op' 0),
 // where op' is either = or <=.
-static bool rewrite_inequality(expr_ref& e, rel_op& op) {
+static bool rewrite_inequality(expr_ref const& e, expr_ref& new_e, rel_op& new_op) {
     ast_manager& m = e.m();
     arith_util arith(m);
 
@@ -70,28 +70,28 @@ static bool rewrite_inequality(expr_ref& e, rel_op& op) {
     expr *e2;
     if (m.is_eq(e, e1, e2)) {
         // (e1 == e2) <=> (e1 - e2 == 0)
-        op = op_eq;
-        e = arith.mk_sub(e1, e2);
+        new_e = arith.mk_sub(e1, e2);
+        new_op = op_eq;
     }
     else if (arith.is_le(e, e1, e2)) {
         // (e1 <= e2) <=> (e1 - e2 <= 0)
-        op = op_le;
-        e = arith.mk_sub(e1, e2);
+        new_e = arith.mk_sub(e1, e2);
+        new_op = op_le;
     }
     else if (arith.is_ge(e, e1, e2)) {
         // (e1 >= e2) <=> (e2 - e1 <= 0)
-        op = op_le;
-        e = arith.mk_sub(e2, e1);
+        new_e = arith.mk_sub(e2, e1);
+        new_op = op_le;
     }
     else if (arith.is_lt(e, e1, e2)) {
         // (e1 < e2) <=> (e1 - e2 + 1 <= 0)
-        op = op_le;
-        e = arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational::one(), true));
+        new_e = arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational::one(), true));
+        new_op = op_le;
     }
     else if (arith.is_gt(e, e1, e2)) {
         // (e1 > e2) <=> (e2 - e1 + 1 <= 0)
-        op = op_le;
-        e = arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational::one(), true));
+        new_e = arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational::one(), true));
+        new_op = op_le;
     }
     else {
         STRACE("predabst", tout << "Expression is not a binary (in)equality: " << mk_pp(e, m) << "\n";);
@@ -146,14 +146,15 @@ public:
         m_has_params = false;
 
         // Push all terms to the LHS of the (in)equality.
-        bool result = rewrite_inequality(e, m_op);
+        expr_ref lhs(m);
+        bool result = rewrite_inequality(e, lhs, m_op);
         if (!result) {
             return false;
         }
 
         // Simplify the LHS of the (in)equality.  The simplified expression
         // will be a sum of terms, each of which is a product of factors.
-        rw(e);
+        rw(lhs);
 
         // Split the terms into those which have one of the m_vars as a
         // factor (var_terms), and those which do not (const_terms), while
@@ -162,7 +163,7 @@ public:
         var_terms.reserve(m_vars.size(), expr_ref_vector(m));
         expr_ref_vector const_terms(m);
 
-        expr_ref_vector terms = get_additive_terms(e);
+        expr_ref_vector terms = get_additive_terms(lhs);
         for (unsigned i = 0; i < terms.size(); ++i) {
             expr_ref term(terms.get(i), m);
             

@@ -21,24 +21,24 @@ Revision History:
 
 #include "ast.h"
 
-typedef enum { bilin_sing, bilin } lambda_kind_sort;
+typedef enum { linear, bilinear } lambda_kind;
 typedef enum { op_eq, op_le } rel_op;
 
 std::ostream& operator<<(std::ostream& ostr, rel_op op);
 
-struct lambda_kind {
+struct lambda_info {
     expr_ref m_lambda;
-    lambda_kind_sort m_kind;
+    lambda_kind m_kind;
     rel_op m_op;
 
-    lambda_kind(expr_ref lambda, lambda_kind_sort kind, rel_op op) :
+    lambda_info(expr_ref const& lambda, lambda_kind kind, rel_op op) :
         m_lambda(lambda),
         m_kind(kind),
         m_op(op) {
     }
 };
 
-expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, vector<lambda_kind>& lambda_kinds, bool eliminate_unsat_disjuncts = false);
+bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraints, vector<lambda_info>& lambda_infos, bool eliminate_unsat_disjuncts = false);
 
 bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
 
@@ -46,6 +46,6 @@ void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& boun
 
 bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* sol_bound, expr_ref* sol_decrease);
 
-expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m);
+expr_ref_vector mk_bilinear_lambda_constraints(vector<lambda_info> const& lambda_infos, int max_lambda, ast_manager& m);
 
 #endif /* _FARKAS_UTIL_H_ */

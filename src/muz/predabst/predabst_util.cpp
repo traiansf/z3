@@ -231,7 +231,7 @@ expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, exp
     else {
         STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(e, m) << "\n";);
         UNREACHABLE();
-        return nullptr;
+        return NULL;
     }
 }
 
@@ -240,7 +240,7 @@ expr_ref_vector get_all_vars(expr_ref const& fml) {
     arith_util arith(m);
     expr_ref_vector vars(m);
     expr_ref_vector todo(m);
-    todo.append(to_app(fml)->get_num_args(), to_app(fml)->get_args());
+    todo.push_back(fml);
     while (!todo.empty()) {
         expr* e = todo.back();
         todo.pop_back();
@@ -380,9 +380,15 @@ static vector<expr_ref_vector> to_dnf_struct(expr_ref const& fml) {
             }
         }
         else {
-            expr_ref_vector tmp(m);
-            tmp.push_back(fml);
-            dnf_struct.push_back(tmp);
+            // false is represented by (OR <empty>)
+            if (!m.is_false(fml)) {
+                expr_ref_vector tmp(m);
+                // true is represented by (OR (AND <empty>))
+                if (!m.is_true(fml)) {
+                    tmp.push_back(fml);
+                }
+                dnf_struct.push_back(tmp);
+            }
         }
         return dnf_struct;
     }

@@ -386,7 +386,7 @@ namespace datalog {
                 m_rule2info.push_back(rule_info(r->get_decl(), r, 0, m));
             }
             for (unsigned i = 0; i < m_rel_templates.size(); ++i) {
-                m_rule2info.push_back(rule_info(m_rel_templates.get(i).m_head->get_decl(), nullptr, i, m));
+                m_rule2info.push_back(rule_info(m_rel_templates.get(i).m_head->get_decl(), NULL, i, m));
             }
 
             for (unsigned i = 0; i < m_rule2info.size(); ++i) {
@@ -2164,25 +2164,27 @@ namespace datalog {
             expr_ref c1 = subst_template_body(m_template_constraint, args_coll);
             //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
-            vector<lambda_kind> lambda_kinds;
-            expr_ref_vector constraint_st = mk_exists_forall_farkas(c1, args_coll, lambda_kinds, true);
+            expr_ref_vector constraints(m);
+            vector<lambda_info> lambda_infos;
+            bool result = mk_exists_forall_farkas(c1, args_coll, constraints, lambda_infos, true);
+            CASSERT("predabst", result);
 
             int max_lambda = 2;
-            expr_ref_vector lambda_cs = mk_bilin_lambda_constraints(lambda_kinds, max_lambda, m);
+            expr_ref_vector lambda_constraints = mk_bilinear_lambda_constraints(lambda_infos, max_lambda, m);
 
-            STRACE("predabst", tout << "Using constraints: " << constraint_st << "\n";);
-            STRACE("predabst", tout << "Using lambda constraint: " << lambda_cs << "\n";);
+            STRACE("predabst", tout << "Using constraints: " << constraints << "\n";);
+            STRACE("predabst", tout << "Using lambda constraint: " << lambda_constraints << "\n";);
 
             smt_params new_param;
             smt::kernel solver(m, new_param);
             if (m_template_extras) {
                 solver.assert_expr(m_template_extras);
             }
-            for (unsigned i = 0; i < constraint_st.size(); ++i) {
-                solver.assert_expr(constraint_st.get(i));
+            for (unsigned i = 0; i < constraints.size(); ++i) {
+                solver.assert_expr(constraints.get(i));
             }
-            for (unsigned i = 0; i < lambda_cs.size(); ++i) {
-                solver.assert_expr(lambda_cs.get(i));
+            for (unsigned i = 0; i < lambda_constraints.size(); ++i) {
+                solver.assert_expr(lambda_constraints.get(i));
             }
             if (solver.check() != l_true) {
                 STRACE("predabst", tout << "Failed to solve template constraints\n";);
@@ -2314,7 +2316,7 @@ namespace datalog {
                 out << "predicates ";
                 for (vector<pred_info>::iterator it2 = it->m_value->m_preds.begin(),
                     end2 = it->m_value->m_preds.end(); it2 != end2; ++it2) {
-                    out << it2->m_pred << " ";
+                    out << mk_pp(it2->m_pred, m) << " ";
                 }
                 out << std::endl;
             }

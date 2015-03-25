@@ -18,6 +18,7 @@ Revision History:
 --*/
 #include "farkas_util.h"
 #include "predabst_util.h"
+#include "well_sorted.h"
 #include "th_rewriter.h"
 #include "arith_decl_plugin.h"
 #include "ast_pp.h"
@@ -39,55 +40,70 @@ std::ostream& operator<<(std::ostream& out, rel_op op) {
     return out;
 }
 
-// Rewrites an (in)equality (E1 op E2) to be of the form (E' op' 0), where
-// op' is either = or <=.
-static expr* rewrite_inequality(expr_ref const& e, rel_op& op) {
+static unsigned count_bilinear(vector<lambda_info> const& lambdas) {
+    unsigned num_bilinear = 0;
+    for (unsigned i = 0; i < lambdas.size(); i++) {
+        if (lambdas[i].m_kind == bilinear) {
+            ++num_bilinear;
+        }
+    }
+    return num_bilinear;
+}
+
+static unsigned count_bilinear_uninterp_const(vector<lambda_info> const& lambdas) {
+    unsigned num_bilinear_uninterp_const = 0;
+    for (unsigned i = 0; i < lambdas.size(); i++) {
+        if ((lambdas[i].m_kind == bilinear) && is_uninterp_const(lambdas[i].m_lambda)) {
+            ++num_bilinear_uninterp_const;
+        }
+    }
+    return num_bilinear_uninterp_const;
+}
+
+// Rewrites a binary (in)equality (E1 op E2) to be of the form (E' op' 0),
+// where op' is either = or <=.
+static bool rewrite_inequality(expr_ref& e, rel_op& op) {
     ast_manager& m = e.m();
     arith_util arith(m);
-    if (m.is_true(e)) {
-        // true <=> (0 <= 0)
-        op = op_le;
-        return arith.mk_numeral(rational::zero(), true);
+
+    expr *e1;
+    expr *e2;
+    if (m.is_eq(e, e1, e2)) {
+        // (e1 == e2) <=> (e1 - e2 == 0)
+        op = op_eq;
+        e = arith.mk_sub(e1, e2);
     }
-    else if (m.is_false(e)) {
-        // false <=> (1 <= 0)
+    else if (arith.is_le(e, e1, e2)) {
+        // (e1 <= e2) <=> (e1 - e2 <= 0)
         op = op_le;
-        return arith.mk_numeral(rational::one(), true);
+        e = arith.mk_sub(e1, e2);
+    }
+    else if (arith.is_ge(e, e1, e2)) {
+        // (e1 >= e2) <=> (e2 - e1 <= 0)
+        op = op_le;
+        e = arith.mk_sub(e2, e1);
+    }
+    else if (arith.is_lt(e, e1, e2)) {
+        // (e1 < e2) <=> (e1 - e2 + 1 <= 0)
+        op = op_le;
+        e = arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational::one(), true));
+    }
+    else if (arith.is_gt(e, e1, e2)) {
+        // (e1 > e2) <=> (e2 - e1 + 1 <= 0)
+        op = op_le;
+        e = arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational::one(), true));
     }
     else {
-        expr *e1;
-        expr *e2;
-        if (m.is_eq(e, e1, e2)) {
-            // (e1 == e2) <=> (e1 - e2 == 0)
-            op = op_eq;
-            return arith.mk_sub(e1, e2);
-        }
-        else if (arith.is_le(e, e1, e2)) {
-            // (e1 <= e2) <=> (e1 - e2 <= 0)
-            op = op_le;
-            return arith.mk_sub(e1, e2);
-        }
-        else if (arith.is_ge(e, e1, e2)) {
-            // (e1 >= e2) <=> (e2 - e1 <= 0)
-            op = op_le;
-            return arith.mk_sub(e2, e1);
-        }
-        else if (arith.is_lt(e, e1, e2)) {
-            // (e1 < e2) <=> (e1 - e2 + 1 <= 0)
-            op = op_le;
-            return arith.mk_add(arith.mk_sub(e1, e2), arith.mk_numeral(rational::one(), true));
-        }
-        else if (arith.is_gt(e, e1, e2)) {
-            // (e1 > e2) <=> (e2 - e1 + 1 <= 0)
-            op = op_le;
-            return arith.mk_add(arith.mk_sub(e2, e1), arith.mk_numeral(rational::one(), true));
-        }
-        else {
-            STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(e, m) << "\n";);
-            UNREACHABLE();
-            return NULL;
-        }
+        STRACE("predabst", tout << "Expression is not a binary (in)equality: " << mk_pp(e, m) << "\n";);
+        return false;
     }
+
+    if (get_sort(e1) != arith.mk_int()) {
+        STRACE("predabst", tout << "Operands of (in)equality are not integers: " << mk_pp(e, m) << "\n";);
+        return false;
+    }
+
+    return true;
 }
 
 class linear_inequality {
@@ -98,7 +114,7 @@ class linear_inequality {
     // where m_vars are distinct (grounded) variables, and m_coeffs and
     // m_const do not contain any of those variables.
 
-    expr_ref_vector m_vars;
+    expr_ref_vector const m_vars;
     expr_ref_vector m_coeffs;
     rel_op m_op;
     expr_ref m_const;
@@ -113,7 +129,6 @@ public:
         m_vars(vars),
         m_coeffs(vars.get_manager()),
         m_const(vars.get_manager()),
-        m_has_params(false),
         m(vars.get_manager()) {
     }
 
@@ -122,11 +137,19 @@ public:
     // Returns false if this is impossible, i.e. if the (in)equality is not linear in
     // m_vars.
     bool set(expr_ref e) {
+        CASSERT("predabst", is_well_sorted(m, e));
         arith_util arith(m);
         th_rewriter rw(m);
 
+        m_coeffs.reset();
+        m_const.reset();
+        m_has_params = false;
+
         // Push all terms to the LHS of the (in)equality.
-        e = rewrite_inequality(e, m_op);
+        bool result = rewrite_inequality(e, m_op);
+        if (!result) {
+            return false;
+        }
 
         // Simplify the LHS of the (in)equality.  The simplified expression
         // will be a sum of terms, each of which is a product of factors.
@@ -228,12 +251,36 @@ std::ostream& operator<<(std::ostream& out, linear_inequality const& lineq) {
 }
 
 class farkas_imp {
-    expr_ref_vector m_vars;
+    // Represents an implication from a set of linear (in)equalities to
+    // another liner inequality, where all the (in)equalities are linear
+    // in a common set of variables (m_vars).
+    //
+    // Symbolically:
+    //
+    //   (A . v <= b) ==> (c . v <= d)
+    //
+    // Or graphically:
+    //
+    //   (. . .) (.)    (.)               (.)
+    //   (. A .) (v) <= (b)  ==>  (. c .) (v) <= d
+    //   (. . .) (.)    (.)               (.)
+    //
+    // Farkas's lemma says that this implication holds if and only if
+    // the inequality on the RHS is a consequence of a linear combination
+    // of the inequalities on the LHS, where the multipliers of all
+    // inequalities on the LHS must be non-negative.  That is:
+    //
+    //     Forall v, (A . v <= b) ==> (c . v <= d)
+    //   <==>
+    //     Exists lambda, (lambda >= 0), (lambda . A = c) AND (lambda . b <= d)
+    //
+    // If any of (in)equalities on the LHS are actually equalities,
+    // then the constraint on that lambda may be dropped.
+
+    expr_ref_vector const m_vars;
     vector<linear_inequality> m_lhs;
     linear_inequality m_rhs;
-    unsigned m_param_pred_count;
     expr_ref_vector m_lambdas;
-    expr_ref_vector m_constraints;
 
     ast_manager& m;
 
@@ -241,24 +288,20 @@ public:
     farkas_imp(expr_ref_vector const& vars) :
         m_vars(vars),
         m_rhs(vars),
-        m_param_pred_count(0),
         m_lambdas(vars.get_manager()),
-        m_constraints(vars.get_manager()),
         m(vars.get_manager()) {
     }
 
     bool set(expr_ref_vector const& lhs_terms, expr_ref const& rhs_term) {
         STRACE("predabst", tout << "Solving " << lhs_terms << " => " << mk_pp(rhs_term, m) << ", in variables " << m_vars << "\n";);
+        m_lhs.reset();
         for (unsigned i = 0; i < lhs_terms.size(); ++i) {
-            linear_inequality f_pred(m_vars);
-            bool result = f_pred.set(expr_ref(lhs_terms.get(i), m));
+            linear_inequality lineq(m_vars);
+            bool result = lineq.set(expr_ref(lhs_terms.get(i), m));
             if (!result) {
                 return false;
             }
-            m_lhs.push_back(f_pred);
-            if (f_pred.has_params()) {
-                m_param_pred_count++;
-            }
+            m_lhs.push_back(lineq);
         }
 
         bool result = m_rhs.set(rhs_term);
@@ -266,117 +309,23 @@ public:
             return false;
         }
 
-        m_lambdas.swap(make_lambdas());
-        m_constraints.swap(make_constraints());
+        if (m_rhs.get_op() == op_eq) {
+            STRACE("predabst", tout << "RHS is an equality not an inequality\n";);
+            return false;
+        }
 
-#ifdef Z3DEBUG
-        dump_solution();
-#endif
+        m_lambdas.swap(make_lambdas());
 
         return true;
     }
 
-#ifdef Z3DEBUG
-    void dump_solution() const {
-        smt_params new_param;
-        smt::kernel solver(m, new_param);
-        for (unsigned i = 0; i < m_constraints.size(); ++i) {
-            solver.assert_expr(m_constraints.get(i));
-        }
-        if (solver.check() != l_true) {
-            STRACE("predabst", tout << "Unable to find solution\n";);
-            return;
-        }
-
-        model_ref modref;
-        solver.get_model(modref);
-        expr_ref_vector solutions(m);
-        for (unsigned j = 0; j < m_lhs.size(); ++j) {
-            expr_ref solution(m);
-            if (!modref->eval(m_lambdas.get(j), solution, true)) {
-                return;
-            }
-            solutions.push_back(solution);
-        }
-
-        STRACE("predabst", tout << "Found solution: (" << solutions << ")\n";);
-    }
-#endif
-
-    expr_ref_vector const& get_constraints() const {
-        return m_constraints;
-    }
-
-    vector<lambda_kind> get_bilin_lambda_kinds() const {
-        vector<lambda_kind> lambda_kinds;
-        for (unsigned i = 0; i < m_lhs.size(); ++i) {
-            if (m_lhs.get(i).has_params()) {
-                if (m_param_pred_count == 1) {
-                    if (m_lhs.get(i).get_op() == op_eq) {
-                        lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin_sing, m_lhs.get(i).get_op()));
-                    }
-                    else {
-                        // This lambda will be replaced with 1 and so will disappear from the constraints.
-                    }
-                }
-                else {
-                    lambda_kinds.push_back(lambda_kind(expr_ref(m_lambdas.get(i), m), bilin, m_lhs.get(i).get_op()));
-                }
-            }
-        }
-        return lambda_kinds;
-    }
-
-    void display(std::ostream& out) const {
-        out << "LHS:\n";
-        for (unsigned i = 0; i < m_lhs.size(); ++i) {
-            out << "  " << m_lhs.get(i) << std::endl;
-        }
-        out << "RHS:\n";
-        out << "  " << m_rhs << std::endl;
-        out << "Constraint:\n";
-        out << "  " << m_constraints << std::endl;
-    }
-
-private:
-
-    expr_ref_vector make_lambdas() const {
-        bool is_bilin_sing = false;
-        unsigned bilin_sing_idx;
-        if (m_param_pred_count == 1) {
-            for (unsigned i = 0; i < m_lhs.size(); ++i) {
-                if (m_lhs.get(i).has_params()) {
-                    if (m_lhs.get(i).get_op() == op_le) {
-                        is_bilin_sing = true;
-                        bilin_sing_idx = i;
-                    }
-                    break;
-                }
-            }
-        }
-
-        expr_ref_vector lambdas(m);
-
-        for (unsigned i = 0; i < m_lhs.size(); ++i) {
-            if (is_bilin_sing && (i == bilin_sing_idx)) {
-                arith_util arith(m);
-                lambdas.push_back(arith.mk_numeral(rational::one(), true));
-            }
-            else {
-                lambdas.push_back(m.mk_fresh_const("t", arith_util(m).mk_int()));
-            }
-        }
-
-        return lambdas;
-    }
-
-    expr_ref_vector make_constraints() const {
+    expr_ref_vector get_constraints() const {
         arith_util arith(m);
-        //CASSERT("predabst", m_lhs.get_param_pred_count() > 0);
-        // XXX This assert fails on unsat-N.smt2, but without it the tests pass.  It's not clear whether this assert is wrong, or whether there's a bug.
 
         expr_ref_vector constraints(m);
 
+        // The multipliers for all inequalities (as opposed to equalities)
+        // must be non-negative.
         for (unsigned j = 0; j < m_lhs.size(); ++j) {
             expr* lambda = m_lambdas.get(j);
             rel_op op = m_lhs.get(j).get_op();
@@ -388,6 +337,7 @@ private:
             }
         }
 
+        // lambda . A = c
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             expr_ref_vector terms(m);
             for (unsigned j = 0; j < m_lhs.size(); ++j) {
@@ -405,6 +355,7 @@ private:
             constraints.push_back(m.mk_eq(mk_sum(terms), m_rhs.get_coeff(i)));
         }
 
+        // lambda . b <= d
         expr_ref_vector terms(m);
         for (unsigned j = 0; j < m_lhs.size(); ++j) {
             expr* lambda = m_lambdas.get(j);
@@ -417,12 +368,69 @@ private:
 
         return constraints;
     }
+
+    vector<lambda_info> get_lambdas() const {
+        vector<lambda_info> lambdas;
+        for (unsigned i = 0; i < m_lhs.size(); ++i) {
+            lambda_kind kind = m_lhs.get(i).has_params() ? bilinear : linear;
+            lambdas.push_back(lambda_info(expr_ref(m_lambdas.get(i), m), kind, m_lhs.get(i).get_op()));
+        }
+        return lambdas;
+    }
+
+    void display(std::ostream& out) const {
+        out << "LHS:\n";
+        for (unsigned i = 0; i < m_lhs.size(); ++i) {
+            out << "  " << mk_pp(m_lambdas.get(i), m) << ": " << m_lhs.get(i) << std::endl;
+        }
+        out << "RHS:\n";
+        out << "  " << m_rhs << std::endl;
+    }
+
+private:
+
+    expr_ref_vector make_lambdas() const {
+        // We classify the (in)equalities on the LHS as either 'linear' or
+        // 'bilinear', according to whether the coefficients are all
+        // integers, or whether some of the coefficients are uninterpreted
+        // constants.
+        unsigned num_bilinear = 0;
+        unsigned bilinear_idx;
+        for (unsigned i = 0; i < m_lhs.size(); ++i) {
+            if (m_lhs.get(i).has_params()) {
+                ++num_bilinear;
+                bilinear_idx = i;
+            }
+        }
+
+        expr_ref_vector lambdas(m);
+
+        for (unsigned i = 0; i < m_lhs.size(); ++i) {
+            if ((num_bilinear == 1) && (i == bilinear_idx) && (m_lhs.get(i).get_op() == op_le)) {
+                // If this is the sole bilinear (in)equality, and it is an
+                // inequality, then without loss of generality we may choose
+                // its multiplier to be 1.  (We cannot do this if it is an
+                // equality, since the multiplier may need to be negative.)
+                // This optimization reduces the problem to a purely linear
+                // one.
+                arith_util arith(m);
+                lambdas.push_back(arith.mk_numeral(rational::one(), true));
+            }
+            else {
+                lambdas.push_back(m.mk_fresh_const("t", arith_util(m).mk_int()));
+            }
+        }
+
+        return lambdas;
+    }
 };
 
-expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, vector<lambda_kind>& lambda_kinds, bool eliminate_unsat_disjuncts) {
+bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraints, vector<lambda_info>& lambdas, bool eliminate_unsat_disjuncts) {
     ast_manager& m = fml.m();
-    CASSERT("predabst", lambda_kinds.empty());
-    expr_ref_vector constraint_st(m);
+    arith_util arith(m);
+    CASSERT("predabst", constraints.empty());
+    CASSERT("predabst", lambdas.empty());
+    expr_ref false_ineq(arith.mk_le(arith.mk_numeral(rational::one(), true), arith.mk_numeral(rational::zero(), true)), m);
     expr_ref norm_fml = to_dnf(expr_ref(m.mk_not(fml), m));
     expr_ref_vector disjs = get_disj_terms(norm_fml);
     for (unsigned i = 0; i < disjs.size(); ++i) {
@@ -438,16 +446,16 @@ expr_ref_vector mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector con
             }
         }
         farkas_imp f_imp(vars);
-        bool result = f_imp.set(conjs, expr_ref(m.mk_false(), m));
+        bool result = f_imp.set(conjs, false_ineq);
         if (!result) {
             STRACE("predabst", tout << "System of inequalities is non-linear\n";);
-            CASSERT("predabst", false);
+            return false;
         }
         STRACE("predabst", f_imp.display(tout););
-        constraint_st.append(f_imp.get_constraints());
-        lambda_kinds.append(f_imp.get_bilin_lambda_kinds());
+        constraints.append(f_imp.get_constraints());
+        lambdas.append(f_imp.get_lambdas());
     }
-    return constraint_st;
+    return true;
 }
 
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease) {
@@ -531,17 +539,19 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
     // Does passing true for eliminate_unsat_disjunts help in the refinement case?
-    vector<lambda_kind> lambda_kinds;
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vsws, lambda_kinds);
-    CASSERT("predabst", lambda_kinds.empty());
+    expr_ref_vector constraints(m);
+    vector<lambda_info> lambdas;
+    bool result = mk_exists_forall_farkas(to_solve, vsws, constraints, lambdas);
+    CASSERT("predabst", result);
+    CASSERT("predabst", count_bilinear_uninterp_const(lambdas) == 0);
 
     smt_params new_param;
     if (!sol_bound && !sol_decrease) {
         new_param.m_model = false;
     }
     smt::kernel solver(m, new_param);
-    for (unsigned i = 0; i < constraint_st.size(); ++i) {
-        solver.assert_expr(constraint_st.get(i));
+    for (unsigned i = 0; i < constraints.size(); ++i) {
+        solver.assert_expr(constraints.get(i));
     }
 
     if (solver.check() != l_true) {
@@ -581,14 +591,16 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     expr_ref fmlQ(arith.mk_le(sum_vars, ic), m);
 
     expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
-    vector<lambda_kind> lambda_kinds;
-    expr_ref_vector constraint_st = mk_exists_forall_farkas(to_solve, vars, lambda_kinds);
-    CASSERT("predabst", lambda_kinds.empty());
+    expr_ref_vector constraints(m);
+    vector<lambda_info> lambdas;
+    bool result = mk_exists_forall_farkas(to_solve, vars, constraints, lambdas);
+    CASSERT("predabst", result);
+    CASSERT("predabst", count_bilinear_uninterp_const(lambdas) == 0);
 
     smt_params new_param;
     smt::kernel solver(m, new_param);
-    for (unsigned i = 0; i < constraint_st.size(); ++i) {
-        solver.assert_expr(constraint_st.get(i));
+    for (unsigned i = 0; i < constraints.size(); ++i) {
+        solver.assert_expr(constraints.get(i));
     }
     if (solver.check() != l_true) {
         STRACE("predabst", tout << "Interpolation failed: constraint is unsatisfiable\n";);
@@ -605,27 +617,45 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     return true;
 }
 
-expr_ref_vector mk_bilin_lambda_constraints(vector<lambda_kind> const& lambda_kinds, int max_lambda, ast_manager& m) {
+expr_ref_vector mk_bilinear_lambda_constraints(vector<lambda_info> const& lambdas, int max_lambda, ast_manager& m) {
     arith_util arith(m);
 
-    expr_ref n1(arith.mk_numeral(rational::one(), true), m);
-    expr_ref nminus1(arith.mk_numeral(rational::minus_one(), true), m);
+    expr_ref one(arith.mk_numeral(rational::one(), true), m);
+    expr_ref minus_one(arith.mk_numeral(rational::minus_one(), true), m);
 
-    expr_ref_vector cons(m);
-    for (unsigned i = 0; i < lambda_kinds.size(); i++) {
-        if (lambda_kinds[i].m_kind == bilin_sing) {
-            CASSERT("predabst", lambda_kinds[i].m_op == op_eq);
-            cons.push_back(m.mk_or(m.mk_eq(lambda_kinds[i].m_lambda, nminus1), m.mk_eq(lambda_kinds[i].m_lambda, n1)));
-        }
-        else {
-            CASSERT("predabst", lambda_kinds[i].m_kind == bilin);
-            int min_lambda = (lambda_kinds[i].m_op == op_eq) ? -max_lambda : 0;
-            expr_ref_vector bilin_disj_terms(m);
-            for (int j = min_lambda; j <= max_lambda; j++) {
-                bilin_disj_terms.push_back(m.mk_eq(lambda_kinds[i].m_lambda, arith.mk_numeral(rational(j), true)));
+    unsigned num_bilinear = count_bilinear(lambdas);
+
+    expr_ref_vector constraints(m);
+    for (unsigned i = 0; i < lambdas.size(); i++) {
+        if (lambdas[i].m_kind == bilinear) {
+            if (num_bilinear == 1) {
+                if (lambdas[i].m_op == op_eq) {
+                    // This is the sole bilinear (in)equality, and it is an
+                    // equality, so without loss of generality we may choose
+                    // its multiplier to be either 1 or -1.
+                    constraints.push_back(m.mk_or(m.mk_eq(lambdas[i].m_lambda, minus_one), m.mk_eq(lambdas[i].m_lambda, one)));
+                }
+                else {
+                    // This is the sole bilinear (in)equality, and it is an
+                    // inequality, so the multiplier will have been set to 1
+                    // above and therefore no constraint is necessary.
+                    CASSERT("predabst", arith.is_one(lambdas[i].m_lambda));
+                }
             }
-            cons.push_back(mk_disj(bilin_disj_terms));
+            else {
+                // There is more than one bilinear (in)equality.  In order to
+                // make solving tractable, we assume that the multiplier is
+                // between 0 and N for an inequality, or -N and N for an
+                // equality.  Note that this assumption might prevent us from
+                // finding a solution.
+                int min_lambda = (lambdas[i].m_op == op_eq) ? -max_lambda : 0;
+                expr_ref_vector bilin_disj_terms(m);
+                for (int j = min_lambda; j <= max_lambda; j++) {
+                    bilin_disj_terms.push_back(m.mk_eq(lambdas[i].m_lambda, arith.mk_numeral(rational(j), true)));
+                }
+                constraints.push_back(mk_disj(bilin_disj_terms));
+            }
         }
     }
-    return cons;
+    return constraints;
 }

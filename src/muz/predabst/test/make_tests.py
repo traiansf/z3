@@ -687,6 +687,13 @@ wf_sat_tests = [
      """
 (define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool false)"""),
 
+    ("simple",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (< x_ x)) (__wf__p x x_))))""",
+     """
+(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (>= x!1 0) (not (<= x!1 x!2))))"""),
+
     ("templ-refine",
      """
 (declare-fun __wf__p (Int Int) Bool)

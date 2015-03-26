@@ -24,6 +24,14 @@ Revision History:
 #include "smt_params.h"
 #include "qe_lite.h"
 
+bool sort_is_bool(expr* e, ast_manager& m) {
+    return get_sort(e) == m.mk_bool_sort();
+}
+
+bool sort_is_int(expr* e, ast_manager& m) {
+    return get_sort(e) == arith_util(m).mk_int();
+}
+
 static void get_disj_terms(expr* e, ast_manager& m, expr_ref_vector& terms) {
     if (m.is_or(e)) {
         for (unsigned i = 0; i < to_app(e)->get_num_args(); ++i) {
@@ -71,6 +79,9 @@ static void get_additive_terms(expr* e, ast_manager& m, expr_ref_vector& terms) 
             get_additive_terms(to_app(e)->get_arg(i), m, terms);
         }
     }
+    else if (arith.is_zero(e)) {
+        // do nothing
+    }
     else {
         terms.push_back(e);
     }
@@ -89,6 +100,9 @@ static void get_multiplicative_factors(expr* e, ast_manager& m, expr_ref_vector&
             get_multiplicative_factors(to_app(e)->get_arg(i), m, factors);
         }
     }
+    else if (arith.is_one(e)) {
+        // do nothing
+    }
     else {
         factors.push_back(e);
     }
@@ -101,76 +115,82 @@ expr_ref_vector get_multiplicative_factors(expr_ref const& e) {
 }
 
 expr_ref mk_not(expr_ref const& term) {
-	if (term.m().is_true(term)) {
-		return expr_ref(term.m().mk_false(), term.m());
+    ast_manager& m = term.m();
+    CASSERT("predabst", sort_is_bool(term, m));
+    if (m.is_true(term)) {
+		return expr_ref(m.mk_false(), m);
 	}
-	else if (term.m().is_false(term)) {
-		return expr_ref(term.m().mk_true(), term.m());
+	else if (m.is_false(term)) {
+		return expr_ref(m.mk_true(), m);
 	}
     else {
-        return expr_ref(term.m().mk_not(term), term.m());
+        return expr_ref(m.mk_not(term), m);
     }
 }
 
 expr_ref mk_disj(expr_ref_vector const& terms) {
+    ast_manager& m = terms.m();
+    for (unsigned i = 0; i < terms.size(); ++i) {
+        CASSERT("predabst", sort_is_bool(terms[i], m));
+    }
     if (terms.size() == 0) {
-        return expr_ref(terms.m().mk_false(), terms.m());
+        return expr_ref(m.mk_false(), m);
     }
     else if (terms.size() == 1) {
-        return expr_ref(terms.get(0), terms.m());
+        return expr_ref(terms.get(0), m);
     }
     else {
-        return expr_ref(terms.m().mk_or(terms.size(), terms.c_ptr()), terms.m());
+        return expr_ref(m.mk_or(terms.size(), terms.c_ptr()), m);
     }
 }
 
 expr_ref mk_conj(expr_ref_vector const& terms) {
+    ast_manager& m = terms.m();
+    for (unsigned i = 0; i < terms.size(); ++i) {
+        CASSERT("predabst", sort_is_bool(terms[i], m));
+    }
     if (terms.size() == 0) {
-        return expr_ref(terms.m().mk_true(), terms.m());
+        return expr_ref(m.mk_true(), m);
     }
     else if (terms.size() == 1) {
-        return expr_ref(terms.get(0), terms.m());
+        return expr_ref(terms.get(0), m);
     }
     else {
-        return expr_ref(terms.m().mk_and(terms.size(), terms.c_ptr()), terms.m());
-    }
-}
-
-expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2) {
-    if (term1.m().is_true(term1)) {
-        return term2;
-    }
-    else if (term1.m().is_true(term2)) {
-        return term1;
-    }
-    else {
-        return expr_ref(term1.m().mk_and(term1, term2), term1.m());
+        return expr_ref(m.mk_and(terms.size(), terms.c_ptr()), m);
     }
 }
 
 expr_ref mk_sum(expr_ref_vector const& terms) {
-    arith_util arith(terms.m());
+    ast_manager& m = terms.m();
+    arith_util arith(m);
+    for (unsigned i = 0; i < terms.size(); ++i) {
+        CASSERT("predabst", sort_is_int(terms[i], m));
+    }
     if (terms.size() == 0) {
-        return expr_ref(arith.mk_numeral(rational::zero(), true), terms.m());
+        return expr_ref(arith.mk_numeral(rational::zero(), true), m);
     }
     else if (terms.size() == 1) {
-        return expr_ref(terms.get(0), terms.m());
+        return expr_ref(terms.get(0), m);
     }
     else {
-        return expr_ref(arith.mk_add(terms.size(), terms.c_ptr()), terms.m());
+        return expr_ref(arith.mk_add(terms.size(), terms.c_ptr()), m);
     }
 }
 
 expr_ref mk_prod(expr_ref_vector const& terms) {
-    arith_util arith(terms.m());
+    ast_manager& m = terms.m();
+    arith_util arith(m);
+    for (unsigned i = 0; i < terms.size(); ++i) {
+        CASSERT("predabst", sort_is_int(terms[i], m));
+    }
     if (terms.size() == 0) {
-        return expr_ref(arith.mk_numeral(rational::one(), true), terms.m());
+        return expr_ref(arith.mk_numeral(rational::one(), true), m);
     }
     else if (terms.size() == 1) {
-        return expr_ref(terms.get(0), terms.m());
+        return expr_ref(terms.get(0), m);
     }
     else {
-        return expr_ref(arith.mk_mul(terms.size(), terms.c_ptr()), terms.m());
+        return expr_ref(arith.mk_mul(terms.size(), terms.c_ptr()), m);
     }
 }
 
@@ -347,56 +367,57 @@ expr_ref to_nnf(expr_ref const& fml) {
     }
 }
 
-static vector<expr_ref_vector> cnf_to_dnf_struct(vector<vector<expr_ref_vector> > const& cnf_sets, ast_manager& m) {
-    vector<expr_ref_vector> sofar;
-    sofar.push_back(expr_ref_vector(m));
-    for (unsigned k = 0; k < cnf_sets.size(); ++k) {
-        vector<expr_ref_vector> tmp;
-        vector<expr_ref_vector> const& next = cnf_sets.get(k);
-        for (unsigned i = 0; i < sofar.size(); ++i) {
-            for (unsigned j = 0; j < next.size(); ++j) {
-                tmp.push_back(vector_concat(sofar[i], next[j]));
-            }
-        }
-        sofar = tmp;
-    }
-    return sofar;
-}
-
 static vector<expr_ref_vector> to_dnf_struct(expr_ref const& fml) {
     ast_manager& m = fml.get_manager();
+    vector<expr_ref_vector> dnf_struct;
     if (m.is_and(fml)) {
-        vector<vector<expr_ref_vector> > dnf_sub_structs;
+        // Return the Cartesian product of the DNF structures corresponding
+        // to the child nodes.
+        dnf_struct.push_back(expr_ref_vector(m));
         for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
-            dnf_sub_structs.push_back(to_dnf_struct(expr_ref(to_app(fml)->get_arg(i), m)));
+            vector<expr_ref_vector> next = to_dnf_struct(expr_ref(to_app(fml)->get_arg(i), m));
+            // Replicate dnf_struct next.size() times.
+            if (next.size() == 0) {
+                dnf_struct.reset();
+                break;
+            }
+            unsigned old_size = dnf_struct.size();
+            for (unsigned j = 1; j < next.size(); ++j) {
+                for (unsigned k = 0; k < old_size; ++k) {
+                    dnf_struct.push_back(dnf_struct[k]);
+                }
+            }
+            // Extend each element of dnf_struct with one element of next.
+            for (unsigned j = 0; j < next.size(); ++j) {
+                for (unsigned k = 0; k < old_size; ++k) {
+                    dnf_struct[(j * old_size) + k].append(next[j]);
+                }
+            }
         }
-        return cnf_to_dnf_struct(dnf_sub_structs, m);
+    }
+    else if (m.is_or(fml)) {
+        // Return the union of the DNF structures corresponding to the child
+        // nodes.
+        for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
+            dnf_struct.append(to_dnf_struct(expr_ref(to_app(fml)->get_arg(i), m)));
+        }
     }
     else {
-        vector<expr_ref_vector> dnf_struct;
-        if (m.is_or(fml)) {
-            for (unsigned i = 0; i < to_app(fml)->get_num_args(); ++i) {
-                dnf_struct.append(to_dnf_struct(expr_ref(to_app(fml)->get_arg(i), m)));
+        // false is represented by (OR <empty>)
+        if (!m.is_false(fml)) {
+            expr_ref_vector tmp(m);
+            // true is represented by (OR (AND <empty>))
+            if (!m.is_true(fml)) {
+                tmp.push_back(fml);
             }
+            dnf_struct.push_back(tmp);
         }
-        else {
-            // false is represented by (OR <empty>)
-            if (!m.is_false(fml)) {
-                expr_ref_vector tmp(m);
-                // true is represented by (OR (AND <empty>))
-                if (!m.is_true(fml)) {
-                    tmp.push_back(fml);
-                }
-                dnf_struct.push_back(tmp);
-            }
-        }
-        return dnf_struct;
     }
+    return dnf_struct;
 }
 
 expr_ref to_dnf(expr_ref const& fml) {
-    vector<expr_ref_vector> dnf_struct;
-    dnf_struct = to_dnf_struct(to_nnf(fml));
+    vector<expr_ref_vector> dnf_struct = to_dnf_struct(to_nnf(fml));
     expr_ref_vector disjs(fml.m());
     for (unsigned i = 0; i < dnf_struct.size(); ++i) {
         disjs.push_back(mk_conj(dnf_struct[i]));

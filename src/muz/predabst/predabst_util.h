@@ -56,24 +56,18 @@ std::ostream& operator<<(std::ostream& out, ref_vector<T, TManager> const& v) {
     return out;
 }
 
+bool sort_is_bool(expr* e, ast_manager& m);
+bool sort_is_int(expr* e, ast_manager& m);
+
 expr_ref_vector get_disj_terms(expr_ref const& e);
-
 expr_ref_vector get_conj_terms(expr_ref const& e);
-
 expr_ref_vector get_additive_terms(expr_ref const& e);
-
 expr_ref_vector get_multiplicative_factors(expr_ref const& e);
 
 expr_ref mk_not(expr_ref const& term);
-
 expr_ref mk_disj(expr_ref_vector const& terms);
-
 expr_ref mk_conj(expr_ref_vector const& terms);
-
-expr_ref mk_conj(expr_ref const& term1, expr_ref const& term2);
-
 expr_ref mk_sum(expr_ref_vector const& terms);
-
 expr_ref mk_prod(expr_ref_vector const& terms);
 
 expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* e);
@@ -83,7 +77,6 @@ expr_ref_vector get_all_vars(expr_ref const& fml);
 void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml);
 
 expr_ref to_nnf(expr_ref const& fml);
-
 expr_ref to_dnf(expr_ref const& fml);
 
 #endif /* _PREDABST_UTIL_H */

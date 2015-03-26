@@ -40,6 +40,7 @@ std::ostream& operator<<(std::ostream& out, rel_op op) {
     return out;
 }
 
+// Returns the number of lambdas of kind 'bilinear'.
 static unsigned count_bilinear(vector<lambda_info> const& lambdas) {
     unsigned num_bilinear = 0;
     for (unsigned i = 0; i < lambdas.size(); i++) {
@@ -50,6 +51,9 @@ static unsigned count_bilinear(vector<lambda_info> const& lambdas) {
     return num_bilinear;
 }
 
+// Returns the number of lambdas of kind 'bilinear' that are still
+// uninterpreted constants (i.e. which haven't been substituted for a
+// specific value).
 static unsigned count_bilinear_uninterp_const(vector<lambda_info> const& lambdas) {
     unsigned num_bilinear_uninterp_const = 0;
     for (unsigned i = 0; i < lambdas.size(); i++) {
@@ -60,11 +64,13 @@ static unsigned count_bilinear_uninterp_const(vector<lambda_info> const& lambdas
     return num_bilinear_uninterp_const;
 }
 
-// Rewrites a binary (in)equality (E1 op E2) to be of the form (E' op' 0),
-// where op' is either = or <=.
-static bool rewrite_inequality(expr_ref const& e, expr_ref& new_e, rel_op& new_op) {
+// Converts an integer (in)equality (E1 op E2) to the form (E' op' 0),
+// where op' is either = or <=.  Returns false if the expression is not a
+// binary integer (in)equality.
+static bool leftify_inequality(expr_ref const& e, expr_ref& new_e, rel_op& new_op) {
     ast_manager& m = e.m();
     arith_util arith(m);
+    CASSERT("predabst", is_well_sorted(m, e));
 
     expr *e1;
     expr *e2;
@@ -98,16 +104,19 @@ static bool rewrite_inequality(expr_ref const& e, expr_ref& new_e, rel_op& new_o
         return false;
     }
 
-    if (get_sort(e1) != arith.mk_int()) {
+    if (!sort_is_int(e1, m)) {
         STRACE("predabst", tout << "Operands of (in)equality are not integers: " << mk_pp(e, m) << "\n";);
         return false;
     }
 
+    CASSERT("predabst", sort_is_int(e2, m));
+    CASSERT("predabst", is_well_sorted(m, new_e));
+    CASSERT("predabst", sort_is_int(new_e, m));
     return true;
 }
 
 class linear_inequality {
-    // Represents a linear (in)equality in the variables m_vars.
+    // Represents a linear integer (in)equality in the variables m_vars.
     //
     // Specifically, represents the (in)equality:
     //     (Sigma_i (m_vars[i] * m_coeffs[i])) m_op m_const
@@ -124,20 +133,24 @@ class linear_inequality {
     ast_manager& m;
 
 public:
-
     linear_inequality(expr_ref_vector const& vars) :
         m_vars(vars),
         m_coeffs(vars.get_manager()),
         m_const(vars.get_manager()),
         m(vars.get_manager()) {
+        for (unsigned i = 0; i < vars.size(); ++i) {
+            CASSERT("predabst", is_uninterp_const(vars[i]));
+            CASSERT("predabst", sort_is_int(vars[i], m));
+        }
     }
 
-    // Convert an (in)equality of the form (E1 op E2), where E1 and E2 are formulae
-    // involving m_vars, into an equivalent expression of the form stored by this class.
-    // Returns false if this is impossible, i.e. if the (in)equality is not linear in
-    // m_vars.
+    // Initializes this object from an expression representing a (binary)
+    // linear integer (in)equality.  Returns false if this is impossible,
+    // i.e. if the expression is not a (binary) (in)equality, if the
+    // operands are not integers, or if they are not linear in m_vars.
     bool set(expr_ref e) {
         CASSERT("predabst", is_well_sorted(m, e));
+        CASSERT("predabst", is_ground(e));
         arith_util arith(m);
         th_rewriter rw(m);
 
@@ -147,7 +160,7 @@ public:
 
         // Push all terms to the LHS of the (in)equality.
         expr_ref lhs(m);
-        bool result = rewrite_inequality(e, lhs, m_op);
+        bool result = leftify_inequality(e, lhs, m_op);
         if (!result) {
             return false;
         }
@@ -189,10 +202,15 @@ public:
                     if (!factor_vars.empty()) {
                         m_has_params = true;
                     }
+                    else {
+                        CASSERT("predabst", arith.is_numeral(factor));
+                    }
                     const_factors.push_back(factor);
                 }
             }
 
+            // Classify the term based on the number of var_factors it
+            // contains.
             if (var_factors.size() == 0) {
                 const_terms.push_back(term);
             }
@@ -206,7 +224,7 @@ public:
             }
         }
 
-        // Move the constant terms to the RHS of the (inequality).
+        // Move the constant terms to the RHS of the (in)equality.
         m_const = arith.mk_uminus(mk_sum(const_terms));
         rw(m_const);
 
@@ -253,7 +271,7 @@ std::ostream& operator<<(std::ostream& out, linear_inequality const& lineq) {
 
 class farkas_imp {
     // Represents an implication from a set of linear (in)equalities to
-    // another liner inequality, where all the (in)equalities are linear
+    // another linear inequality, where all the (in)equalities are linear
     // in a common set of variables (m_vars).
     //
     // Symbolically:
@@ -293,20 +311,25 @@ public:
         m(vars.get_manager()) {
     }
 
-    bool set(expr_ref_vector const& lhs_terms, expr_ref const& rhs_term) {
-        STRACE("predabst", tout << "Solving " << lhs_terms << " => " << mk_pp(rhs_term, m) << ", in variables " << m_vars << "\n";);
+    // Initializes this object from a set of LHS expressions and one RHS
+    // expression.  Returns false if any of the LHS expressions is not a
+    // (binary) linear integer (in)equality, or if the RHS is not a linear
+    // integer inequality.
+    bool set(expr_ref_vector const& lhs_es, expr_ref const& rhs_e) {
+        STRACE("predabst", tout << "Solving " << lhs_es << " => " << mk_pp(rhs_e, m) << ", in variables " << m_vars << "\n";);
         m_lhs.reset();
-        for (unsigned i = 0; i < lhs_terms.size(); ++i) {
-            linear_inequality lineq(m_vars);
-            bool result = lineq.set(expr_ref(lhs_terms.get(i), m));
+        for (unsigned i = 0; i < lhs_es.size(); ++i) {
+            m_lhs.push_back(linear_inequality(m_vars));
+            bool result = m_lhs[i].set(expr_ref(lhs_es.get(i), m));
             if (!result) {
+                STRACE("predabst", tout << "LHS[" << i << "] is not a linear integer (in)equality\n";);
                 return false;
             }
-            m_lhs.push_back(lineq);
         }
 
-        bool result = m_rhs.set(rhs_term);
+        bool result = m_rhs.set(rhs_e);
         if (!result) {
+            STRACE("predabst", tout << "RHS is not a linear integer (in)equality\n";);
             return false;
         }
 
@@ -316,10 +339,14 @@ public:
         }
 
         m_lambdas.swap(make_lambdas());
-
         return true;
     }
 
+    // Returns a collection of constraints whose simultaneous satisfiability
+    // is equivalent to the validity of the implication represented by this
+    // object.  A solution to these constraints will assign a value to each
+    // of the multipliers (returned by get_lambdas() (below)) that will enable
+    // the RHS inequality to be derived from the LHS (in)equalities.
     expr_ref_vector get_constraints() const {
         arith_util arith(m);
 
@@ -370,6 +397,9 @@ public:
         return constraints;
     }
 
+    // Returns a list of objects, in 1-to-1 correspondance with the LHS
+    // (in)equalities, that describe the multipliers of those (in)equalities
+    // used to derive the RHS inequality.
     vector<lambda_info> get_lambdas() const {
         vector<lambda_info> lambdas;
         for (unsigned i = 0; i < m_lhs.size(); ++i) {
@@ -389,7 +419,6 @@ public:
     }
 
 private:
-
     expr_ref_vector make_lambdas() const {
         // We classify the (in)equalities on the LHS as either 'linear' or
         // 'bilinear', according to whether the coefficients are all
@@ -405,7 +434,6 @@ private:
         }
 
         expr_ref_vector lambdas(m);
-
         for (unsigned i = 0; i < m_lhs.size(); ++i) {
             if ((num_bilinear == 1) && (i == bilinear_idx) && (m_lhs.get(i).get_op() == op_le)) {
                 // If this is the sole bilinear (in)equality, and it is an
@@ -421,7 +449,6 @@ private:
                 lambdas.push_back(m.mk_fresh_const("t", arith_util(m).mk_int()));
             }
         }
-
         return lambdas;
     }
 };
@@ -591,6 +618,7 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     expr_ref ic(m.mk_const(symbol("ic"), arith.mk_int()), m);
     expr_ref fmlQ(arith.mk_le(sum_vars, ic), m);
 
+    // (A => Q) and (Q => not B)
     expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
     expr_ref_vector constraints(m);
     vector<lambda_info> lambdas;

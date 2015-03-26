@@ -1336,10 +1336,12 @@ namespace datalog {
                 }
                 unsigned usz = r->get_uninterpreted_tail_size();
                 unsigned tsz = r->get_tail_size();
-                expr_ref body_exp = mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz));
-				for (unsigned i = 0; i < usz; ++i) {
-					body_exp = mk_conj(body_exp, model_eval_app(md, r->get_tail(i)));
+                expr_ref_vector body_exp_terms(m);
+                body_exp_terms.append(tsz - usz, r->get_expr_tail() + usz);
+				for (unsigned j = 0; j < usz; ++j) {
+					body_exp_terms.push_back(model_eval_app(md, r->get_tail(j)));
 				}
+                expr_ref body_exp = mk_conj(body_exp_terms);
 				expr_ref head_exp(m);
 				if (!m_func_decl2info[r->get_decl()]->m_is_output_predicate) {
 					head_exp = model_eval_app(md, r->get_head());
@@ -1349,8 +1351,9 @@ namespace datalog {
                 }
 
 				scoped_push push(solver);
-				solver.assert_expr(ground(mk_conj(body_exp, mk_not(head_exp)), "c"));
+                solver.assert_expr(ground(expr_ref(m.mk_and(body_exp, mk_not(head_exp)), m), "c"));
 				if (solver.check() != l_false) {
+                    STRACE("predabst", tout << "Solution for rule " << i << " is incorrect\n";);
 					return false;
 				}
 			}
@@ -1774,7 +1777,7 @@ namespace datalog {
                 to_solve = template_constraint_not_wf(args, cs);
             }
 
-            m_template_constraint = mk_conj(to_solve, m_template_constraint);
+            m_template_constraint = m.mk_and(to_solve, m_template_constraint);
             return instantiate_templates();
         }
 
@@ -1966,19 +1969,21 @@ namespace datalog {
                 int j = clauses.size() - 1;
                 core_clauses::const_iterator end2 = end;
 
-                expr_ref fmlA(m.mk_true(), m);
+                expr_ref_vector fmlA_terms(m);
                 for (; j >= i; j--, end2--) {
-                    fmlA = mk_conj(fmlA, end2->m_body);
+                    fmlA_terms.push_back(end2->m_body);
                 }
+                expr_ref fmlA = mk_conj(fmlA_terms);
 
                 core_clauses::const_iterator end4 = end2;
                 end4++;
                 expr_ref_vector vars = end4->m_args;
 
-                expr_ref fmlB(m.mk_true(), m);
+                expr_ref_vector fmlB_terms(m);
                 for (; j >= 0; j--, end2--) {
-                    fmlB = mk_conj(fmlB, end2->m_body);
+                    fmlB_terms.push_back(end2->m_body);
                 }
+                expr_ref fmlB = mk_conj(fmlB_terms);
 
                 expr_ref fmlQ_sol(m);
                 if (interpolate(vars, fmlA, fmlB, fmlQ_sol)) {

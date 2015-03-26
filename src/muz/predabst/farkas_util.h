@@ -27,9 +27,9 @@ typedef enum { op_eq, op_le } rel_op;
 std::ostream& operator<<(std::ostream& ostr, rel_op op);
 
 struct lambda_info {
-    expr_ref m_lambda;
-    lambda_kind m_kind;
-    rel_op m_op;
+    expr_ref const m_lambda;
+    lambda_kind const m_kind;
+    rel_op const m_op;
 
     lambda_info(expr_ref const& lambda, lambda_kind kind, rel_op op) :
         m_lambda(lambda),

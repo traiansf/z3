@@ -534,8 +534,10 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     CASSERT("predabst", sort_is_bool(lhs, m));
     CASSERT("predabst", (sol_bound && sol_decrease) || (!sol_bound && !sol_decrease));
 
-    if (!m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1) {
+    CASSERT("predbast", m.is_and(lhs));
+    if (to_app(lhs)->get_num_args() <= 1) {
         STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it is not a conjunction of at least 2 terms\n";);
+        // XXX very dubious claim...
         return false;
     }
 
@@ -573,11 +575,15 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     well_founded_bound_and_decrease(vsws, bound, decrease);
     expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
-    // Does passing true for eliminate_unsat_disjunts help in the refinement case?
+    // XXX Does passing true for eliminate_unsat_disjunts help in the refinement case?
     expr_ref_vector constraints(m);
     vector<lambda_info> lambdas;
     bool result = mk_exists_forall_farkas(to_solve, vsws, constraints, lambdas);
-    CASSERT("predabst", result);
+    if (!result) {
+        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not (provably) well-founded: it does not comprise only linear integer (in)equalities\n";);
+        // XXX We need to distinguish between this case and where we have proven that the formula is not well-founded, or else we can end up returning UNSAT incorrectly
+        return false;
+    }
     CASSERT("predabst", count_bilinear_uninterp_const(lambdas) == 0);
 
     smt_params new_param;
@@ -641,7 +647,10 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     expr_ref_vector constraints(m);
     vector<lambda_info> lambdas;
     bool result = mk_exists_forall_farkas(to_solve, vars, constraints, lambdas);
-    CASSERT("predabst", result);
+    if (!result) {
+        STRACE("predabst", tout << "Interpolation failed: expressions to interpolate between do not comprise only linear integer (in)equalities\n";);
+        return false;
+    }
     CASSERT("predabst", count_bilinear_uninterp_const(lambdas) == 0);
 
     smt_params new_param;

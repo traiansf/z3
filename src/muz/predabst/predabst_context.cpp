@@ -1645,7 +1645,7 @@ namespace datalog {
 
         bool is_well_founded(unsigned id) {
             func_decl* fdecl = m_node2info[id].m_func_decl;
-            SASSERT("predabst", m_func_decl2info[fdecl].m_is_wf_predicate);
+            CASSERT("predabst", m_func_decl2info[fdecl]->m_is_wf_predicate);
             cube_t const& cube = m_node2info[id].m_cube;
 
             expr_ref_vector const& vars = m_func_decl2info[fdecl]->m_vars;
@@ -2178,7 +2178,10 @@ namespace datalog {
             expr_ref_vector constraints(m);
             vector<lambda_info> lambda_infos;
             bool result = mk_exists_forall_farkas(c1, args_coll, constraints, lambda_infos, true);
-            CASSERT("predabst", result);
+            if (!result) {
+                STRACE("predabst", tout << "Failed to convert template constraints\n";);
+                return false;
+            }
 
             int max_lambda = 2;
             expr_ref_vector lambda_constraints = mk_bilinear_lambda_constraints(lambda_infos, max_lambda, m);

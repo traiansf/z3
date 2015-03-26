@@ -453,6 +453,18 @@ private:
     }
 };
 
+// Converts a formula (Forall v, F) to an equivalent formula
+// (Exists lambda, F'), where F is a formula in variables (v, p) and
+// F' is a formula in variable (lambda, p), and:
+//   Forall p, ((Forall v, F) <=> (Exists lambda, F'))
+// In particular:
+//   (Exists p, Forall v, F) <=> (Exists p, Exists lambda, F')
+// the right hand side of which is of a suitable form to be answered by
+// an SMT solver.
+//
+// The implementation uses Farkas's lemma; therefore it will fail (returning
+// false) if the atomic boolean formulae in F are not all linear integer
+// (in)equalities.
 bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraints, vector<lambda_info>& lambdas, bool eliminate_unsat_disjuncts) {
     ast_manager& m = fml.m();
     arith_util arith(m);
@@ -575,7 +587,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     well_founded_bound_and_decrease(vsws, bound, decrease);
     expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
-    // XXX Does passing true for eliminate_unsat_disjunts help in the refinement case?
+    // XXX Does passing true for eliminate_unsat_disjuncts help in the refinement case?
     expr_ref_vector constraints(m);
     vector<lambda_info> lambdas;
     bool result = mk_exists_forall_farkas(to_solve, vsws, constraints, lambdas);
@@ -621,6 +633,8 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     arith_util arith(m);
     CASSERT("predabst", sort_is_bool(fmlA, m));
     CASSERT("predabst", sort_is_bool(fmlB, m));
+
+    STRACE("predabst", tout << "Interpolating " << mk_pp(fmlA, m) << " and " << mk_pp(fmlB, m) << ", in variables " << vars << "\n";);
 
     for (unsigned i = 0; i < vars.size(); ++i) {
         if (!sort_is_int(vars.get(i), m)) {
@@ -669,7 +683,7 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
         return false;
     }
 
-    STRACE("predabst", tout << "Interpolation succeeded\n";);
+    STRACE("predabst", tout << "Interpolation succeeded, with solution " << mk_pp(fmlQ_sol, m) << "\n";);
     return true;
 }
 

@@ -18,7 +18,6 @@ Revision History:
 --*/
 #include "predabst_util.h"
 #include "arith_decl_plugin.h"
-#include "reg_decl_plugins.h"
 #include "ast_pp.h"
 #include "smt_kernel.h"
 #include "smt_params.h"
@@ -292,13 +291,12 @@ void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
 
 static expr_ref negate_expr(expr_ref const& fml) {
     ast_manager& m = fml.get_manager();
-    reg_decl_plugins(m);
     arith_util a(m);
-    expr *e1, *e2;
 
     expr_ref new_formula(m);
-
+    expr *e1, *e2;
     if (m.is_eq(fml, e1, e2)) {
+        CASSERT("predabst", sort_is_int(e1, m));
         new_formula = m.mk_or(a.mk_lt(e1, e2), a.mk_gt(e1, e2));
     }
     else if (a.is_lt(fml, e1, e2)) {
@@ -402,16 +400,18 @@ static vector<expr_ref_vector> to_dnf_struct(expr_ref const& fml) {
             dnf_struct.append(to_dnf_struct(expr_ref(to_app(fml)->get_arg(i), m)));
         }
     }
+    else if (m.is_true(fml)) {
+        // true is represented by (OR (AND <empty>)).
+        dnf_struct.push_back(expr_ref_vector(m));
+    }
+    else if (m.is_false(fml)) {
+        // false is represented by (OR <empty>).
+    }
     else {
-        // false is represented by (OR <empty>)
-        if (!m.is_false(fml)) {
-            expr_ref_vector tmp(m);
-            // true is represented by (OR (AND <empty>))
-            if (!m.is_true(fml)) {
-                tmp.push_back(fml);
-            }
-            dnf_struct.push_back(tmp);
-        }
+        CASSERT("predabst", sort_is_bool(fml, m));
+        expr_ref_vector tmp(m);
+        tmp.push_back(fml);
+        dnf_struct.push_back(tmp);
     }
     return dnf_struct;
 }

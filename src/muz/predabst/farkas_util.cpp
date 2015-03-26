@@ -456,10 +456,15 @@ private:
 bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraints, vector<lambda_info>& lambdas, bool eliminate_unsat_disjuncts) {
     ast_manager& m = fml.m();
     arith_util arith(m);
+    CASSERT("predabst", is_well_sorted(m, fml));
+    CASSERT("predabst", sort_is_bool(fml, m));
+    CASSERT("predabst", is_ground(fml));
     CASSERT("predabst", constraints.empty());
     CASSERT("predabst", lambdas.empty());
     expr_ref false_ineq(arith.mk_le(arith.mk_numeral(rational::one(), true), arith.mk_numeral(rational::zero(), true)), m);
+    // P <=> (not P => false)
     expr_ref norm_fml = to_dnf(expr_ref(m.mk_not(fml), m));
+    // ((P1 or ... or Pn) => false) <=> (P1 => false) and ... and (Pn => false)
     expr_ref_vector disjs = get_disj_terms(norm_fml);
     for (unsigned i = 0; i < disjs.size(); ++i) {
         expr_ref_vector conjs = get_conj_terms(expr_ref(disjs.get(i), m));
@@ -476,7 +481,6 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
         farkas_imp f_imp(vars);
         bool result = f_imp.set(conjs, false_ineq);
         if (!result) {
-            STRACE("predabst", tout << "System of inequalities is non-linear\n";);
             return false;
         }
         STRACE("predabst", f_imp.display(tout););
@@ -487,9 +491,9 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
 }
 
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease) {
-    CASSERT("predabst", vsws.size() % 2 == 0);
-
     ast_manager& m = vsws.get_manager();
+    arith_util arith(m);
+    CASSERT("predabst", vsws.size() % 2 == 0);
 
     expr_ref_vector vs(m);
     for (unsigned i = 0; i < (vsws.size() / 2); i++) {
@@ -501,13 +505,13 @@ void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& boun
         ws.push_back(vsws.get(i));
     }
 
-    arith_util arith(m);
-
     expr_ref_vector sum_psvs_terms(m);
     expr_ref_vector sum_psws_terms(m);
     for (unsigned i = 0; i < vs.size(); ++i) {
         expr_ref param(m.mk_fresh_const("p", arith.mk_int()), m);
+        CASSERT("predabst", sort_is_int(vs.get(i), m));
         sum_psvs_terms.push_back(arith.mk_mul(param, vs.get(i)));
+        CASSERT("predabst", sort_is_int(ws.get(i), m));
         sum_psws_terms.push_back(arith.mk_mul(param, ws.get(i)));
     }
     expr_ref sum_psvs = mk_sum(sum_psvs_terms);
@@ -517,16 +521,19 @@ void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& boun
 
     bound = arith.mk_ge(sum_psvs, delta0);
     STRACE("predabst", tout << "WF bound: " << mk_pp(bound, m) << "\n";);
+    CASSERT("predabst", is_well_sorted(m, bound));
 
     decrease = arith.mk_lt(sum_psws, sum_psvs);
     STRACE("predabst", tout << "WF decrease: " << mk_pp(decrease, m) << "\n";);
+    CASSERT("predabst", is_well_sorted(m, decrease));
 }
 
 bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* sol_bound, expr_ref* sol_decrease) {
+    ast_manager& m = lhs.get_manager();
     CASSERT("predabst", vsws.size() % 2 == 0);
+    CASSERT("predabst", sort_is_bool(lhs, m));
     CASSERT("predabst", (sol_bound && sol_decrease) || (!sol_bound && !sol_decrease));
 
-    ast_manager& m = lhs.get_manager();
     if (!m.is_and(lhs) || to_app(lhs)->get_num_args() <= 1) {
         STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it is not a conjunction of at least 2 terms\n";);
         return false;
@@ -604,14 +611,25 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
 }
 
 bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
+    ast_manager& m = vars.get_manager();
+    arith_util arith(m);
+    CASSERT("predabst", sort_is_bool(fmlA, m));
+    CASSERT("predabst", sort_is_bool(fmlB, m));
+
+    for (unsigned i = 0; i < vars.size(); ++i) {
+        if (!sort_is_int(vars.get(i), m)) {
+            STRACE("predabst", tout << "Interpolation failed: vars[" << i << "] is of non-integer type\n";);
+        }
+    }
+
     quantifier_elimination(vars, fmlA);
     quantifier_elimination(vars, fmlB);
 
-    ast_manager& m = vars.get_manager();
-    arith_util arith(m);
+    // Q := (Sigma_i (i_i * v_i)) <= ic
     expr_ref_vector sum_vars_terms(m);
     for (unsigned i = 0; i < vars.size(); ++i) {
         expr_ref param(m.mk_fresh_const("i", arith.mk_int()), m);
+        CASSERT("predabst", sort_is_int(vars.get(i), m));
         sum_vars_terms.push_back(arith.mk_mul(param, vars.get(i)));
     }
     expr_ref sum_vars = mk_sum(sum_vars_terms);

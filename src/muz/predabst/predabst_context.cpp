@@ -24,6 +24,7 @@ Revision History:
 #include "var_subst.h"
 #include "simplifier.h"
 #include "arith_simplifier_plugin.h"
+#include "reg_decl_plugins.h"
 #include "substitution.h"
 #include "smt_kernel.h"
 #include "dl_transforms.h"
@@ -354,6 +355,8 @@ namespace datalog {
             m_simplifier.register_plugin(bsimp);
             m_simplifier.register_plugin(alloc(arith_simplifier_plugin, m, *bsimp, m_fparams));
 #endif
+
+            reg_decl_plugins(m);
         }
 
         ~imp() {
@@ -1642,6 +1645,7 @@ namespace datalog {
 
         bool is_well_founded(unsigned id) {
             func_decl* fdecl = m_node2info[id].m_func_decl;
+            SASSERT("predabst", m_func_decl2info[fdecl].m_is_wf_predicate);
             cube_t const& cube = m_node2info[id].m_cube;
 
             expr_ref_vector const& vars = m_func_decl2info[fdecl]->m_vars;
@@ -1697,7 +1701,9 @@ namespace datalog {
         }
 
         bool should_refine_predicates_not_wf(unsigned node_id, core_tree_wf_info& core_wf_info) {
-            expr_ref_vector args = get_fresh_args(m_node2info[node_id].m_func_decl, "s");
+            func_decl* fdecl = m_node2info[node_id].m_func_decl;
+            CASSERT("predabst", m_func_decl2info[fdecl]->m_is_wf_predicate);
+            expr_ref_vector args = get_fresh_args(fdecl, "s");
             expr_ref to_wf = mk_core_tree_wf(node_id, args, core_wf_info.m_refine_info);
             quantifier_elimination(args, to_wf);
             return well_founded(args, to_wf, &core_wf_info.m_bound, &core_wf_info.m_decrease);

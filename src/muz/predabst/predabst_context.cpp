@@ -312,12 +312,6 @@ namespace datalog {
             core_tree           m_core;
             core_tree_info(ast_manager& m) :
                 m_root_args(m) {}
-            core_tree_info(unsigned root_name, expr_ref_vector const& root_args, unsigned last_name, unsigned last_pos, core_tree const& core) :
-                m_root_name(root_name),
-                m_root_args(root_args),
-                m_last_name(last_name),
-                m_last_pos(last_pos),
-                m_core(core) {}
         };
 
         struct core_tree_wf_info {

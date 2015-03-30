@@ -295,8 +295,8 @@ static expr_ref negate_expr(expr_ref const& fml) {
 
     expr_ref new_formula(m);
     expr *e1, *e2;
-    if (m.is_eq(fml, e1, e2)) {
-        CASSERT("predabst", sort_is_int(e1, m));
+    if (m.is_eq(fml, e1, e2) && sort_is_int(e1, m)) {
+        CASSERT("predabst", sort_is_int(e2, m));
         new_formula = m.mk_or(a.mk_lt(e1, e2), a.mk_gt(e1, e2));
     }
     else if (a.is_lt(fml, e1, e2)) {

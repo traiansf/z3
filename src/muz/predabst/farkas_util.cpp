@@ -639,6 +639,7 @@ bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr
     for (unsigned i = 0; i < vars.size(); ++i) {
         if (!sort_is_int(vars.get(i), m)) {
             STRACE("predabst", tout << "Interpolation failed: vars[" << i << "] is of non-integer type\n";);
+            return false;
         }
     }
 

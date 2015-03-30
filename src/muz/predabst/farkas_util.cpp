@@ -473,6 +473,13 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
     CASSERT("predabst", is_ground(fml));
     CASSERT("predabst", constraints.empty());
     CASSERT("predabst", lambdas.empty());
+    for (unsigned i = 0; i < vars.size(); ++i) {
+        CASSERT("predast", is_uninterp_const(vars.get(i)));
+        if (!sort_is_int(vars.get(i), m)) {
+            STRACE("predabst", tout << "Cannot apply Farkas's lemma: variable " << i << " is of non-integer type\n";);
+            return false;
+        }
+    }
     expr_ref false_ineq(arith.mk_le(arith.mk_numeral(rational::one(), true), arith.mk_numeral(rational::zero(), true)), m);
     // P <=> (not P => false)
     expr_ref norm_fml = to_dnf(expr_ref(m.mk_not(fml), m));

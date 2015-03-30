@@ -257,9 +257,9 @@ namespace datalog {
         };
 
         struct rel_template {
-            app_ref  m_head;
-            expr_ref m_body;
-            rel_template(app_ref const& head, expr_ref const& body) :
+            app_ref         m_head;
+            expr_ref_vector m_body;
+            rel_template(app_ref const& head, expr_ref_vector const& body) :
                 m_head(head),
                 m_body(body) {}
         };
@@ -289,7 +289,7 @@ namespace datalog {
         expr_ref                            m_template_extras;
         vector<rel_template>                m_rel_templates;
         vector<rel_template>                m_rel_template_instances;
-        expr_ref                            m_template_constraint;
+        expr_ref_vector                     m_template_constraints;
         model_ref                           m_template_modref;
 
         typedef enum { reached_query, not_wf } acr_error_kind;
@@ -337,7 +337,7 @@ namespace datalog {
             m_func_decls(m),
             m_template_params(m),
             m_template_extras(m),
-            m_template_constraint(expr_ref(m.mk_true(), m)) {
+            m_template_constraints(m) {
 
             m_fparams.m_mbqi = false;
             m_fparams.m_model = false;
@@ -498,7 +498,7 @@ namespace datalog {
 
         // Apply a substitution vector to each expression in a vector of
         // expressions, returning the result.
-        expr_ref_vector apply_subst(expr_ref_vector const& exprs, expr_ref_vector const& subst) {
+        expr_ref_vector apply_subst(expr_ref_vector const& exprs, expr_ref_vector const& subst) const {
             expr_ref_vector exprs2(m);
             exprs2.reserve(exprs.size());
             for (unsigned i = 0; i < exprs.size(); ++i) {
@@ -509,7 +509,7 @@ namespace datalog {
 
         // Apply a substitution vector to each expression in a vector of
         // expressions, returning the result.
-        expr_ref_vector apply_subst(vector<pred_info> const& preds, expr_ref_vector const& subst) {
+        expr_ref_vector apply_subst(vector<pred_info> const& preds, expr_ref_vector const& subst) const {
             expr_ref_vector exprs2(m);
             exprs2.reserve(preds.size());
             for (unsigned i = 0; i < preds.size(); ++i) {
@@ -965,12 +965,14 @@ namespace datalog {
             // Replace the variables corresponding to the extra template parameters with their corresponding constants.
             app_ref head(m.mk_app(suffix_decl, r->get_head()->get_args()), m);
             expr_ref_vector extra_subst = build_subst(r->get_head()->get_args() + new_arity, m_template_params);
-            expr_ref body = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
-            STRACE("predabst", tout << "  " << mk_pp(head, m) << " := " << mk_pp(body, m) << "\n";);
+            expr_ref_vector body = apply_subst(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail()), extra_subst);
+            STRACE("predabst", tout << "  " << mk_pp(head, m) << " := " << body << "\n";);
 
-            if (has_free_vars(body, expr_ref_vector(m, new_arity, r->get_head()->get_args()))) {
-                STRACE("predabst", tout << "Error: template has free variables\n";);
-                throw default_exception("template for " + suffix.str() + " has free variables");
+            for (unsigned i = 0; i < body.size(); ++i) {
+                if (has_free_vars(body.get(i), expr_ref_vector(m, new_arity, r->get_head()->get_args()))) {
+                    STRACE("predabst", tout << "Error: template has free variables\n";);
+                    throw default_exception("template for " + suffix.str() + " has free variables");
+                }
             }
 
             // Generate fresh constants for each of the query parameters.
@@ -978,7 +980,7 @@ namespace datalog {
             app_ref temp_inst_head(m.mk_app(suffix_decl, query_params.c_ptr()), m);
 
             m_rel_templates.push_back(rel_template(head, body));
-            m_rel_template_instances.push_back(rel_template(temp_inst_head, expr_ref(m)));
+            m_rel_template_instances.push_back(rel_template(temp_inst_head, expr_ref_vector(m)));
         }
 
         void find_rule_uses(rule_set const& rules) {
@@ -1213,7 +1215,7 @@ namespace datalog {
             rule_instance_info& info = m_rule2info[r_id].m_instance_info;
             info.reset();
 
-            expr_ref_vector body = get_conj_terms(instance.m_body);
+            expr_ref_vector body = instance.m_body;
             pre_simplify(body);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             for (unsigned i = 0; i < body.size(); ++i) {
@@ -1777,7 +1779,7 @@ namespace datalog {
                 to_solve = template_constraint_not_wf(args, cs);
             }
 
-            m_template_constraint = m.mk_and(to_solve, m_template_constraint);
+            m_template_constraints.push_back(to_solve);
             return instantiate_templates();
         }
 
@@ -1845,7 +1847,7 @@ namespace datalog {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                         unsigned qname = core.size();
-                        STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " / tree node (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
+                        STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " / tree node " << qname << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
                         core.push_back(core_tree_node(node.m_parent_nodes[i]));
                         todo.push_back(todo_item(qname, qargs));
                         core[name].m_names.push_back(qname);
@@ -1854,15 +1856,14 @@ namespace datalog {
                 else {
                     unsigned t_id = m_rule2info[node.m_parent_rule].m_template_id;
                     STRACE("predabst", tout << "To reach node " << n_id << " / tree node " << name << " (" << node.m_func_decl->get_name() << "(" << args << ") via template " << t_id << " requires:\n";);
-                    expr_ref temp_body(m);
+                    expr_ref_vector temp_body(m);
                     expr_ref_vector temp_vars(m);
                     get_template(t_id, temp_body, temp_vars);
                     expr_ref_vector temp_subst = build_subst(temp_vars, args);
-                    temp_body = apply_subst(temp_body, temp_subst);
-                    expr_ref_vector inst_body_terms = get_conj_terms(temp_body);
-                    for (unsigned i = 0; i < inst_body_terms.size(); ++i) {
-                        STRACE("predabst", tout << "  " << mk_pp(inst_body_terms.get(i), m) << "\n";);
-                        solver.assert_expr(inst_body_terms.get(i));
+                    temp_body.swap(apply_subst(temp_body, temp_subst));
+                    for (unsigned i = 0; i < temp_body.size(); ++i) {
+                        STRACE("predabst", tout << "  " << mk_pp(temp_body.get(i), m) << "\n";);
+                        solver.assert_expr(temp_body.get(i));
                         if (solver.check() == l_false) {
                             STRACE("predabst", tout << "Last constraint is unsatisfiable\n";);
                             core_info.m_last_name = name;
@@ -1938,18 +1939,17 @@ namespace datalog {
                     unsigned t_id = m_rule2info[node.m_parent_rule].m_template_id;
                     STRACE("predabst", tout << "mk_core_clauses: " << node.m_func_decl->get_name() << "#" << name << "(" << args << ") was generated by template " << t_id << "\n";);
                     if (found_last) {
-                        expr_ref inst_body(m);
+                        expr_ref_vector inst_body_terms(m);
                         expr_ref_vector inst_vars(m);
-                        get_template_instance(t_id, inst_body, inst_vars);
-                        expr_ref_vector inst_body_terms = get_conj_terms(inst_body);
+                        get_template_instance(t_id, inst_body_terms, inst_vars);
                         cs = mk_conj(expr_ref_vector(m, last_pos + 1, inst_body_terms.c_ptr()));
                     }
                     else {
-                        expr_ref temp_body(m);
+                        expr_ref_vector temp_body_terms(m);
                         expr_ref_vector temp_vars(m);
-                        get_template(t_id, temp_body, temp_vars);
+                        get_template(t_id, temp_body_terms, temp_vars);
                         expr_ref_vector temp_subst = build_subst(temp_vars, args);
-                        temp_body = apply_subst(temp_body, temp_subst);
+                        expr_ref temp_body = mk_conj(apply_subst(temp_body_terms, temp_subst));
                         expr_ref inst_body(m);
                         m_template_modref->eval(temp_body, inst_body);
                         cs = inst_body;
@@ -2041,11 +2041,11 @@ namespace datalog {
                 else {
                     unsigned t_id = m_rule2info[node.m_parent_rule].m_template_id;
                     STRACE("predabst", tout << "mk_core_tree_wf: node " << n_id << "; " << node.m_func_decl->get_name() << "(" << args << ") was generated by template " << t_id << "\n";);
-                    expr_ref temp_body(m);
+                    expr_ref_vector temp_body_terms(m);
                     expr_ref_vector temp_vars(m);
-                    get_template(t_id, temp_body, temp_vars);
+                    get_template(t_id, temp_body_terms, temp_vars);
                     expr_ref_vector temp_subst = build_subst(temp_vars, args);
-                    temp_body = apply_subst(temp_body, temp_subst);
+                    expr_ref temp_body = mk_conj(apply_subst(temp_body_terms, temp_subst));
                     expr_ref inst_body(m);
                     m_template_modref->eval(temp_body, inst_body);
                     cs = inst_body;
@@ -2115,15 +2115,17 @@ namespace datalog {
             return false;
         }
 
-        void get_template(unsigned i, expr_ref& body, expr_ref_vector& vars) const {
+        void get_template(unsigned i, expr_ref_vector& body, expr_ref_vector& vars) const {
             rel_template const& temp = m_rel_templates[i];
-            body = temp.m_body;
+            CASSERT("predabst", body.size() == 0);
+            body.append(temp.m_body);
             vars.append(temp.m_head->get_num_args(), temp.m_head->get_args());
         }
 
-        void get_template_instance(unsigned i, expr_ref& body, expr_ref_vector& vars) const {
+        void get_template_instance(unsigned i, expr_ref_vector& body, expr_ref_vector& vars) const {
             rel_template const& instance = m_rel_template_instances[i];
-            body = instance.m_body;
+            CASSERT("predabst", body.size() == 0);
+            body.append(instance.m_body);
             vars.append(instance.m_head->get_num_args(), instance.m_head->get_args());
         }
 
@@ -2156,11 +2158,11 @@ namespace datalog {
                     if (a->get_decl() == m_rel_templates.get(i).m_head->get_decl()) {
                         args_coll.append(a->get_num_args(), a->get_args());
 
-                        expr_ref temp_body(m);
+                        expr_ref_vector temp_body_terms(m);
                         expr_ref_vector temp_vars(m);
-                        get_template(i, temp_body, temp_vars);
+                        get_template(i, temp_body_terms, temp_vars);
                         expr_ref_vector subst = build_subst(temp_vars, a->get_args());
-                        return apply_subst(temp_body, subst);
+                        return mk_conj(apply_subst(temp_body_terms, subst));
                     }
                 }
                 UNREACHABLE();
@@ -2172,15 +2174,15 @@ namespace datalog {
         }
 
         bool instantiate_templates() {
-            STRACE("predabst", tout << "Instantiating templates using constraint " << mk_pp(m_template_constraint, m) << "\n";);
+            STRACE("predabst", tout << "Instantiating templates using constraints: " << m_template_constraints << "\n";);
 
             expr_ref_vector args_coll(m);
-            expr_ref c1 = subst_template_body(m_template_constraint, args_coll);
+            expr_ref_vector c1 = subst_template_body(m_template_constraints, args_coll);
             //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
             expr_ref_vector constraints(m);
             vector<lambda_info> lambda_infos;
-            bool result = mk_exists_forall_farkas(c1, args_coll, constraints, lambda_infos, true);
+            bool result = mk_exists_forall_farkas(mk_conj(c1), args_coll, constraints, lambda_infos, true);
             if (!result) {
                 STRACE("predabst", tout << "Failed to convert template constraints\n";);
                 return false;
@@ -2210,22 +2212,26 @@ namespace datalog {
             solver.get_model(m_template_modref);
 
             for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-                expr_ref temp_body(m);
+                expr_ref_vector temp_body(m);
                 expr_ref_vector temp_vars(m);
                 get_template(i, temp_body, temp_vars);
 
                 // First, evaluate the template body with respect to the model, to give values for each of the extra template parameters.
-                expr_ref instance(m);
-                if (!m_template_modref->eval(temp_body, instance, true)) {
-                    return false;
+                expr_ref_vector instance_body(m);
+                for (unsigned j = 0; j < temp_body.size(); ++j) {
+                    expr_ref instance(m);
+                    if (!m_template_modref->eval(temp_body.get(j), instance, true)) {
+                        return false;
+                    }
+                    instance_body.push_back(instance);
                 }
 
                 // Second, replace the variables corresponding to the query parameters with fresh constants.
                 expr_ref_vector subst = build_subst(temp_vars, m_rel_template_instances[i].m_head->get_args());
-                expr_ref body = apply_subst(instance, subst);
+                expr_ref_vector body = apply_subst(instance_body, subst);
 
-                STRACE("predabst", tout << "Instantiated template " << i << ": " << mk_pp(m_rel_template_instances[i].m_head, m) << " := " << mk_pp(body, m) << "\n";);
-                m_rel_template_instances[i].m_body = body;
+                STRACE("predabst", tout << "Instantiated template " << i << ": " << mk_pp(m_rel_template_instances[i].m_head, m) << " := " << body << "\n";);
+                m_rel_template_instances[i].m_body.swap(body);
             }
             return true;
         }
@@ -2304,7 +2310,7 @@ namespace datalog {
             out << "  Templates:" << std::endl;
             for (unsigned i = 0; i < m_rel_templates.size(); ++i) {
                 rel_template const& temp = m_rel_templates.get(i);
-                out << "    " << i << ": " << mk_pp(temp.m_head, m) << " := " << mk_pp(temp.m_body, m) << std::endl;
+                out << "    " << i << ": " << mk_pp(temp.m_head, m) << " := " << temp.m_body << std::endl;
             }
             out << "=====================================\n";
         }
@@ -2350,7 +2356,7 @@ namespace datalog {
             out << "  Template instances:" << std::endl;
             for (unsigned i = 0; i < m_rel_template_instances.size(); ++i) {
                 rel_template const& instance = m_rel_template_instances.get(i);
-                out << "    " << i << ": " << mk_pp(instance.m_head, m) << " := " << mk_pp(instance.m_body, m) << std::endl;
+                out << "    " << i << ": " << mk_pp(instance.m_head, m) << " := " << instance.m_body << std::endl;
             }
             out << "  Instantiated rules:" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {

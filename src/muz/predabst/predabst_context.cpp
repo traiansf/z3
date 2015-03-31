@@ -286,9 +286,9 @@ namespace datalog {
         node_set                            m_node_worklist;
 
         expr_ref_vector                     m_template_params;
+        expr_ref_vector                     m_template_param_values;
         expr_ref                            m_template_extras;
         vector<rel_template>                m_rel_templates;
-        vector<rel_template>                m_rel_template_instances;
         expr_ref_vector                     m_template_constraints;
         model_ref                           m_template_modref;
 
@@ -336,6 +336,7 @@ namespace datalog {
             m_cancel(false),
             m_func_decls(m),
             m_template_params(m),
+            m_template_param_values(m),
             m_template_extras(m),
             m_template_constraints(m) {
 
@@ -548,29 +549,24 @@ namespace datalog {
             return build_subst(vars.size(), vars.c_ptr(), exprs.c_ptr());
         }
 
-        // Returns a vector of fresh constants of the right type to be the first n arguments to fdecl.
-        expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix, unsigned n) const {
-            expr_ref_vector head_args(m);
-            head_args.reserve(n);
-            for (unsigned i = 0; i < n; ++i) {
-                head_args[i] = m.mk_fresh_const(prefix, fdecl->get_domain(i));
-            }
-            return head_args;
-        }
-
         // Returns a vector of fresh constants of the right type to be arguments to fdecl.
         expr_ref_vector get_fresh_args(func_decl* fdecl, char const* prefix) const {
-            return get_fresh_args(fdecl, prefix, fdecl->get_arity());
+            expr_ref_vector args(m);
+            args.reserve(fdecl->get_arity());
+            for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
+                args[i] = m.mk_fresh_const(prefix, fdecl->get_domain(i));
+            }
+            return args;
         }
 
         // Returns a vector of variables of the right type to be arguments to fdecl.
         expr_ref_vector get_arg_vars(func_decl* fdecl) const {
-            expr_ref_vector arg_vars(m);
-            arg_vars.reserve(fdecl->get_arity());
+            expr_ref_vector args(m);
+            args.reserve(fdecl->get_arity());
             for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
-                arg_vars[i] = m.mk_var(i, fdecl->get_domain(i));
+                args[i] = m.mk_var(i, fdecl->get_domain(i));
             }
-            return arg_vars;
+            return args;
         }
 
         // Returns a substitution vector (i.e. a vector indexed by variable
@@ -975,12 +971,7 @@ namespace datalog {
                 }
             }
 
-            // Generate fresh constants for each of the query parameters.
-            expr_ref_vector query_params = get_fresh_args(suffix_decl, "v", new_arity);
-            app_ref temp_inst_head(m.mk_app(suffix_decl, query_params.c_ptr()), m);
-
             m_rel_templates.push_back(rel_template(head, body));
-            m_rel_template_instances.push_back(rel_template(temp_inst_head, expr_ref_vector(m)));
         }
 
         void find_rule_uses(rule_set const& rules) {
@@ -1211,11 +1202,30 @@ namespace datalog {
 
         void instantiate_template_rule(unsigned t_id, unsigned r_id) {
             STRACE("predabst", tout << "Instantiating template " << t_id << " (rule " << r_id << ")\n";);
-            rel_template const& instance = m_rel_template_instances.get(t_id);
             rule_instance_info& info = m_rule2info[r_id].m_instance_info;
             info.reset();
 
-            expr_ref_vector body = instance.m_body;
+            expr_ref_vector temp_body_terms(m);
+            expr_ref_vector temp_vars(m);
+            get_template(t_id, temp_body_terms, temp_vars);
+
+            // First, evaluate the template body with respect to the model, to give values for each of the extra template parameters.
+            expr_ref_vector inst_body_terms(m);
+            for (unsigned j = 0; j < temp_body_terms.size(); ++j) {
+                expr_ref inst_body_term(m);
+                if (!m_template_modref->eval(temp_body_terms.get(j), inst_body_term, true)) {
+                    CASSERT("predabst", false);
+                }
+                inst_body_terms.push_back(inst_body_term);
+            }
+
+            // create grounding substitution
+            func_decl* fdecl = m_rel_templates.get(t_id).m_head->get_decl();
+            expr_ref_vector args = get_fresh_args(fdecl, "v");
+            expr_ref_vector temp_subst = build_subst(temp_vars, args);
+
+            // create ground body
+            expr_ref_vector body = apply_subst(inst_body_terms, temp_subst);
             pre_simplify(body);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             for (unsigned i = 0; i < body.size(); ++i) {
@@ -1226,8 +1236,8 @@ namespace datalog {
             info.m_body.swap(body);
 #endif
 
-            CASSERT("predabst", !m_func_decl2info[instance.m_head->get_decl()]->m_is_output_predicate);
-            expr_ref_vector heads = app_inst_preds(instance.m_head);
+            // create instantiations for head
+            expr_ref_vector heads = app_inst_preds(fdecl, args.c_ptr());
             invert(heads);
             pre_simplify(heads);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
@@ -1239,13 +1249,17 @@ namespace datalog {
         }
 
         // instantiate each predicate by replacing its free variables with (grounded) arguments of gappl
-        expr_ref_vector app_inst_preds(app* gappl) {
-            expr_ref_vector const& vars = m_func_decl2info[gappl->get_decl()]->m_vars;
-            vector<pred_info> const& preds = m_func_decl2info[gappl->get_decl()]->m_preds;
+        expr_ref_vector app_inst_preds(func_decl* fdecl, expr* const* args) {
+            expr_ref_vector const& vars = m_func_decl2info[fdecl]->m_vars;
+            vector<pred_info> const& preds = m_func_decl2info[fdecl]->m_preds;
             // instantiation maps preds variables to head arguments
-            expr_ref_vector inst = build_subst(vars, gappl->get_args());
+            expr_ref_vector inst = build_subst(vars, args);
             // preds instantiates to inst_preds
             return apply_subst(preds, inst);
+        }
+         
+        expr_ref_vector app_inst_preds(app* gappl) {
+            return app_inst_preds(gappl->get_decl(), gappl->get_args());
         }
 
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
@@ -2143,7 +2157,7 @@ namespace datalog {
                 return expr_ref(m.mk_not(subst_template_body(expr_ref(a->get_arg(0), m), args_coll)), m);
             }
             else if (has_template(a->get_decl())) {
-                for (unsigned i = 0; i < m_rel_templates.size(); i++) {
+                for (unsigned i = 0; i < m_rel_templates.size(); ++i) {
                     if (a->get_decl() == m_rel_templates.get(i).m_head->get_decl()) {
                         args_coll.append(a->get_num_args(), a->get_args());
 
@@ -2167,7 +2181,6 @@ namespace datalog {
 
             expr_ref_vector args_coll(m);
             expr_ref_vector c1 = subst_template_body(m_template_constraints, args_coll);
-            //args_coll.append(m_temp_subst); //>>> I have no idea what this was trying to do, but m_temp_subst is no more
 
             expr_ref_vector constraints(m);
             vector<lambda_info> lambda_infos;
@@ -2200,28 +2213,17 @@ namespace datalog {
             }
             solver.get_model(m_template_modref);
 
-            for (unsigned i = 0; i < m_rel_templates.size(); i++) {
-                expr_ref_vector temp_body(m);
-                expr_ref_vector temp_vars(m);
-                get_template(i, temp_body, temp_vars);
-
-                // First, evaluate the template body with respect to the model, to give values for each of the extra template parameters.
-                expr_ref_vector instance_body(m);
-                for (unsigned j = 0; j < temp_body.size(); ++j) {
-                    expr_ref instance(m);
-                    if (!m_template_modref->eval(temp_body.get(j), instance, true)) {
-                        return false;
-                    }
-                    instance_body.push_back(instance);
+            m_template_param_values.reset();
+            for (unsigned i = 0; i < m_template_params.size(); ++i) {
+                expr_ref param(m_template_params.get(i), m);
+                expr_ref param_value(m);
+                if (!m_template_modref->eval(param, param_value, true)) {
+                    return false;
                 }
-
-                // Second, replace the variables corresponding to the query parameters with fresh constants.
-                expr_ref_vector subst = build_subst(temp_vars, m_rel_template_instances[i].m_head->get_args());
-                expr_ref_vector body = apply_subst(instance_body, subst);
-
-                STRACE("predabst", tout << "Instantiated template " << i << ": " << mk_pp(m_rel_template_instances[i].m_head, m) << " := " << body << "\n";);
-                m_rel_template_instances[i].m_body.swap(body);
+                STRACE("predabst", tout << "Instantiated template parameter " << mk_pp(param, m) << " := " << mk_pp(param_value, m) << "\n";);
+                m_template_param_values.push_back(param_value);
             }
+
             return true;
         }
 
@@ -2342,10 +2344,12 @@ namespace datalog {
                     out << std::endl;
                 }
             }
-            out << "  Template instances:" << std::endl;
-            for (unsigned i = 0; i < m_rel_template_instances.size(); ++i) {
-                rel_template const& instance = m_rel_template_instances.get(i);
-                out << "    " << i << ": " << mk_pp(instance.m_head, m) << " := " << instance.m_body << std::endl;
+            out << "  Template parameter instances:" << std::endl;
+            CASSERT("predabst", m_template_params.size() == m_template_param_values.size());
+            for (unsigned i = 0; i < m_template_params.size(); ++i) {
+                expr* param = m_template_params.get(i);
+                expr* param_value = m_template_param_values.get(i);
+                out << "    " << i << ": " << mk_pp(param, m) << " := " << mk_pp(param_value, m) << std::endl;
             }
             out << "  Instantiated rules:" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {

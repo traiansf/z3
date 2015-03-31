@@ -21,7 +21,7 @@ Revision History:
 
 #include "ast.h"
 
-typedef enum { linear, bilinear } lambda_kind;
+typedef enum { linear, bilinear, bilinear_single } lambda_kind;
 typedef enum { op_eq, op_le } rel_op;
 
 std::ostream& operator<<(std::ostream& ostr, rel_op op);

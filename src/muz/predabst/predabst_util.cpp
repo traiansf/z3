@@ -285,8 +285,10 @@ void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
             q_vars.push_back(to_app(all_vars.get(j)));
         }
     }
+    STRACE("predabst", tout << "Eliminating existentials " << q_vars << " from " << mk_pp(fml, m) << " in variables " << vars << " ...\n";);
     qe_lite ql(m);
     ql(q_vars, fml);
+    STRACE("predabst", tout << "... produces " << mk_pp(fml, m) << "\n";);
 }
 
 static expr_ref negate_expr(expr_ref const& fml) {

@@ -574,7 +574,7 @@ namespace datalog {
         // number) covering all the variables used by r, which maps the variables
         // used as head arguments to hvars, and maps all variables that do not
         // appear in the head to fresh constants.
-        expr_ref_vector get_subst_vect(rule const* r, expr_ref_vector const& hvars, char const* prefix) const {
+        expr_ref_vector get_subst_vect(rule const* r, expr_ref_vector const& hvars, char const* prefix, expr_ref_vector& unification_terms) const {
             CASSERT("predabst", hvars.size() == r->get_decl()->get_arity());
 
             used_vars used;
@@ -587,26 +587,37 @@ namespace datalog {
             expr_ref_vector rule_subst(m);
             rule_subst.reserve(used.get_max_found_var_idx_plus_1());
 
+            // Variables that appear bare in the head are mapped to the value of the first corresponding argument.
+            vector<bool> constraint_needed;
             for (unsigned i = 0; i < r->get_decl()->get_arity(); ++i) {
+                bool assigned = false;
                 if (is_var(r->get_head()->get_arg(i))) {
                     unsigned idx = to_var(r->get_head()->get_arg(i))->get_idx();
                     CASSERT("predabst", idx < rule_subst.size());
-                    rule_subst[idx] = hvars.get(i);
+                    if (!rule_subst.get(idx)) {
+                        rule_subst[idx] = hvars.get(i);
+                        assigned = true;
+                    }
                 }
-                else {
-                    STRACE("predabst", tout << "Need to unify non-variable " << mk_pp(r->get_head()->get_arg(i), m) << " with " << mk_pp(hvars.get(i), m) << " -- help!\n";);
-                    CASSERT("predabst", false);
-                }
+                constraint_needed.push_back(!assigned);
             }
 
+            // Other variables are mapped to fresh constants.
             for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
                 if (!rule_subst.get(i)) {
                     sort* s = used.get(i);
                     if (s) {
                         app *c = m.mk_fresh_const(prefix, s);
-                        STRACE("predabst", tout << "    var " << i << " -> " << mk_pp(c, m) << " (type " << mk_pp(s, m) << ")\n";);
                         rule_subst[i] = c;
                     }
+                }
+            }
+
+            // Generate constraints for all head argument positions that were not mapped directly to the corresponding argument.
+            CASSERT("predabst", unification_terms.empty());
+            for (unsigned i = 0; i < r->get_decl()->get_arity(); ++i) {
+                if (constraint_needed[i]) {
+                    unification_terms.push_back(m.mk_eq(apply_subst(r->get_head()->get_arg(i), rule_subst), hvars.get(i)));
                 }
             }
 
@@ -629,7 +640,6 @@ namespace datalog {
                 sort* s = used.get(i);
                 if (s) {
                     app *c = m.mk_fresh_const(prefix, s);
-                    STRACE("predabst", tout << "    var " << i << " -> " << mk_pp(c, m) << " (type " << mk_pp(s, m) << ")\n";);
                     rule_subst[i] = c;
                 }
             }
@@ -650,6 +660,17 @@ namespace datalog {
         // uninterpreted constants.
         expr_ref_vector get_temp_subst_vect_noparams(unsigned t_id, expr_ref_vector const& hvars) const {
             return build_subst(m_rel_templates.get(t_id).m_args, vector_concat(hvars, m_template_params));
+        }
+
+        expr_ref_vector get_rule_terms(rule* r, expr_ref_vector const& args, expr_ref_vector& rule_subst) {
+            CASSERT("predabst", args.size() == r->get_head()->get_num_args());
+            CASSERT("predabst", rule_subst.empty());
+            expr_ref_vector unification_terms(m);
+            rule_subst.swap(get_subst_vect(r, args, "s", unification_terms));
+            unsigned usz = r->get_uninterpreted_tail_size();
+            unsigned tsz = r->get_tail_size();
+            expr_ref_vector body_terms = apply_subst(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz), rule_subst);
+            return vector_concat(unification_terms, body_terms);
         }
 
         static bool args_are_distinct_vars(app* a) {
@@ -1847,13 +1868,11 @@ namespace datalog {
                 rule* r = m_rule2info[node.m_parent_rule].m_rule;
                 if (r) {
                     STRACE("predabst", tout << "To reach node " << n_id << " / tree node " << name << " (" << node.m_func_decl->get_name() << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
-                    expr_ref_vector rule_subst = get_subst_vect(r, args, "s");
-                    unsigned usz = r->get_uninterpreted_tail_size();
-                    unsigned tsz = r->get_tail_size();
-                    for (unsigned i = usz; i < tsz; ++i) {
-                        app_ref as = apply_subst(r->get_tail(i), rule_subst);
-                        STRACE("predabst", tout << "  " << mk_pp(as, m) << "\n";);
-                        solver.assert_expr(as);
+                    expr_ref_vector rule_subst(m);
+                    expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
+                    for (unsigned i = 0; i < terms.size(); ++i) {
+                        STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
+                        solver.assert_expr(terms.get(i));
                         if (solver.check() == l_false) {
                             STRACE("predabst", tout << "Node " << root_n_id << " is not reachable without abstraction\n";);
                             core_info.m_last_name = name;
@@ -1861,7 +1880,7 @@ namespace datalog {
                             return true;
                         }
                     }
-                    for (unsigned i = 0; i < usz; ++i) { // Each iteration corresponds to an in-arrow to this node.
+                    for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) { // Each iteration corresponds to an in-arrow to this node.
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                         unsigned qname = core.size();
@@ -1875,11 +1894,10 @@ namespace datalog {
                     unsigned t_id = m_rule2info[node.m_parent_rule].m_template_id;
                     STRACE("predabst", tout << "To reach node " << n_id << " / tree node " << name << " (" << node.m_func_decl->get_name() << "(" << args << ")) via template " << t_id << " requires:\n";);
                     expr_ref_vector temp_subst = get_temp_subst_vect(t_id, args);
-                    expr_ref_vector const& temp_body_terms = m_rel_templates[t_id].m_body;
-                    for (unsigned i = 0; i < temp_body_terms.size(); ++i) {
-                        expr_ref as = apply_subst(temp_body_terms.get(i), temp_subst);
-                        STRACE("predabst", tout << "  " << mk_pp(as, m) << "\n";);
-                        solver.assert_expr(as);
+                    expr_ref_vector terms = apply_subst(m_rel_templates[t_id].m_body, temp_subst);
+                    for (unsigned i = 0; i < terms.size(); ++i) {
+                        STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
+                        solver.assert_expr(terms.get(i));
                         if (solver.check() == l_false) {
                             STRACE("predabst", tout << "Node " << root_n_id << " is not reachable without abstraction\n";);
                             core_info.m_last_name = name;
@@ -1937,11 +1955,9 @@ namespace datalog {
                 rule* r = m_rule2info[node.m_parent_rule].m_rule;
                 if (r) {
                     STRACE("predabst", tout << "To reach tree node " << name << " (" << node.m_func_decl->get_name() << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
-                    expr_ref_vector rule_subst = get_subst_vect(r, args, "s");
-                    unsigned usz = r->get_uninterpreted_tail_size();
-                    unsigned tsz = r->get_tail_size();
-                    expr_ref_vector terms(m, (found_last ? last_pos + 1 : tsz) - usz, r->get_expr_tail() + usz);
-                    cs = apply_subst(mk_conj(terms), rule_subst);
+                    expr_ref_vector rule_subst(m);
+                    expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
+                    cs = mk_conj(expr_ref_vector(m, found_last ? last_pos + 1: terms.size(), terms.c_ptr()));
                     STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
                     for (unsigned i = 0; i < names.size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
@@ -1954,9 +1970,8 @@ namespace datalog {
                     unsigned t_id = m_rule2info[node.m_parent_rule].m_template_id;
                     STRACE("predabst", tout << "To reach tree node " << name << " (" << node.m_func_decl->get_name() << "(" << args << ")) via template " << t_id << " requires:\n";);
                     expr_ref_vector temp_subst = get_temp_subst_vect(t_id, args);
-                    expr_ref_vector const& temp_body_terms = m_rel_templates[t_id].m_body;
-                    expr_ref_vector terms(m, found_last ? last_pos + 1 : temp_body_terms.size(), temp_body_terms.c_ptr());
-                    cs = apply_subst(mk_conj(terms), temp_subst);
+                    expr_ref_vector terms = apply_subst(m_rel_templates[t_id].m_body, temp_subst);
+                    cs = mk_conj(expr_ref_vector(m, found_last ? last_pos + 1 : terms.size(), terms.c_ptr()));
                     STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
                 }
 
@@ -2033,12 +2048,11 @@ namespace datalog {
                 rule* r = m_rule2info[node.m_parent_rule].m_rule;
                 if (r) {
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
-                    expr_ref_vector rule_subst = get_subst_vect(r, args, "s");
-                    unsigned usz = r->get_uninterpreted_tail_size();
-                    unsigned tsz = r->get_tail_size();
-                    cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
+                    expr_ref_vector rule_subst(m);
+                    expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
+                    cs = mk_conj(terms);
                     STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
-                    for (unsigned i = 0; i < usz; ++i) {
+                    for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                         STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
@@ -2049,8 +2063,8 @@ namespace datalog {
                     unsigned t_id = m_rule2info[node.m_parent_rule].m_template_id;
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via template " << t_id << " requires:\n";);
                     expr_ref_vector temp_subst = get_temp_subst_vect(t_id, args);
-                    expr_ref_vector const& temp_body_terms = m_rel_templates[t_id].m_body;
-                    cs = apply_subst(mk_conj(temp_body_terms), temp_subst);
+                    expr_ref_vector terms = apply_subst(m_rel_templates[t_id].m_body, temp_subst);
+                    cs = mk_conj(terms);
                     STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
                 }
 
@@ -2088,12 +2102,11 @@ namespace datalog {
                 rule* r = m_rule2info[node.m_parent_rule].m_rule;
                 if (r) {
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
-                    expr_ref_vector rule_subst = get_subst_vect(r, args, "s");
-                    unsigned usz = r->get_uninterpreted_tail_size();
-                    unsigned tsz = r->get_tail_size();
-                    cs = apply_subst(mk_conj(expr_ref_vector(m, tsz - usz, r->get_expr_tail() + usz)), rule_subst);
+                    expr_ref_vector rule_subst(m);
+                    expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
+                    cs = mk_conj(terms);
                     STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
-                    for (unsigned i = 0; i < usz; ++i) {
+                    for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
                         STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
@@ -2104,8 +2117,8 @@ namespace datalog {
                     unsigned t_id = m_rule2info[node.m_parent_rule].m_template_id;
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via template " << t_id << " requires:\n";);
                     expr_ref_vector temp_subst = get_temp_subst_vect_noparams(t_id, args);
-                    expr_ref_vector const& temp_body_terms = m_rel_templates[t_id].m_body;
-                    cs = apply_subst(mk_conj(temp_body_terms), temp_subst);
+                    expr_ref_vector terms = apply_subst(m_rel_templates[t_id].m_body, temp_subst);
+                    cs = mk_conj(terms);
                     STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
                 }
 

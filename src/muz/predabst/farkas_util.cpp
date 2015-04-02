@@ -40,24 +40,14 @@ std::ostream& operator<<(std::ostream& out, rel_op op) {
     return out;
 }
 
-// Returns the number of lambdas of kind 'bilinear'.
-static unsigned count_bilinear(vector<lambda_info> const& lambdas) {
-    unsigned num_bilinear = 0;
-    for (unsigned i = 0; i < lambdas.size(); i++) {
-        if (lambdas[i].m_kind == bilinear) {
-            ++num_bilinear;
-        }
-    }
-    return num_bilinear;
-}
-
-// Returns the number of lambdas of kind 'bilinear' that are still
-// uninterpreted constants (i.e. which haven't been substituted for a
-// specific value).
+// Returns the number of lambdas of kind 'bilinear' or 'bilinear_single'
+// that are still uninterpreted constants (i.e. which haven't been
+// substituted for a specific value).
 static unsigned count_bilinear_uninterp_const(vector<lambda_info> const& lambdas) {
     unsigned num_bilinear_uninterp_const = 0;
     for (unsigned i = 0; i < lambdas.size(); i++) {
-        if ((lambdas[i].m_kind == bilinear) && is_uninterp_const(lambdas[i].m_lambda)) {
+        if (((lambdas[i].m_kind == bilinear) || (lambdas[i].m_kind == bilinear_single)) &&
+            is_uninterp_const(lambdas[i].m_lambda)) {
             ++num_bilinear_uninterp_const;
         }
     }
@@ -300,6 +290,7 @@ class farkas_imp {
     vector<linear_inequality> m_lhs;
     linear_inequality m_rhs;
     expr_ref_vector m_lambdas;
+    unsigned m_num_bilinear;
 
     ast_manager& m;
 
@@ -338,7 +329,7 @@ public:
             return false;
         }
 
-        m_lambdas.swap(make_lambdas());
+        m_lambdas.swap(make_lambdas(m_num_bilinear));
         return true;
     }
 
@@ -403,7 +394,7 @@ public:
     vector<lambda_info> get_lambdas() const {
         vector<lambda_info> lambdas;
         for (unsigned i = 0; i < m_lhs.size(); ++i) {
-            lambda_kind kind = m_lhs.get(i).has_params() ? bilinear : linear;
+            lambda_kind kind = m_lhs.get(i).has_params() ? (m_num_bilinear == 1 ? bilinear_single : bilinear) : linear;
             lambdas.push_back(lambda_info(expr_ref(m_lambdas.get(i), m), kind, m_lhs.get(i).get_op()));
         }
         return lambdas;
@@ -419,23 +410,21 @@ public:
     }
 
 private:
-    expr_ref_vector make_lambdas() const {
+    expr_ref_vector make_lambdas(unsigned& num_bilinear) const {
         // We classify the (in)equalities on the LHS as either 'linear' or
         // 'bilinear', according to whether the coefficients are all
         // integers, or whether some of the coefficients are uninterpreted
         // constants.
-        unsigned num_bilinear = 0;
-        unsigned bilinear_idx;
+        num_bilinear = 0;
         for (unsigned i = 0; i < m_lhs.size(); ++i) {
             if (m_lhs.get(i).has_params()) {
                 ++num_bilinear;
-                bilinear_idx = i;
             }
         }
 
         expr_ref_vector lambdas(m);
         for (unsigned i = 0; i < m_lhs.size(); ++i) {
-            if ((num_bilinear == 1) && (i == bilinear_idx) && (m_lhs.get(i).get_op() == op_le)) {
+            if ((num_bilinear == 1) && m_lhs.get(i).has_params() && (m_lhs.get(i).get_op() == op_le)) {
                 // If this is the sole bilinear (in)equality, and it is an
                 // inequality, then without loss of generality we may choose
                 // its multiplier to be 1.  (We cannot do this if it is an
@@ -474,7 +463,7 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
     CASSERT("predabst", constraints.empty());
     CASSERT("predabst", lambdas.empty());
     for (unsigned i = 0; i < vars.size(); ++i) {
-        CASSERT("predast", is_uninterp_const(vars.get(i)));
+        CASSERT("predabst", is_uninterp_const(vars.get(i)));
         if (!sort_is_int(vars.get(i), m)) {
             STRACE("predabst", tout << "Cannot apply Farkas's lemma: variable " << i << " is of non-integer type\n";);
             return false;
@@ -553,8 +542,7 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     CASSERT("predabst", sort_is_bool(lhs, m));
     CASSERT("predabst", (sol_bound && sol_decrease) || (!sol_bound && !sol_decrease));
 
-    CASSERT("predbast", m.is_and(lhs));
-    if (to_app(lhs)->get_num_args() <= 1) {
+    if (!(m.is_and(lhs) && to_app(lhs)->get_num_args() >= 2)) {
         STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it is not a conjunction of at least 2 terms\n";);
         // XXX very dubious claim...
         return false;
@@ -565,6 +553,8 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
         CASSERT("predabst", vsws.contains(lhs_vars.get(j)));
     }
 
+    // Note that the following two optimizations are valid only if the formula
+    // is satisfiable, but we're assuming that is the case.
     bool hasv = false;
     for (unsigned i = 0; i < (vsws.size() / 2); i++) {
         if (lhs_vars.contains(vsws.get(i))) {
@@ -701,38 +691,36 @@ expr_ref_vector mk_bilinear_lambda_constraints(vector<lambda_info> const& lambda
     expr_ref one(arith.mk_numeral(rational::one(), true), m);
     expr_ref minus_one(arith.mk_numeral(rational::minus_one(), true), m);
 
-    unsigned num_bilinear = count_bilinear(lambdas);
-
     expr_ref_vector constraints(m);
     for (unsigned i = 0; i < lambdas.size(); i++) {
-        if (lambdas[i].m_kind == bilinear) {
-            if (num_bilinear == 1) {
-                if (lambdas[i].m_op == op_eq) {
-                    // This is the sole bilinear (in)equality, and it is an
-                    // equality, so without loss of generality we may choose
-                    // its multiplier to be either 1 or -1.
-                    constraints.push_back(m.mk_or(m.mk_eq(lambdas[i].m_lambda, minus_one), m.mk_eq(lambdas[i].m_lambda, one)));
-                }
-                else {
-                    // This is the sole bilinear (in)equality, and it is an
-                    // inequality, so the multiplier will have been set to 1
-                    // above and therefore no constraint is necessary.
-                    CASSERT("predabst", arith.is_one(lambdas[i].m_lambda));
-                }
+        if (lambdas[i].m_kind == bilinear_single) {
+            if (lambdas[i].m_op == op_eq) {
+                // This is the sole bilinear (in)equality, and it is an
+                // equality, so without loss of generality we may choose
+                // its multiplier to be either 1 or -1.
+                CASSERT("predabst", is_uninterp_const(lambdas[i].m_lambda));
+                constraints.push_back(m.mk_or(m.mk_eq(lambdas[i].m_lambda, minus_one), m.mk_eq(lambdas[i].m_lambda, one)));
             }
             else {
-                // There is more than one bilinear (in)equality.  In order to
-                // make solving tractable, we assume that the multiplier is
-                // between 0 and N for an inequality, or -N and N for an
-                // equality.  Note that this assumption might prevent us from
-                // finding a solution.
-                int min_lambda = (lambdas[i].m_op == op_eq) ? -max_lambda : 0;
-                expr_ref_vector bilin_disj_terms(m);
-                for (int j = min_lambda; j <= max_lambda; j++) {
-                    bilin_disj_terms.push_back(m.mk_eq(lambdas[i].m_lambda, arith.mk_numeral(rational(j), true)));
-                }
-                constraints.push_back(mk_disj(bilin_disj_terms));
+                // This is the sole bilinear (in)equality, and it is an
+                // inequality, so the multiplier will have been set to 1
+                // above and therefore no constraint is necessary.
+                CASSERT("predabst", arith.is_one(lambdas[i].m_lambda));
             }
+        }
+        else if (lambdas[i].m_kind == bilinear) {
+            // There is more than one bilinear (in)equality.  In order to
+            // make solving tractable, we assume that the multiplier is
+            // between 0 and N for an inequality, or -N and N for an
+            // equality.  Note that this assumption might prevent us from
+            // finding a solution.
+            CASSERT("predabst", is_uninterp_const(lambdas[i].m_lambda));
+            int min_lambda = (lambdas[i].m_op == op_eq) ? -max_lambda : 0;
+            expr_ref_vector bilin_disj_terms(m);
+            for (int j = min_lambda; j <= max_lambda; j++) {
+                bilin_disj_terms.push_back(m.mk_eq(lambdas[i].m_lambda, arith.mk_numeral(rational(j), true)));
+            }
+            constraints.push_back(mk_disj(bilin_disj_terms));
         }
     }
     return constraints;

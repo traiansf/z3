@@ -1946,7 +1946,7 @@ namespace datalog {
                     found_last = true;
                 }
 
-                expr_ref cs(m);
+                expr_ref_vector cs(m);
 
                 node_info const& node = m_node2info[core[name].m_node_id];
                 vector<unsigned> const& names = core[name].m_names;
@@ -1957,11 +1957,27 @@ namespace datalog {
                     STRACE("predabst", tout << "To reach tree node " << name << " (" << node.m_func_decl->get_name() << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
                     expr_ref_vector rule_subst(m);
                     expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
-                    cs = mk_conj(expr_ref_vector(m, found_last ? last_pos + 1: terms.size(), terms.c_ptr()));
-                    STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
+                    for (unsigned i = 0; i < (found_last ? last_pos + 1 : terms.size()); ++i) {
+                        STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
+                        cs.push_back(terms.get(i));
+                    }
                     for (unsigned i = 0; i < names.size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                        expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
+                        // Ensure that all the qargs are (distinct) uninterpreted constants.
+                        expr_ref_vector qargs(m);
+                        for (unsigned j = 0; j < qs_i->get_decl()->get_arity(); ++j) {
+                            expr_ref arg_j(qs_i->get_arg(j), m);
+                            if (is_uninterp_const(arg_j) && !qargs.contains(arg_j)) {
+                                qargs.push_back(arg_j);
+                            }
+                            else {
+                                app_ref f(m.mk_fresh_const("x", qs_i->get_decl()->get_domain(i)), m);
+                                qargs.push_back(f);
+                                expr_ref constraint(m.mk_eq(f, arg_j), m);
+                                STRACE("predabst", tout << "  " << mk_pp(constraint, m) << "\n";);
+                                cs.push_back(constraint);
+                            }
+                        }
                         STRACE("predabst", tout << "  reaching tree node " << names.get(i) << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
                         todo.push_back(todo_item(names.get(i), qargs));
                     }
@@ -1971,13 +1987,16 @@ namespace datalog {
                     STRACE("predabst", tout << "To reach tree node " << name << " (" << node.m_func_decl->get_name() << "(" << args << ")) via template " << t_id << " requires:\n";);
                     expr_ref_vector temp_subst = get_temp_subst_vect(t_id, args);
                     expr_ref_vector terms = apply_subst(m_rel_templates[t_id].m_body, temp_subst);
-                    cs = mk_conj(expr_ref_vector(m, found_last ? last_pos + 1 : terms.size(), terms.c_ptr()));
-                    STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
+                    for (unsigned i = 0; i < (found_last ? last_pos + 1 : terms.size()); ++i) {
+                        STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
+                        cs.push_back(terms.get(i));
+                    }
                 }
 
-                if (args.size() > 0 || !m.is_true(cs)) {
-                    STRACE("predabst", tout << "  adding clause " << node.m_func_decl->get_name() << "#" << name << "(" << args << ") :- " << mk_pp(cs, m) << "\n";);
-                    clauses.push_back(core_clause(name, args, cs));
+                // XXX I'm not sure whether this is an important optimization; leaving this code here (but disabled) until I find out.
+                if (true /* args.size() > 0 || !m.is_true(cs) */) {
+                    STRACE("predabst", tout << "  adding clause " << node.m_func_decl->get_name() << "#" << name << "(" << args << ") :- " << cs << "\n";);
+                    clauses.push_back(core_clause(name, args, mk_conj(cs)));
                 }
             }
 
@@ -2020,7 +2039,7 @@ namespace datalog {
 
         expr_ref mk_core_tree_wf(unsigned root_n_id, expr_ref_vector const& root_args, refine_cand_info& refine_info) const {
             STRACE("predabst", tout << "Determining well-foundedness of node " << root_n_id << " without abstraction\n";);
-            expr_ref_vector css(m);
+            expr_ref_vector cs(m);
 
             struct todo_item {
                 unsigned        m_n_id;
@@ -2040,8 +2059,6 @@ namespace datalog {
                 unsigned n_id = item.m_n_id;
                 expr_ref_vector const& args = item.m_args;
 
-                expr_ref cs(m);
-
                 node_info const& node = m_node2info[n_id];
                 refine_info.insert(node.m_func_decl, args);
 
@@ -2050,8 +2067,8 @@ namespace datalog {
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
                     expr_ref_vector rule_subst(m);
                     expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
-                    cs = mk_conj(terms);
-                    STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
+                    STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
+                    cs.append(terms);
                     for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
@@ -2064,19 +2081,17 @@ namespace datalog {
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via template " << t_id << " requires:\n";);
                     expr_ref_vector temp_subst = get_temp_subst_vect(t_id, args);
                     expr_ref_vector terms = apply_subst(m_rel_templates[t_id].m_body, temp_subst);
-                    cs = mk_conj(terms);
-                    STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
+                    STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
+                    cs.append(terms);
                 }
-
-                css.push_back(cs);
             }
 
-            return mk_conj(css);
+            return mk_conj(cs);
         }
 
         expr_ref mk_leaf(unsigned root_n_id, expr_ref_vector const& root_args) const {
             STRACE("predabst", tout << "Determining reachability criterion for node " << root_n_id << " without abstraction\n";);
-            expr_ref_vector css(m);
+            expr_ref_vector cs(m);
 
             struct todo_item {
                 unsigned        m_n_id;
@@ -2096,16 +2111,14 @@ namespace datalog {
                 unsigned n_id = item.m_n_id;
                 expr_ref_vector const& args = item.m_args;
 
-                expr_ref cs(m);
-
                 node_info const& node = m_node2info[n_id];
                 rule* r = m_rule2info[node.m_parent_rule].m_rule;
                 if (r) {
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
                     expr_ref_vector rule_subst(m);
                     expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
-                    cs = mk_conj(terms);
-                    STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
+                    STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
+                    cs.append(terms);
                     for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
                         app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
                         expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
@@ -2118,14 +2131,12 @@ namespace datalog {
                     STRACE("predabst", tout << "To reach node " << n_id << " (" << node.m_func_decl->get_name() << "(" << args << ")) via template " << t_id << " requires:\n";);
                     expr_ref_vector temp_subst = get_temp_subst_vect_noparams(t_id, args);
                     expr_ref_vector terms = apply_subst(m_rel_templates[t_id].m_body, temp_subst);
-                    cs = mk_conj(terms);
-                    STRACE("predabst", tout << "  " << mk_pp(cs, m) << "\n";);
+                    STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
+                    cs.append(terms);
                 }
-
-                css.push_back(cs);
             }
 
-            return mk_conj(css);
+            return mk_conj(cs);
         }
 
         bool has_template(func_decl* fdecl) const {

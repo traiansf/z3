@@ -662,7 +662,7 @@ namespace datalog {
             return build_subst(m_rel_templates.get(t_id).m_args, vector_concat(hvars, m_template_params));
         }
 
-        expr_ref_vector get_rule_terms(rule* r, expr_ref_vector const& args, expr_ref_vector& rule_subst) {
+        expr_ref_vector get_rule_terms(rule* r, expr_ref_vector const& args, expr_ref_vector& rule_subst) const {
             CASSERT("predabst", args.size() == r->get_head()->get_num_args());
             CASSERT("predabst", rule_subst.empty());
             expr_ref_vector unification_terms(m);
@@ -1728,7 +1728,7 @@ namespace datalog {
             return refine_preds(refine_info, interpolants);
         }
 
-        bool should_refine_predicates_not_wf(unsigned node_id, core_tree_wf_info& core_wf_info) {
+        bool should_refine_predicates_not_wf(unsigned node_id, core_tree_wf_info& core_wf_info) const {
             func_decl* fdecl = m_node2info[node_id].m_func_decl;
             CASSERT("predabst", m_func_decl2info[fdecl]->m_is_wf_predicate);
             expr_ref_vector args = get_fresh_args(fdecl, "s");
@@ -1834,7 +1834,7 @@ namespace datalog {
             return expr_ref(m.mk_or(m.mk_not(cs), m.mk_and(bound, decrease)), m);
         }
 
-        bool mk_core_tree(unsigned root_n_id, core_tree_info &core_info) {
+        bool mk_core_tree(unsigned root_n_id, core_tree_info &core_info) const {
             STRACE("predabst", tout << "Determining reachability of node " << root_n_id << " without abstraction\n";);
             smt_params new_param;
             smt::kernel solver(m, new_param);
@@ -1912,7 +1912,7 @@ namespace datalog {
             return false;
         }
 
-        core_clauses mk_core_clauses(core_tree_info const& core_info, refine_cand_info &refine_info) {
+        core_clauses mk_core_clauses(core_tree_info const& core_info, refine_cand_info &refine_info) const {
             STRACE("predabst", tout << "Building clauses\n";);
             core_clauses clauses;
 
@@ -1984,7 +1984,7 @@ namespace datalog {
             return clauses;
         }
 
-        vector<refine_pred_info> solve_core_clauses(core_clauses const& clauses) {
+        vector<refine_pred_info> solve_core_clauses(core_clauses const& clauses) const {
             vector<refine_pred_info> interpolants;
 
             core_clauses::const_iterator end = clauses.end();
@@ -2018,7 +2018,7 @@ namespace datalog {
             return interpolants;
         }
 
-        expr_ref mk_core_tree_wf(unsigned root_n_id, expr_ref_vector const& root_args, refine_cand_info& refine_info) {
+        expr_ref mk_core_tree_wf(unsigned root_n_id, expr_ref_vector const& root_args, refine_cand_info& refine_info) const {
             STRACE("predabst", tout << "Determining well-foundedness of node " << root_n_id << " without abstraction\n";);
             expr_ref_vector css(m);
 
@@ -2074,7 +2074,7 @@ namespace datalog {
             return mk_conj(css);
         }
 
-        expr_ref mk_leaf(unsigned root_n_id, expr_ref_vector const& root_args) {
+        expr_ref mk_leaf(unsigned root_n_id, expr_ref_vector const& root_args) const {
             STRACE("predabst", tout << "Determining reachability criterion for node " << root_n_id << " without abstraction\n";);
             expr_ref_vector css(m);
 

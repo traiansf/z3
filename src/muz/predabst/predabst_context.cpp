@@ -371,14 +371,14 @@ namespace datalog {
         lbool query(rule_set& rules) {
             find_all_func_decls(rules);
 
-            // Some of the rules are actually declarations of predicate lists,
-            // templates and extra constraints on templates.  Find these, and
+            // Some of the rules are actually declarations of templates, extra
+            // constraints on templates, and predicate lists.  Find these, and
             // remove them from the rule set.  Note that we must process the
             // extra template constraints before the templates, in order that we
             // know how many extra arguments each template has.
-            process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
             process_special_rules(rules, is_template_extra, &imp::collect_template_extra);
             process_special_rules(rules, is_template, &imp::collect_template);
+            process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
 
             find_rule_uses(rules);
 
@@ -769,7 +769,7 @@ namespace datalog {
         }
 
         static bool is_regular_predicate(func_decl const* fdecl) {
-            return !is_predicate_list(fdecl) && !is_template_extra(fdecl) && !is_template(fdecl);
+            return !is_template_extra(fdecl) && !is_template(fdecl) && !is_predicate_list(fdecl);
         }
 
         void find_all_func_decls(rule_set const& rules) {
@@ -778,10 +778,6 @@ namespace datalog {
                 if (is_regular_predicate(r->get_decl())) {
                     for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
                         func_decl* fdecl = r->get_decl(j);
-                        if (is_predicate_list(fdecl)) {
-                            STRACE("predabst", tout << "Error: found predicate list " << fdecl->get_name() << " in non-head position\n";);
-                            throw default_exception("found predicate list " + fdecl->get_name().str() + " in non-head position");
-                        }
                         if (is_template_extra(fdecl)) {
                             STRACE("predabst", tout << "Error: found extra template constraint in non-head position\n";);
                             throw default_exception("found extra template constraint in non-head position");
@@ -789,6 +785,10 @@ namespace datalog {
                         if (is_template(fdecl)) {
                             STRACE("predabst", tout << "Error: found template " << fdecl->get_name() << " in non-head position\n";);
                             throw default_exception("found template " + fdecl->get_name().str() + " in non-head position");
+                        }
+                        if (is_predicate_list(fdecl)) {
+                            STRACE("predabst", tout << "Error: found predicate list " << fdecl->get_name() << " in non-head position\n";);
+                            throw default_exception("found predicate list " + fdecl->get_name().str() + " in non-head position");
                         }
                         process_func_decl(rules, fdecl);
                     }
@@ -843,56 +843,6 @@ namespace datalog {
 
             for (unsigned i = 0; i < to_delete.size(); ++i) {
                 rules.del_rule(to_delete[i]);
-            }
-        }
-
-        static bool is_predicate_list(func_decl const* fdecl) {
-            return fdecl->get_name().str().substr(0, 8) == "__pred__";
-        }
-
-        void collect_predicate_list(rule const* r) {
-            CASSERT("predabst", is_predicate_list(r->get_decl()));
-            // r is a rule of the form:
-            //   p1 AND ... AND pN => __pred__SUFFIX
-            // Treat p1...pN as initial predicates for query symbol SUFFIX.
-            func_decl* head_decl = r->get_decl();
-            symbol suffix(head_decl->get_name().str().substr(8).c_str());
-            STRACE("predabst", tout << "Found predicate list for query symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
-
-            func_decl_ref suffix_decl(m.mk_func_decl(
-                suffix,
-                head_decl->get_arity(),
-                head_decl->get_domain(),
-                head_decl->get_range()), m);
-            if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol\n";);
-                throw default_exception("found predicate list for non-existent query symbol " + suffix.str());
-            }
-
-            if (!args_are_distinct_vars(r->get_head())) {
-                STRACE("predabst", tout << "Error: predicate list has invalid argument list\n";);
-                throw default_exception("predicate list for " + suffix.str() + " has invalid argument list");
-            }
-
-            if (r->get_uninterpreted_tail_size() != 0) {
-                STRACE("predabst", tout << "Error: predicate list has an uninterpreted tail\n";);
-                throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
-            }
-
-            // Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
-            CASSERT("predabst", !m_func_decl2info[suffix_decl]->m_is_output_predicate);
-            expr_ref_vector const& vars = m_func_decl2info[suffix_decl]->m_vars;
-            vector<pred_info>& preds = m_func_decl2info[suffix_decl]->m_preds;
-            expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
-            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
-                    STRACE("predabst", tout << "Error: predicate has free variables\n";);
-                    throw default_exception("predicate for " + suffix.str() + " has free variables");
-                }
-
-                app_ref pred = apply_subst(r->get_tail(i), subst);
-                STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
-                preds.push_back(pred_info(pred));
             }
         }
 
@@ -1007,6 +957,56 @@ namespace datalog {
             }
 
             m_rel_templates.push_back(rel_template(suffix_decl, args, body));
+        }
+
+        static bool is_predicate_list(func_decl const* fdecl) {
+            return fdecl->get_name().str().substr(0, 8) == "__pred__";
+        }
+
+        void collect_predicate_list(rule const* r) {
+            CASSERT("predabst", is_predicate_list(r->get_decl()));
+            // r is a rule of the form:
+            //   p1 AND ... AND pN => __pred__SUFFIX
+            // Treat p1...pN as initial predicates for query symbol SUFFIX.
+            func_decl* head_decl = r->get_decl();
+            symbol suffix(head_decl->get_name().str().substr(8).c_str());
+            STRACE("predabst", tout << "Found predicate list for query symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
+
+            func_decl_ref suffix_decl(m.mk_func_decl(
+                suffix,
+                head_decl->get_arity(),
+                head_decl->get_domain(),
+                head_decl->get_range()), m);
+            if (!m_func_decl2info.contains(suffix_decl)) {
+                STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol\n";);
+                throw default_exception("found predicate list for non-existent query symbol " + suffix.str());
+            }
+
+            if (!args_are_distinct_vars(r->get_head())) {
+                STRACE("predabst", tout << "Error: predicate list has invalid argument list\n";);
+                throw default_exception("predicate list for " + suffix.str() + " has invalid argument list");
+            }
+
+            if (r->get_uninterpreted_tail_size() != 0) {
+                STRACE("predabst", tout << "Error: predicate list has an uninterpreted tail\n";);
+                throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
+            }
+
+            // Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
+            CASSERT("predabst", !m_func_decl2info[suffix_decl]->m_is_output_predicate);
+            expr_ref_vector const& vars = m_func_decl2info[suffix_decl]->m_vars;
+            vector<pred_info>& preds = m_func_decl2info[suffix_decl]->m_preds;
+            expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
+                    STRACE("predabst", tout << "Error: predicate has free variables\n";);
+                    throw default_exception("predicate for " + suffix.str() + " has free variables");
+                }
+
+                app_ref pred = apply_subst(r->get_tail(i), subst);
+                STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
+                preds.push_back(pred_info(pred));
+            }
         }
 
         void find_rule_uses(rule_set const& rules) {

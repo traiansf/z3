@@ -24,6 +24,16 @@ inpval_tests = [
      "found predicate list for non-existent query symbol p"),
 # XXX What about a similar case where a predicate with the same name but different arity/types exists?
 
+    ("plist-templ",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (= x 0) (__pred__p x))))
+(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
+     "found predicate list for templated query symbol p"),
+
     ("plist-in-body",
      """
 (declare-fun p (Int) Bool)
@@ -481,65 +491,55 @@ norefine_t_sat_tests = [
     ("no-extra",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
 (declare-fun __temp__p (Int) Bool)
 (assert (forall ((x Int)) (=> (p x) (> x 0))))
-(assert (forall ((x Int)) (=> (>= x 7) (__pred__p x))))
 (assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))""",
      """
-(define-fun p ((x!1 Int)) Bool (>= x!1 7))"""),
+(define-fun p ((x!1 Int)) Bool (= x!1 7))"""),
 
     ("extra-no-params",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
 (declare-fun __temp__extra__ () Bool)
 (declare-fun __temp__p (Int) Bool)
 (assert (forall ((x Int)) (=> (p x) (> x 0))))
-(assert (forall ((x Int)) (=> (>= x 7) (__pred__p x))))
 (assert (=> (= true true) __temp__extra__))
 (assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))""",
      """
-(define-fun p ((x!1 Int)) Bool (>= x!1 7))"""),
+(define-fun p ((x!1 Int)) Bool (= x!1 7))"""),
 
     ("extra-unique-solution",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
 (declare-fun __temp__extra__ (Int Int) Bool)
 (declare-fun __temp__p (Int Int Int) Bool)
 (assert (forall ((x Int)) (=> (p x) (> x 0))))
-(assert (forall ((x Int)) (=> (>= (* 5 x) 11) (__pred__p x))))
 (assert (forall ((a Int) (b Int)) (=> (and (= a 5) (= b 15)) (__temp__extra__ a b))))
 (assert (forall ((x Int) (a Int) (b Int)) (=> (= (* a x) b) (__temp__p x a b))))""",
      """
-(define-fun p ((x!1 Int)) Bool (>= (* 5 x!1) 11))"""),
+(define-fun p ((x!1 Int)) Bool (= (* 5 x!1) 15))"""),
 
     ("extra-any-solution",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
 (declare-fun __temp__extra__ (Int Int) Bool)
 (declare-fun __temp__p (Int Int Int) Bool)
-(assert (forall ((x Int)) (=> (p x) (> x -5))))
-(assert (forall ((x Int)) (=> (> x 0) (__pred__p x))))
+(assert (forall ((x Int)) (=> (p x) (> x 0))))
 (assert (forall ((a Int) (b Int)) (=> (and (> a 0) (> b 0)) (__temp__extra__ a b))))
 (assert (forall ((x Int) (a Int) (b Int)) (=> (= (* a x) b) (__temp__p x a b))))""",
      """
-(define-fun p ((x!1 Int)) Bool (> x!1 0))"""),
+(define-fun p ((x!1 Int)) Bool (= (* 1 x!1) 1))"""),
 
     ("extra-non-int-params",
      """
 (declare-fun p (Real Bool) Bool)
-(declare-fun __pred__p (Real Bool) Bool)
 (declare-fun __temp__extra__ (Real Bool) Bool)
 (declare-fun __temp__p (Real Bool Real Bool) Bool)
 (assert (forall ((x Real) (y Bool)) (=> (p x y) (and (> x 0.0) (= y true)))))
-(assert (forall ((x Real) (y Bool)) (=> (and (> x 3.0) (= y true)) (__pred__p x y))))
 (assert (forall ((a Real) (b Bool)) (=> (and (= a 5.0) (= b true)) (__temp__extra__ a b))))
 (assert (forall ((x Real) (y Bool) (a Real) (b Bool)) (=> (and (> x a) (= y b)) (__temp__p x y a b))))""",
      """
-(define-fun p ((x!1 Real) (x!2 Bool)) Bool (and (= x!2 true) (> x!1 3.0)))"""),
+(define-fun p ((x!1 Real) (x!2 Bool)) Bool (and (= x!2 true) (> x!1 5.0)))"""),
 ]
 
 norefine_t_unsat_tests = [
@@ -579,7 +579,6 @@ refine_sat_tests = [
      """
 (declare-fun p (Int) Bool)
 (declare-fun q (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
 (declare-fun __pred__q (Int) Bool)
 (declare-fun __temp__extra__ (Int) Bool)
 (declare-fun __temp__p (Int Int) Bool)
@@ -597,7 +596,6 @@ refine_sat_tests = [
      """
 (declare-fun p (Int) Bool)
 (declare-fun q (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
 (declare-fun __pred__q (Int) Bool)
 (declare-fun __temp__extra__ (Int) Bool)
 (declare-fun __temp__p (Int Int) Bool)
@@ -623,15 +621,6 @@ refine_sat_tests = [
 (define-fun p () Bool true)
 (define-fun q ((x!1 Int)) Bool (>= x!1 1))"""),
 
-    ("templ-refine-preds",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __temp__p (Int) Bool)
-(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))
-(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
-     """
-(define-fun p ((x!1 Int)) Bool (and (>= x!1 0) (< x!1 1))"""),
-
     ("templ-refine-preds-other",
      """
 (declare-fun p (Int) Bool)
@@ -641,8 +630,8 @@ refine_sat_tests = [
 (assert (forall ((x Int)) (=> (and (p x) (q x)) false)))
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      """
-(define-fun p ((x!1 Int)) Bool (= x!1 0))
-(define-fun q ((x!1 Int)) Bool (= x!1 1))"""),
+(define-fun q ((x!1 Int)) Bool (>= x!1 1))
+(define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
 ]
 
 refine_unsat_tests = [
@@ -656,10 +645,8 @@ refine_unsat_tests = [
     ("templ",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
 (declare-fun __temp__p (Int) Bool)
 (assert (forall ((x Int)) (=> (= x 7) (not (p x)))))
-(assert (forall ((x Int)) (=> (>= x 7) (__pred__p x))))
 (assert (forall ((x Int)) (=> (= x 7) (__temp__p x))))"""),
 ]
 
@@ -687,7 +674,16 @@ wf_sat_tests = [
      """
 (define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool false)"""),
 
-    ("simple",
+    ("simple-norefine",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(declare-fun __pred____wf__p (Int Int) Bool)
+(assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (< x_ x)) (__wf__p x x_))))
+(assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (< x_ x)) (__pred____wf__p x x_))))""",
+     """
+(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (< x!2 x!1) (>= x!1 0)))"""),
+
+    ("simple-refine",
      """
 (declare-fun __wf__p (Int Int) Bool)
 (assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (< x_ x)) (__wf__p x x_))))""",
@@ -697,15 +693,13 @@ wf_sat_tests = [
     ("templ-refine",
      """
 (declare-fun __wf__p (Int Int) Bool)
-(declare-fun __pred____wf__p (Int Int) Bool)
 (declare-fun __temp__extra__ (Int) Bool)
 (declare-fun __temp____wf__p (Int Int Int) Bool)
 (assert (forall ((x Int) (x_ Int)) (=> (__wf__p x x_) (= true true))))
-(assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (= x_ (+ x -1)) (= x_ (+ x 0)) (= x_ (+ x 1))) (__pred____wf__p x x_))))
 (assert (forall ((a Int)) (=> (and (>= a -1) (<= a 1)) (__temp__extra__ a))))
 (assert (forall ((x Int) (x_ Int) (a Int)) (=> (and (>= x 0) (= x_ (+ x a))) (__temp____wf__p x x_ a))))""",
      """
-(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (= x!2 (+ x!1 (- 1))) (>= x!1 0)))"""),
+(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (= x!2 (+ x!1 (- 1)))) (>= x!1 0))"""),
 ]
 
 wf_unsat_tests = [

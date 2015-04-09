@@ -1143,11 +1143,7 @@ namespace datalog {
                         // The problem persists without abstraction.  Unless
                         // we can refine the templates, we have a proof of
                         // unsatisfiability.
-                        if (m_rel_templates.empty()) {
-                            STRACE("predabst", tout << "No templates to refine: result is UNSAT\n";);
-                            RETURN_CHECK_CANCELLED(l_true);
-                        }
-                        else if (!refine_templates(error)) {
+                        if (!refine_templates(error)) {
                             STRACE("predabst", tout << "Template refinement unsuccessful: result is UNSAT\n";);
                             RETURN_CHECK_CANCELLED(l_true);
                         }

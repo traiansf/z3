@@ -1450,7 +1450,7 @@ namespace datalog {
 
         void inference_step(unsigned node_id) {
             // Find all rules whose body contains the func_decl of the new node.
-            func_decl_info& fi = m_node2info[node_id].m_fdecl_info;
+            func_decl_info const& fi = m_node2info[node_id].m_fdecl_info;
             uint_set const& rules = fi.m_users;
             STRACE("predabst", tout << "Performing inference from node " << node_id << " using rules " << rules << "\n";);
             for (uint_set::iterator r_it = rules.begin(); r_it != rules.end(); ++r_it) {
@@ -1716,7 +1716,7 @@ namespace datalog {
         }
 
         bool is_well_founded(node_info const& node) {
-            func_decl_info& fi = node.m_fdecl_info;
+            func_decl_info const& fi = node.m_fdecl_info;
             CASSERT("predabst", fi.m_is_wf_predicate);
 
             expr_ref expr = cube_to_formula(node.m_cube, fi.m_preds);
@@ -1730,9 +1730,8 @@ namespace datalog {
             func_decl_info& fi = ri.get_decl(this);
             CASSERT("predabst", !fi.m_has_template);
             // first fixpoint check combined with maximality maintainance
-            node_set& sym_nodes = fi.m_max_reach_nodes;
             node_vector old_lt_nodes;
-            for (node_set::iterator it = sym_nodes.begin(); it != sym_nodes.end(); ++it) {
+            for (node_set::iterator it = fi.m_max_reach_nodes.begin(); it != fi.m_max_reach_nodes.end(); ++it) {
                 cube_t const& old_cube = m_node2info[*it].m_cube;
                 // if cube implies existing cube then nothing to add
                 if (cube_leq(cube, old_cube, fi)) {
@@ -1751,14 +1750,14 @@ namespace datalog {
             // remove subsumed maximal nodes
             for (node_vector::iterator it = old_lt_nodes.begin(); it != old_lt_nodes.end(); ++it) {
                 m_stats.m_num_nodes_subsumed++;
-                sym_nodes.remove(*it);
+                fi.m_max_reach_nodes.remove(*it);
                 m_node_worklist.remove(*it); // removing non-existent element is ok
             }
             // no fixpoint reached hence create new node
             m_stats.m_num_nodes_created++;
             m_node2info.push_back(node_info(m_node2info.size(), fi, cube, ri.m_id, nodes));
             node_info const& node = m_node2info.back();
-            sym_nodes.insert(node.m_id);
+            fi.m_max_reach_nodes.insert(node.m_id);
             m_node_worklist.insert(node.m_id);
             STRACE("predabst", tout << "Added node " << node << " for " << fi << "\n";);
             return &node;
@@ -1778,7 +1777,7 @@ namespace datalog {
         }
 
         bool wf_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_wf_info& core_wf_info) const {
-            func_decl_info& fi = root_node.m_fdecl_info;
+            func_decl_info const& fi = root_node.m_fdecl_info;
             CASSERT("predabst", fi.m_is_wf_predicate);
             expr_ref to_wf = mk_core_tree_wf(root_node, root_args, core_wf_info.m_refine_info);
             quantifier_elimination(root_args, to_wf);

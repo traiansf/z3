@@ -957,10 +957,10 @@ namespace datalog {
             CASSERT("predabst", is_template(r->get_decl()));
             // r is a rule of the form:
             //  ??? => __temp__SUFFIX
-            // Treat ??? as a template for query symbol SUFFIX.
+            // Treat ??? as a template for predicate symbol SUFFIX.
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
-            STRACE("predabst", tout << "Found template for query symbol " << suffix << "\n";);
+            STRACE("predabst", tout << "Found template for predicate symbol " << suffix << "\n";);
 
             unsigned num_extras = m_template_params.size();
             if (head_decl->get_arity() < num_extras) {
@@ -982,11 +982,17 @@ namespace datalog {
                 head_decl->get_domain(),
                 head_decl->get_range()), m);
             if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found template for non-existent query symbol\n";);
-                throw default_exception("found template for non-existent query symbol " + suffix.str());
+                STRACE("predabst", tout << "Error: found template for non-existent predicate symbol\n";);
+                throw default_exception("found template for non-existent predicate symbol " + suffix.str());
             }
 
             func_decl_info& fi = *m_func_decl2info[suffix_decl];
+            CASSERT("predabst", !fi.m_is_output_predicate);
+            if (fi.m_is_wf_predicate) {
+                STRACE("predabst", tout << "Error: found template for WF predicate symbol\n";);
+                throw default_exception("found template for WF predicate symbol " + suffix.str());
+            }
+
             if (fi.m_has_template) {
                 STRACE("predabst", tout << "Error: found multiple templates for " << suffix.str() << "\n";);
                 throw default_exception("found multiple templates for " + suffix.str());
@@ -996,7 +1002,7 @@ namespace datalog {
             fi.m_template_id = m_templates.size();
 
             if (!args_are_distinct_vars(r->get_head())) {
-                STRACE("predabst", tout << "Error: template for has invalid argument list\n";);
+                STRACE("predabst", tout << "Error: template has invalid argument list\n";);
                 throw default_exception("template for " + suffix.str() + " has invalid argument list");
             }
 
@@ -1027,10 +1033,10 @@ namespace datalog {
             CASSERT("predabst", is_predicate_list(r->get_decl()));
             // r is a rule of the form:
             //   p1 AND ... AND pN => __pred__SUFFIX
-            // Treat p1...pN as initial predicates for query symbol SUFFIX.
+            // Treat p1...pN as initial predicates for predicate symbol SUFFIX.
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
-            STRACE("predabst", tout << "Found predicate list for query symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
+            STRACE("predabst", tout << "Found predicate list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
 
             func_decl_ref suffix_decl(m.mk_func_decl(
                 suffix,
@@ -1038,14 +1044,15 @@ namespace datalog {
                 head_decl->get_domain(),
                 head_decl->get_range()), m);
             if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found predicate list for non-existent query symbol\n";);
-                throw default_exception("found predicate list for non-existent query symbol " + suffix.str());
+                STRACE("predabst", tout << "Error: found predicate list for non-existent predicate symbol\n";);
+                throw default_exception("found predicate list for non-existent predicate symbol " + suffix.str());
             }
 
             func_decl_info& fi = *m_func_decl2info[suffix_decl];
+            CASSERT("predabst", !fi.m_is_output_predicate);
             if (fi.m_has_template) {
-                STRACE("predabst", tout << "Error: found predicate list for templated query symbol\n";);
-                throw default_exception("found predicate list for templated query symbol " + suffix.str());
+                STRACE("predabst", tout << "Error: found predicate list for templated predicate symbol\n";);
+                throw default_exception("found predicate list for templated predicate symbol " + suffix.str());
             }
 
             if (!args_are_distinct_vars(r->get_head())) {

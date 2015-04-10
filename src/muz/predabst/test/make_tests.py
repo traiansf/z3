@@ -17,63 +17,6 @@ inpval_tests = [
 (assert (forall ((x Real) (y Real)) (__wf__p x y)))""",
      "WF predicate symbol __wf__p has non-integer argument types"),
 
-    ("plist-no-query",
-     """
-(declare-fun __pred__p (Int) Bool)
-(assert (forall ((x Int)) (=> (= x 0) (__pred__p x))))""",
-     "found predicate list for non-existent query symbol p"),
-# XXX What about a similar case where a predicate with the same name but different arity/types exists?
-
-    ("plist-templ",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
-(declare-fun __temp__p (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (= x 0) (__pred__p x))))
-(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
-     "found predicate list for templated query symbol p"),
-
-    ("plist-in-body",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (__pred__p x) false)))""",
-     "found predicate list __pred__p in non-head position"),
-
-    ("plist-uninterp-tail",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (p x) (__pred__p x))))""",
-     "predicate list for p has an uninterpreted tail"),
-
-    ("plist-non-var-args",
-     """
-(declare-fun p (Int Int) Bool)
-(declare-fun __pred__p (Int Int) Bool)
-(assert (forall ((x Int) (y Int)) (p x y)))
-(assert (forall ((x Int)) (=> (= x 0) (__pred__p x 0))))""",
-     "predicate list for p has invalid argument list"),
-
-    ("plist-non-unique-args",
-     """
-(declare-fun p (Int Int) Bool)
-(declare-fun __pred__p (Int Int) Bool)
-(assert (forall ((x Int) (y Int)) (p x y)))
-(assert (forall ((x Int)) (=> (= x 0) (__pred__p x x))))""",
-     "predicate list for p has invalid argument list"),
-
-    ("plist-free-vars",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __pred__p (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int) (y Int)) (=> (= x y) (__pred__p x))))""",
-     "predicate for p has free variables"),
-
      ("extra-multiple-same-type",
      """
 (declare-fun __temp__extra__ (Int) Bool)
@@ -141,8 +84,16 @@ inpval_tests = [
      """
 (declare-fun __temp__p (Int) Bool)
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
-     "found template for non-existent query symbol p"),
+     "found template for non-existent predicate symbol p"),
 # XXX What about a similar case where a predicate with the same name but different arity/types exists?
+
+    ("templ-wf",
+     """
+(declare-fun __wf__p (Int Int) Bool)
+(declare-fun __temp____wf__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (=> (__wf__p x y) false)))
+(assert (forall ((x Int) (y Int)) (=> (= x 0) (= y 1) (__temp____wf__p x y))))""",
+     "found template for WF predicate symbol __wf__p"),
 
     ("templ-multiple",
      """
@@ -201,6 +152,63 @@ inpval_tests = [
 (assert (forall ((x Int)) (p x)))
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      "both rule and template for p"),
+
+    ("plist-no-query",
+     """
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (=> (= x 0) (__pred__p x))))""",
+     "found predicate list for non-existent predicate symbol p"),
+# XXX What about a similar case where a predicate with the same name but different arity/types exists?
+
+    ("plist-templ",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (= x 0) (__pred__p x))))
+(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
+     "found predicate list for templated predicate symbol p"),
+
+    ("plist-in-body",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (__pred__p x) false)))""",
+     "found predicate list __pred__p in non-head position"),
+
+    ("plist-uninterp-tail",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (p x) (__pred__p x))))""",
+     "predicate list for p has an uninterpreted tail"),
+
+    ("plist-non-var-args",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __pred__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int)) (=> (= x 0) (__pred__p x 0))))""",
+     "predicate list for p has invalid argument list"),
+
+    ("plist-non-unique-args",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __pred__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int)) (=> (= x 0) (__pred__p x x))))""",
+     "predicate list for p has invalid argument list"),
+
+    ("plist-free-vars",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __pred__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int) (y Int)) (=> (= x y) (__pred__p x))))""",
+     "predicate for p has free variables"),
 ]
 
 norefine_sat_tests = [
@@ -692,16 +700,17 @@ wf_sat_tests = [
      """
 (define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (>= x!1 0) (not (<= x!1 x!2))))"""),
 
-    ("templ-refine",
-     """
-(declare-fun __wf__p (Int Int) Bool)
-(declare-fun __temp__extra__ (Int) Bool)
-(declare-fun __temp____wf__p (Int Int Int) Bool)
-(assert (forall ((x Int) (x_ Int)) (=> (__wf__p x x_) (= true true))))
-(assert (forall ((a Int)) (=> (and (>= a -1) (<= a 1)) (__temp__extra__ a))))
-(assert (forall ((x Int) (x_ Int) (a Int)) (=> (and (>= x 0) (= x_ (+ x a))) (__temp____wf__p x x_ a))))""",
-     """
-(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (= x!2 (+ x!1 (- 1)))) (>= x!1 0))"""),
+# XXX The following test is disabled because WF templates are not currently supported.
+#    ("templ-refine",
+#     """
+#(declare-fun __wf__p (Int Int) Bool)
+#(declare-fun __temp__extra__ (Int) Bool)
+#(declare-fun __temp____wf__p (Int Int Int) Bool)
+#(assert (forall ((x Int) (x_ Int)) (=> (__wf__p x x_) (= true true))))
+#(assert (forall ((a Int)) (=> (and (>= a -1) (<= a 1)) (__temp__extra__ a))))
+#(assert (forall ((x Int) (x_ Int) (a Int)) (=> (and (>= x 0) (= x_ (+ x a))) (__temp____wf__p x x_ a))))""",
+#     """
+#(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (= x!2 (+ x!1 (- 1)))) (>= x!1 0))"""),
 ]
 
 wf_unsat_tests = [

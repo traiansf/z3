@@ -1456,7 +1456,6 @@ namespace datalog {
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         void cart_pred_abst_rule(unsigned r_id, unsigned fixed_pos = 0, unsigned fixed_node = NON_NODE) {
-            rule* r = m_rule2info[r_id].m_rule;
             rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
             CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < m_rule2info[r_id].m_uninterp_pos.size()));
 
@@ -1570,14 +1569,15 @@ namespace datalog {
             rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
 
             if (pos_idx < pos_order.size()) {
-                unsigned pos = pos_order[pos_idx];
+                unsigned i = pos_order[pos_idx];
+                unsigned pos = m_rule2info[r_id].m_uninterp_pos[i];
 
                 node_set fixed_node_singleton;
                 fixed_node_singleton.insert(fixed_node);
 
-                node_set pos_nodes = (pos == fixed_pos) ? fixed_node_singleton : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes; // make a copy, to prevent it from changing while we iterate over it
+                node_set pos_nodes = (i == fixed_pos) ? fixed_node_singleton : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes; // make a copy, to prevent it from changing while we iterate over it
                 for (node_set::iterator pos_node = pos_nodes.begin(), pos_node_end = pos_nodes.end(); pos_node != pos_node_end; ++pos_node) {
-                    if ((*pos_node > fixed_node) || ((pos > fixed_pos) && (*pos_node == fixed_node))) {
+                    if ((*pos_node > fixed_node) || ((i > fixed_pos) && (*pos_node == fixed_node))) {
                         // Don't use any nodes newer than the fixed node; we'll have a chance to use newer nodes when they are taken off the worklist later.
                         // Furthermore, don't use the fixed node further along that the fixed position; we'll have a chance to use it in both places when the fixed position advances.
                         // Note that iterating over the max_reach_nodes set return nodes in ascending order, so we can bail out here.
@@ -1592,10 +1592,10 @@ namespace datalog {
 #endif
                     cube_t const& pos_cube = m_node2info[*pos_node].m_cube;
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
-                    expr_ref_vector const& body_pred_cond_vars = info.m_body_pred_cond_vars[pos];
+                    expr_ref_vector const& body_pred_cond_vars = info.m_body_pred_cond_vars[i];
                     unsigned num_preds = body_pred_cond_vars.size();
 #else
-                    expr_ref_vector const& body_preds = info.m_body_preds[pos];
+                    expr_ref_vector const& body_preds = info.m_body_preds[i];
                     unsigned num_preds = body_preds.size();
 #endif
                     CASSERT("predabst", num_preds == pos_cube.size());
@@ -1647,7 +1647,7 @@ namespace datalog {
                 m_stats.m_num_rules_succeeded++;
 
                 // add and check the node
-                check_node_property(add_node(m_rule2info[r_id].m_rule->get_decl(), cube, r_id, reorder_nodes(nodes, pos_order)));
+                check_node_property(add_node(r->get_decl(), cube, r_id, reorder_nodes(nodes, pos_order)));
             }
         }
 
@@ -2234,12 +2234,9 @@ namespace datalog {
             }
             out << "  Rules:" << std::endl;
             for (unsigned r_id = 0; r_id < m_rule2info.size(); ++r_id) {
-                rule* r = m_rule2info[r_id].m_rule;
-                if (r) {
-                    out << "    " << r_id << ": ";
-                    r->display_smt2(m, out);
-                    out << std::endl;
-                }
+                out << "    " << r_id << ": ";
+                m_rule2info[r_id].m_rule->display_smt2(m, out);
+                out << std::endl;
             }
             out << "=====================================\n";
         }

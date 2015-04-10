@@ -413,19 +413,21 @@ namespace datalog {
             process_special_rules(rules, is_template, &imp::collect_template);
             process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
 
-            find_rule_uses(rules);
-
             CASSERT("predabst", m_rule2info.empty());
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
                 m_rule2info.push_back(rule_info(m_rule2info.size(), r, m));
                 rule_info& ri = m_rule2info.back();
+                ri.m_instance_info.alloc_solver(m, m_fparams);
+
+                CASSERT("predabst", is_regular_predicate(r->get_decl()));
                 for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
+                    CASSERT("predabst", is_regular_predicate(r->get_decl(j)));
                     if (!m_func_decl2info[r->get_decl(j)]->m_has_template) {
                         ri.m_uninterp_pos.push_back(j);
+                        m_func_decl2info[r->get_decl(j)]->m_users.insert(i);
                     }
                 }
-                ri.m_instance_info.alloc_solver(m, m_fparams);
             }
 
             return abstract_check_refine();
@@ -1081,21 +1083,6 @@ namespace datalog {
         }
 
         void find_rule_uses(rule_set const& rules) {
-            for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
-                rule* r = rules.get_rule(i);
-                CASSERT("predabst", is_regular_predicate(r->get_decl()));
-
-                if (m_func_decl2info[r->get_decl()]->m_has_template) {
-                    STRACE("predabst", tout << "Rule exists for " << r->get_decl()->get_name() << ", which also has a template\n";);
-                    throw default_exception("both rule and template for " + r->get_decl()->get_name().str());
-                }
-
-                for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
-                    if (!m_func_decl2info[r->get_decl(j)]->m_has_template) {
-                        m_func_decl2info[r->get_decl(j)]->m_users.insert(i);
-                    }
-                }
-            }
         }
 
 #define RETURN_CHECK_CANCELLED(result) return m_cancel ? l_undef : result;
@@ -1272,7 +1259,16 @@ namespace datalog {
 #endif
 
             // create instantiations for head
-            expr_ref_vector heads = app_inst_preds(ri.get_decl(this), apply_subst(ri.get_args(), rule_subst));
+            func_decl_info const& fi = ri.get_decl(this);
+            expr_ref_vector heads(m);
+            if (fi.m_has_template) {
+                template_info const& temp = m_templates[fi.m_template_id];
+                expr_ref_vector temp_subst = get_temp_subst_vect(temp, apply_subst(ri.get_args(), rule_subst));
+                heads.swap(apply_subst(temp.m_body, temp_subst));
+            }
+            else {
+                heads.swap(app_inst_preds(fi, apply_subst(ri.get_args(), rule_subst)));
+            }
             invert(heads);
             pre_simplify(heads);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
@@ -1284,7 +1280,9 @@ namespace datalog {
 
             // create instantiations for non-templated body applications
             for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
-                expr_ref_vector tails = app_inst_preds(ri.get_decl(i, this), apply_subst(ri.get_args(i), rule_subst));
+                func_decl_info const& fi = ri.get_decl(i, this);
+                CASSERT("predabst", !fi.m_has_template);
+                expr_ref_vector tails = app_inst_preds(fi, apply_subst(ri.get_args(i), rule_subst));
                 pre_simplify(tails);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                 expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
@@ -1675,15 +1673,32 @@ namespace datalog {
                 CASSERT("predabst", m_solver.check() != l_false);
 #endif
 
-                // collect abstract cube
-                cube_t cube = cart_pred_abst_cube(ri, cond_vars);
-                STRACE("predabst", tout << "Applying rule " << ri << " to nodes (" << chosen_nodes << ") succeeded, with cube [" << cube << "]\n";);
-                m_stats.m_num_rules_succeeded++;
+                func_decl_info const& fi = ri.get_decl(this);
+                if (fi.m_has_template) {
+                    rule_instance_info const& info = ri.m_instance_info;
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                    expr_ref_vector const& es = info.m_head_pred_cond_vars;
+#else
+                    expr_ref_vector const& es = info.m_head_preds;
+#endif
+                    unsigned num_preds = es.size();
+                    for (unsigned i = 0; i < num_preds; ++i) {
+                        if (!is_implied(es.get(i), info, cond_vars)) {
+                            throw default_exception("XXX template does not satisfy rule -- not currently handled");
+                        }
+                    }
+                }
+                else {
+                    // collect abstract cube
+                    cube_t cube = cart_pred_abst_cube(ri, cond_vars);
+                    STRACE("predabst", tout << "Applying rule " << ri << " to nodes (" << chosen_nodes << ") succeeded, with cube [" << cube << "]\n";);
+                    m_stats.m_num_rules_succeeded++;
 
-                // add and check the node
-                node_info const* node = add_node(ri, cube, reorder_nodes(chosen_nodes, positions));
-                if (node) {
-                    check_node_property(*node);
+                    // add and check the node
+                    node_info const* node = add_node(ri, cube, reorder_nodes(chosen_nodes, positions));
+                    if (node) {
+                        check_node_property(*node);
+                    }
                 }
             }
         }

@@ -145,14 +145,6 @@ inpval_tests = [
 (assert (forall ((x Int) (y Int)) (=> (= x y) (__temp__p x))))""",
      "template for p has free variables"),
 
-    ("templ-and-rule",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __temp__p (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
-     "both rule and template for p"),
-
     ("plist-no-query",
      """
 (declare-fun __pred__p (Int) Bool)
@@ -549,6 +541,15 @@ norefine_t_sat_tests = [
 (assert (forall ((x Real) (y Bool) (a Real) (b Bool)) (=> (and (> x a) (= y b)) (__temp__p x y a b))))""",
      """
 (define-fun p ((x!1 Real) (x!2 Bool)) Bool (and (= x!2 true) (> x!1 5.0)))"""),
+
+    ("head",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (=> (>= x 3) (p x))))
+(assert (forall ((x Int)) (=> (>= x 0) (__temp__p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (>= x!1 0))"""),
 ]
 
 norefine_t_unsat_tests = [

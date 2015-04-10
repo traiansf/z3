@@ -1241,24 +1241,16 @@ namespace datalog {
 #endif
 
             // create instantiations for non-templated body applications
-            for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                if (m_func_decl2info[r->get_decl(i)]->m_has_template) {
+            for (unsigned i = 0; i < m_rule2info[r_id].m_uninterp_pos.size(); ++i) {
+                unsigned pos = m_rule2info[r_id].m_uninterp_pos[i];
+                expr_ref_vector tails = app_inst_preds(apply_subst(r->get_tail(pos), rule_subst));
+                pre_simplify(tails);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
-                    info.m_body_pred_cond_vars.push_back(expr_ref_vector(m));
+                expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
+                info.m_body_pred_cond_vars.push_back(tail_cond_vars);
 #else
-                    info.m_body_preds.push_back(expr_ref_vector(m));
+                info.m_body_preds.push_back(tails);
 #endif
-                }
-                else {
-                    expr_ref_vector tails = app_inst_preds(apply_subst(r->get_tail(i), rule_subst));
-                    pre_simplify(tails);
-#ifdef PREDABST_ASSERT_EXPR_UPFRONT
-                    expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
-                    info.m_body_pred_cond_vars.push_back(tail_cond_vars);
-#else
-                    info.m_body_preds.push_back(tails);
-#endif
-                }
             }
         }
 
@@ -1436,8 +1428,7 @@ namespace datalog {
                 STRACE("predabst-cprod", tout << "Attempting to apply rule " << *r_id << "\n";);
                 // Find all positions in the body of this rule at which the
                 // func_decl appears.
-                rule* r = m_rule2info[*r_id].m_rule;
-                uint_set current_poss = get_rule_body_positions(r, fdecl);
+                uint_set current_poss = get_rule_body_positions(*r_id, fdecl);
                 CASSERT("predabst", current_poss.num_elems() != 0);
                 for (uint_set::iterator current_pos = current_poss.begin(), current_pos_end = current_poss.end(); current_pos != current_pos_end; ++current_pos) {
                     STRACE("predabst-cprod", tout << "Using this node in position " << *current_pos << "\n";);
@@ -1449,10 +1440,11 @@ namespace datalog {
             }
         }
 
-        uint_set get_rule_body_positions(rule* r, func_decl* fdecl) {
+        uint_set get_rule_body_positions(unsigned r_id, func_decl* fdecl) {
             uint_set positions;
-            for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                if (r->get_decl(i) == fdecl) {
+            for (unsigned i = 0; i < m_rule2info[r_id].m_uninterp_pos.size(); ++i) {
+                unsigned pos = m_rule2info[r_id].m_uninterp_pos[i];
+                if (m_rule2info[r_id].m_rule->get_decl(pos) == fdecl) {
                     positions.insert(i);
                 }
             }
@@ -1464,7 +1456,7 @@ namespace datalog {
         void cart_pred_abst_rule(unsigned r_id, unsigned fixed_pos = 0, unsigned fixed_node = NON_NODE) {
             rule* r = m_rule2info[r_id].m_rule;
             rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
-            CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < r->get_uninterpreted_tail_size()));
+            CASSERT("predabst", (fixed_node == NON_NODE) || (fixed_pos < m_rule2info[r_id].m_uninterp_pos.size()));
 
             if (m_rule2info[r_id].m_unsat) {
                 STRACE("predabst", tout << "Skipping rule " << r_id << " with unsatisfiable body\n";);
@@ -1487,19 +1479,17 @@ namespace datalog {
 
         vector<unsigned> get_rule_pos_order(unsigned r_id, unsigned fixed_pos) {
             rule* r = m_rule2info[r_id].m_rule;
-            rule_instance_info const& info = m_rule2info[r_id].m_instance_info;
 
             std::vector<std::pair<unsigned, unsigned>> pos_counts;
-            for (unsigned pos = 0; pos < r->get_uninterpreted_tail_size(); ++pos) {
-                if (!m_func_decl2info[r->get_decl(pos)]->m_has_template) {
-                    unsigned n = (pos == fixed_pos) ? 1 : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes.num_elems();
-                    STRACE("predabst-cprod", tout << "There are " << n << " option(s) for position " << pos << "\n";);
-                    pos_counts.push_back(std::make_pair(n, pos));
-                }
+            for (unsigned i = 0; i < m_rule2info[r_id].m_uninterp_pos.size(); ++i) {
+                unsigned pos = m_rule2info[r_id].m_uninterp_pos[i];
+                unsigned n = (i == fixed_pos) ? 1 : m_func_decl2info[r->get_decl(pos)]->m_max_reach_nodes.num_elems();
+                STRACE("predabst-cprod", tout << "There are " << n << " option(s) for position " << pos << "\n";);
+                pos_counts.push_back(std::make_pair(n, i));
             }
 
 #ifdef PREDABST_ORDER_CARTPROD_CHOICES
-            std::sort(pos_counts.begin(), pos_counts.end());
+            std::stable_sort(pos_counts.begin(), pos_counts.end());
 #endif
 
             vector<unsigned> pos_order;
@@ -1507,6 +1497,39 @@ namespace datalog {
                 pos_order.push_back(pos_counts[i].second);
             }
             return pos_order;
+        }
+
+        node_vector reorder_nodes(node_vector const& nodes, vector<unsigned> const& pos_order) {
+            CASSERT("predabst", nodes.size() == pos_order.size());
+            node_vector reordered;
+            reordered.reserve(pos_order.size());
+            for (unsigned i = 0; i < pos_order.size(); ++i) {
+                reordered[pos_order[i]] = nodes[i];
+            }
+            return reordered;
+        }
+
+        void reorder_output_nodes(std::ostream& out, node_vector const& nodes, vector<unsigned> const& pos_order) {
+            CASSERT("predabst", nodes.size() <= pos_order.size());
+            node_vector reordered;
+            vector<bool> found;
+            reordered.reserve(pos_order.size());
+            found.reserve(pos_order.size(), false);
+            for (unsigned i = 0; i < nodes.size(); ++i) {
+                reordered[pos_order[i]] = nodes[i];
+                found[pos_order[i]] = true;
+            }
+            for (unsigned i = 0; i < pos_order.size(); ++i) {
+                if (i > 0) {
+                    out << ", ";
+                }
+                if (found[i]) {
+                    out << reordered[i];
+                }
+                else {
+                    out << "?";
+                }
+            }
         }
 
         bool is_implied(expr* e, rule_instance_info const& info, expr_ref_vector& cond_vars) {
@@ -1594,7 +1617,7 @@ namespace datalog {
 #endif
                     if (result == l_false) {
                         // unsat body
-                        STRACE("predabst", tout << "Applying rule " << r_id << " to nodes (" << nodes << "...) failed\n";); // >>> note: order of nodes is not as expected!
+                        STRACE("predabst", tout << "Applying rule " << r_id << " to nodes ("; reorder_output_nodes(tout, nodes, pos_order); tout << ") failed\n";);
                         m_stats.m_num_rules_failed++;
                     }
                     else {
@@ -1622,7 +1645,7 @@ namespace datalog {
                 m_stats.m_num_rules_succeeded++;
 
                 // add and check the node
-                check_node_property(add_node(m_rule2info[r_id].m_rule->get_decl(), cube, r_id, nodes));
+                check_node_property(add_node(m_rule2info[r_id].m_rule->get_decl(), cube, r_id, reorder_nodes(nodes, pos_order)));
             }
         }
 
@@ -1875,16 +1898,15 @@ namespace datalog {
                         return true;
                     }
                 }
-                for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                    if (!m_func_decl2info[r->get_decl(i)]->m_has_template) {
-                        app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                        expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        unsigned qname = core.size();
-                        STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " / tree node " << qname << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
-                        core.push_back(core_tree_node(node.m_parent_nodes[i]));
-                        todo.push_back(todo_item(qname, qargs));
-                        core[name].m_names.push_back(qname);
-                    }
+                for (unsigned i = 0; i < m_rule2info[node.m_parent_rule].m_uninterp_pos.size(); ++i) {
+                    unsigned pos = m_rule2info[node.m_parent_rule].m_uninterp_pos[i];
+                    app_ref qs_i = apply_subst(r->get_tail(pos), rule_subst);
+                    expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
+                    unsigned qname = core.size();
+                    STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " / tree node " << qname << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
+                    core.push_back(core_tree_node(node.m_parent_nodes[i]));
+                    todo.push_back(todo_item(qname, qargs));
+                    core[name].m_names.push_back(qname);
                 }
             }
 
@@ -1940,29 +1962,26 @@ namespace datalog {
                     STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
                     cs.push_back(terms.get(i));
                 }
-                unsigned name_idx = 0;
-                for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                    if (!m_func_decl2info[r->get_decl(i)]->m_has_template) {
-                        app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                        // Ensure that all the qargs are (distinct) uninterpreted constants.
-                        expr_ref_vector qargs(m);
-                        for (unsigned j = 0; j < qs_i->get_decl()->get_arity(); ++j) {
-                            expr_ref arg_j(qs_i->get_arg(j), m);
-                            if (is_uninterp_const(arg_j) && !qargs.contains(arg_j)) {
-                                qargs.push_back(arg_j);
-                            }
-                            else {
-                                app_ref f(m.mk_fresh_const("x", qs_i->get_decl()->get_domain(i)), m);
-                                qargs.push_back(f);
-                                expr_ref constraint(m.mk_eq(f, arg_j), m);
-                                STRACE("predabst", tout << "  " << mk_pp(constraint, m) << "\n";);
-                                cs.push_back(constraint);
-                            }
+                for (unsigned i = 0; i < m_rule2info[node.m_parent_rule].m_uninterp_pos.size(); ++i) {
+                    unsigned pos = m_rule2info[node.m_parent_rule].m_uninterp_pos[i];
+                    app_ref qs_i = apply_subst(r->get_tail(pos), rule_subst);
+                    // Ensure that all the qargs are (distinct) uninterpreted constants.
+                    expr_ref_vector qargs(m);
+                    for (unsigned j = 0; j < qs_i->get_decl()->get_arity(); ++j) {
+                        expr_ref arg_j(qs_i->get_arg(j), m);
+                        if (is_uninterp_const(arg_j) && !qargs.contains(arg_j)) {
+                            qargs.push_back(arg_j);
                         }
-                        STRACE("predabst", tout << "  reaching tree node " << names.get(i) << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
-                        todo.push_back(todo_item(names.get(name_idx), qargs));
-                        ++name_idx;
+                        else {
+                            app_ref f(m.mk_fresh_const("x", qs_i->get_decl()->get_domain(j)), m);
+                            qargs.push_back(f);
+                            expr_ref constraint(m.mk_eq(f, arg_j), m);
+                            STRACE("predabst", tout << "  " << mk_pp(constraint, m) << "\n";);
+                            cs.push_back(constraint);
+                        }
                     }
+                    STRACE("predabst", tout << "  reaching tree node " << names.get(i) << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
+                    todo.push_back(todo_item(names.get(i), qargs));
                 }
 
                 // XXX I'm not sure whether this is an important optimization; leaving this code here (but disabled) until I find out.
@@ -2040,13 +2059,12 @@ namespace datalog {
                 expr_ref_vector terms = get_rule_terms(r, args, rule_subst);
                 STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
                 cs.append(terms);
-                for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                    if (!m_func_decl2info[r->get_decl(i)]->m_has_template) {
-                        app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                        expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
-                        todo.push_back(todo_item(node.m_parent_nodes[i], qargs));
-                    }
+                for (unsigned i = 0; i < m_rule2info[node.m_parent_rule].m_uninterp_pos.size(); ++i) {
+                    unsigned pos = m_rule2info[node.m_parent_rule].m_uninterp_pos[i];
+                    app_ref qs_i = apply_subst(r->get_tail(pos), rule_subst);
+                    expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
+                    STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
+                    todo.push_back(todo_item(node.m_parent_nodes[i], qargs));
                 }
             }
 
@@ -2083,13 +2101,12 @@ namespace datalog {
                 expr_ref_vector terms = get_rule_terms(r, args, rule_subst, false);
                 STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
                 cs.append(terms);
-                for (unsigned i = 0; i < r->get_uninterpreted_tail_size(); ++i) {
-                    if (!m_func_decl2info[r->get_decl(i)]->m_has_template) {
-                        app_ref qs_i = apply_subst(r->get_tail(i), rule_subst);
-                        expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
-                        STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
-                        todo.push_back(todo_item(node.m_parent_nodes[i], qargs));
-                    }
+                for (unsigned i = 0; i < m_rule2info[node.m_parent_rule].m_uninterp_pos.size(); ++i) {
+                    unsigned pos = m_rule2info[node.m_parent_rule].m_uninterp_pos[i];
+                    app_ref qs_i = apply_subst(r->get_tail(pos), rule_subst);
+                    expr_ref_vector qargs(m, qs_i->get_decl()->get_arity(), qs_i->get_args());
+                    STRACE("predabst", tout << "  reaching node " << node.m_parent_nodes[i] << " (" << m_node2info[node.m_parent_nodes[i]].m_func_decl->get_name() << "(" << qargs << "))\n";);
+                    todo.push_back(todo_item(node.m_parent_nodes[i], qargs));
                 }
             }
 

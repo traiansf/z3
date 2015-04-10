@@ -194,9 +194,10 @@ namespace datalog {
             }
             void display(std::ostream& out, rule_info const& info) const {
                 out << "      head preds cond vars (" << info.m_rule->get_decl()->get_name() << "): " << m_head_pred_cond_vars << "\n";
-                for (unsigned i = 0; i < m_body_pred_cond_vars.size(); ++i) {
-                    // XXX Ideally should skip templated body predicates
-                    out << "      body pred cond vars " << i << " (" << info.m_rule->get_decl()->get_name() << "): " << m_body_pred_cond_vars[i] << "\n";
+                CASSERT("predabst", info.m_uninterp_pos.size() == m_body_pred_cond_vars.size());
+                for (unsigned i = 0; i < info.m_uninterp_pos.size(); ++i) {
+                    unsigned pos = info.m_uninterp_pos[i];
+                    out << "      body pred cond vars " << i << " (" << info.m_rule->get_decl(pos)->get_name() << "): " << m_body_pred_cond_vars[i] << "\n";
                 }
             }
         };
@@ -219,9 +220,10 @@ namespace datalog {
             void dealloc_solver() {}
             void display(std::ostream& out, rule_info const& info) const {
                 out << "      head preds (" << info.m_rule->get_decl()->get_name() << "): " << m_head_preds << "\n";
-                for (unsigned i = 0; i < m_body_preds.size(); ++i) {
-                    // XXX Ideally should skip templated body predicates
-                    out << "      body preds " << i << " (" << info.m_rule->get_decl(i)->get_name() << "): " << m_body_preds[i] << "\n";
+                CASSERT("predabst", info.m_uninterp_pos.size() == m_body_preds.size());
+                for (unsigned i = 0; i < info.m_uninterp_pos.size(); ++i) {
+                    unsigned pos = info.m_uninterp_pos[i];
+                    out << "      body preds " << i << " (" << info.m_rule->get_decl(pos)->get_name() << "): " << m_body_preds[i] << "\n";
                 }
                 out << "      body: " << m_body << "\n";
             }

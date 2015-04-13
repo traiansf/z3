@@ -328,7 +328,7 @@ namespace datalog {
         expr_ref_vector                     m_template_constraint_vars;
         expr_ref_vector                     m_template_constraints;
 
-        typedef enum { reached_query, not_wf } acr_error_kind;
+        typedef enum { reached_query, bad_template, not_wf } acr_error_kind;
 
         struct acr_error {
             unsigned       m_node_id;
@@ -344,6 +344,10 @@ namespace datalog {
             unsigned  m_last_pos;
             core_tree m_core;
             static const unsigned root_name = 0;
+        };
+
+        struct core_tree_template_info {
+            core_tree_template_info(ast_manager& m) {}
         };
 
         struct core_tree_wf_info {
@@ -1106,9 +1110,16 @@ namespace datalog {
                 m_nodes.reset();
                 for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                     func_decl_info& fi = *m_func_decl2info[m_func_decls.get(i)];
-                    if (!fi.m_has_template) {
-                        fi.m_max_reach_nodes.reset();
-
+                    fi.m_max_reach_nodes.reset();
+                    if (fi.m_has_template) {
+                        // Create a dummy node representing the template instance.
+                        m_stats.m_num_nodes_created++;
+                        cube_t cube(m_templates[fi.m_template_id].m_body.size(), true);
+                        m_nodes.push_back(node_info(m_nodes.size(), fi, cube, (unsigned)-1, node_vector()));
+                        node_info const& node = m_nodes.back();
+                        fi.m_max_reach_nodes.insert(node.m_id);
+                    }
+                    else {
 #ifndef PREDABST_COMPLETE_CUBE
                         // Set up m_func_decl2info::m_preds::m_implied for this iteration.
                         for (unsigned j = 0; j < fi.m_preds.size(); ++j) {
@@ -1181,6 +1192,7 @@ namespace datalog {
                     // Our attempt to find a solution failed and we want to try refinement.
                     core_tree_info core_info;
                     core_tree_wf_info core_info_wf(m);
+                    core_tree_template_info core_info_template(m);
                     node_info const& error_node = m_nodes[error.m_node_id];
                     expr_ref_vector error_args = get_fresh_args(error_node.m_fdecl_info.m_fdecl, "r");
                     if (not_reachable_without_abstraction(error_node, error_args, core_info)) {
@@ -1192,6 +1204,16 @@ namespace datalog {
                         }
 
                         STRACE("predabst", tout << "Predicate refinement successful: retrying\n";);
+                    }
+                    else if ((error.m_kind == bad_template) && good_template_without_abstraction(error_node, error_args, core_info_template)) {
+                        // The problem node implies the template instance without abstraction.
+                        // We need to refine the abstraction and retry.
+                        if (!refine_predicates_good_template(core_info_template)) {
+                            STRACE("predabst", tout << "Template predicate refinement unsuccessful: result is UNKNOWN\n";);
+                            RETURN_CHECK_CANCELLED(l_undef);
+                        }
+
+                        STRACE("predabst", tout << "Template predicate refinement successful: retrying\n";);
                     }
                     else if ((error.m_kind == not_wf) && wf_without_abstraction(error_node, error_args, core_info_wf)) {
                         // The problem node is well-founded without abstraction.
@@ -1673,32 +1695,15 @@ namespace datalog {
                 CASSERT("predabst", m_solver.check() != l_false);
 #endif
 
-                func_decl_info const& fi = ri.get_decl(this);
-                if (fi.m_has_template) {
-                    rule_instance_info const& info = ri.m_instance_info;
-#ifdef PREDABST_ASSERT_EXPR_UPFRONT
-                    expr_ref_vector const& es = info.m_head_pred_cond_vars;
-#else
-                    expr_ref_vector const& es = info.m_head_preds;
-#endif
-                    unsigned num_preds = es.size();
-                    for (unsigned i = 0; i < num_preds; ++i) {
-                        if (!is_implied(es.get(i), info, cond_vars)) {
-                            throw default_exception("XXX template does not satisfy rule -- not currently handled");
-                        }
-                    }
-                }
-                else {
-                    // collect abstract cube
-                    cube_t cube = cart_pred_abst_cube(ri, cond_vars);
-                    STRACE("predabst", tout << "Applying rule " << ri << " to nodes (" << chosen_nodes << ") succeeded, with cube [" << cube << "]\n";);
-                    m_stats.m_num_rules_succeeded++;
+                // collect abstract cube
+                cube_t cube = cart_pred_abst_cube(ri, cond_vars);
+                STRACE("predabst", tout << "Applying rule " << ri << " to nodes (" << chosen_nodes << ") succeeded, with cube [" << cube << "]\n";);
+                m_stats.m_num_rules_succeeded++;
 
-                    // add and check the node
-                    node_info const* node = add_node(ri, cube, reorder_nodes(chosen_nodes, positions));
-                    if (node) {
-                        check_node_property(*node);
-                    }
+                // add and check the node
+                node_info const* node = add_node(ri, cube, reorder_nodes(chosen_nodes, positions));
+                if (node) {
+                    check_node_property(*node);
                 }
             }
         }
@@ -1729,6 +1734,10 @@ namespace datalog {
                 STRACE("predabst", tout << "Reached query symbol " << node.m_fdecl_info << "\n";);
                 throw acr_error(node.m_id, reached_query);
             }
+            if (node.m_fdecl_info.m_has_template) {
+                STRACE("predabst", tout << "Template instance for " << node.m_fdecl_info << " doesn't satisfy rule\n";);
+                throw acr_error(node.m_id, bad_template);
+            }
             if (node.m_fdecl_info.m_is_wf_predicate) {
                 if (!is_well_founded(node)) {
                     STRACE("predabst", tout << "Formula is not well-founded\n";);
@@ -1750,7 +1759,6 @@ namespace datalog {
 
         node_info const* add_node(rule_info const& ri, cube_t const& cube, node_vector const& nodes = node_vector()) {
             func_decl_info& fi = ri.get_decl(this);
-            CASSERT("predabst", !fi.m_has_template);
             // first fixpoint check combined with maximality maintainance
             node_vector old_lt_nodes;
             for (node_set::iterator it = fi.m_max_reach_nodes.begin(); it != fi.m_max_reach_nodes.end(); ++it) {
@@ -1798,13 +1806,25 @@ namespace datalog {
             return refine_preds(refine_info, interpolants);
         }
 
+        bool good_template_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_template_info& core_template_info) const {
+            func_decl_info const& fi = root_node.m_fdecl_info;
+            CASSERT("predabst", fi.m_has_template);
+            bool result = false; // XXX TODO!
+            STRACE("predabst", tout << "Node " << root_node << " does " << (result ? "" : "not ") << "imply the template instance without abstraction\n";);
+            return result;
+        }
+
+        bool refine_predicates_good_template(core_tree_template_info const& core_template_info) {
+            throw default_exception("predicate refinement for bad templates is not currently supported");
+        }
+
         bool wf_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_wf_info& core_wf_info) const {
             func_decl_info const& fi = root_node.m_fdecl_info;
             CASSERT("predabst", fi.m_is_wf_predicate);
             expr_ref to_wf = mk_core_tree_wf(root_node, root_args, core_wf_info.m_refine_info);
             quantifier_elimination(root_args, to_wf);
             bool result = well_founded(root_args, to_wf, &core_wf_info.m_bound, &core_wf_info.m_decrease);
-            STRACE("predabst", tout << "Node " << root_node << " is " << (result ? "not " : "") << "well-founded without abstraction\n";);
+            STRACE("predabst", tout << "Node " << root_node << " is " << (result ? "" : "not ") << "well-founded without abstraction\n";);
             return result;
         }
 
@@ -1880,6 +1900,10 @@ namespace datalog {
                 STRACE("predabst", tout << "Refining templates (reached query)\n";);
                 to_solve = template_constraint_reached_query(cs);
             }
+            else if (error_kind == bad_template) {
+                STRACE("predabst", tout << "Refining templates (bad template)\n";);
+                to_solve = template_constraint_bad_template(error_node, error_args, cs);
+            }
             else {
                 CASSERT("predabst", error_kind == not_wf);
                 STRACE("predabst", tout << "Refining templates (not well-founded)\n";);
@@ -1892,6 +1916,13 @@ namespace datalog {
 
         expr_ref template_constraint_reached_query(expr_ref cs) {
             return expr_ref(m.mk_not(cs), m);
+        }
+
+        expr_ref template_constraint_bad_template(node_info const& node, expr_ref_vector const& args, expr_ref cs) {
+            template_info const& temp = m_templates[node.m_fdecl_info.m_template_id];
+            expr_ref_vector temp_subst = get_temp_subst_vect_noparams(temp, args);
+            expr_ref body = mk_conj(apply_subst(temp.m_body, temp_subst));
+            return expr_ref(m.mk_or(m.mk_not(cs), body), m);
         }
 
         expr_ref template_constraint_not_wf(expr_ref_vector const& args, expr_ref cs) {
@@ -2341,9 +2372,11 @@ namespace datalog {
             out << "  Max reached nodes:" << std::endl;
             for (obj_map<func_decl, func_decl_info*>::iterator it = m_func_decl2info.begin();
                 it != m_func_decl2info.end(); ++it) {
-                if (it->m_value->m_is_output_predicate ||
-                    it->m_value->m_has_template) {
+                if (it->m_value->m_is_output_predicate) {
                     CASSERT("predabst", it->m_value->m_max_reach_nodes.num_elems() == 0);
+                }
+                else if (it->m_value->m_has_template) {
+                    CASSERT("predabst", it->m_value->m_max_reach_nodes.num_elems() == 1);
                 }
                 else {
                     out << "    " << it->m_key->get_name() << ": "

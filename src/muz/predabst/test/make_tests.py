@@ -643,6 +643,17 @@ refine_sat_tests = [
      """
 (define-fun q ((x!1 Int)) Bool (>= x!1 1))
 (define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
+
+    ("templ-refine-head",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __temp__extra__ (Int) Bool)
+(declare-fun __temp__p (Int Int) Bool)
+(assert (forall ((x Int)) (=> (= x 3) (p x))))
+(assert (forall ((a Int)) (=> (= true true) (__temp__extra__ a))))
+(assert (forall ((x Int) (a Int)) (=> (= x a) (__temp__p x a))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (= x!1 3))"""),
 ]
 
 refine_unsat_tests = [

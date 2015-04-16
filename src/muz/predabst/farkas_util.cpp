@@ -105,6 +105,33 @@ static bool leftify_inequality(expr_ref const& e, expr_ref& new_e, rel_op& new_o
     return true;
 }
 
+expr_ref make_linear_combination(vector<unsigned> const& coeffs, expr_ref_vector const& inequalities) {
+    CASSERT("predabst", coeffs.size() == inequalities.size());
+    ast_manager& m = inequalities.m();
+    arith_util arith(m);
+    expr_ref_vector terms(m);
+    bool equality = true;
+    for (unsigned i = 0; i < inequalities.size(); ++i) {
+        expr_ref new_e(m);
+        rel_op new_op;
+        bool result = leftify_inequality(expr_ref(inequalities[i], m), new_e, new_op);
+        CASSERT("predasbst", result); // >>> why?
+        terms.push_back(arith.mk_mul(arith.mk_numeral(rational(coeffs[i]), true), new_e));
+        CASSERT("predabst", (new_op == op_eq) || (new_op == op_le));
+        if (new_op == op_le) {
+            equality = false;
+        }
+    }
+    expr_ref lhs = mk_sum(terms);
+    expr_ref rhs(arith.mk_numeral(rational::zero(), true), m);
+    if (equality) {
+        return expr_ref(m.mk_eq(lhs, rhs), m);
+    }
+    else {
+        return expr_ref(arith.mk_le(lhs, rhs), m);
+    }
+}
+
 class linear_inequality {
     // Represents a linear integer (in)equality in the variables m_vars.
     //
@@ -622,66 +649,6 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
         STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is well-founded\n";);
     }
     
-    return true;
-}
-
-bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol) {
-    ast_manager& m = vars.get_manager();
-    arith_util arith(m);
-    CASSERT("predabst", sort_is_bool(fmlA, m));
-    CASSERT("predabst", sort_is_bool(fmlB, m));
-
-    STRACE("predabst", tout << "Interpolating " << mk_pp(fmlA, m) << " and " << mk_pp(fmlB, m) << ", in variables " << vars << "\n";);
-
-    for (unsigned i = 0; i < vars.size(); ++i) {
-        if (!sort_is_int(vars.get(i), m)) {
-            STRACE("predabst", tout << "Interpolation failed: vars[" << i << "] is of non-integer type\n";);
-            return false;
-        }
-    }
-
-    quantifier_elimination(vars, fmlA);
-    quantifier_elimination(vars, fmlB);
-
-    // Q := (Sigma_i (i_i * v_i)) <= ic
-    expr_ref_vector sum_vars_terms(m);
-    for (unsigned i = 0; i < vars.size(); ++i) {
-        expr_ref param(m.mk_fresh_const("i", arith.mk_int()), m);
-        CASSERT("predabst", sort_is_int(vars.get(i), m));
-        sum_vars_terms.push_back(arith.mk_mul(param, vars.get(i)));
-    }
-    expr_ref sum_vars = mk_sum(sum_vars_terms);
-    expr_ref ic(m.mk_const(symbol("ic"), arith.mk_int()), m);
-    expr_ref fmlQ(arith.mk_le(sum_vars, ic), m);
-
-    // (A => Q) and (Q => not B)
-    expr_ref to_solve(m.mk_and(m.mk_or(m.mk_not(fmlA), fmlQ), m.mk_or(m.mk_not(fmlQ), m.mk_not(fmlB))), m);
-    expr_ref_vector constraints(m);
-    vector<lambda_info> lambdas;
-    bool result = mk_exists_forall_farkas(to_solve, vars, constraints, lambdas);
-    if (!result) {
-        STRACE("predabst", tout << "Interpolation failed: expressions to interpolate between do not comprise only linear integer (in)equalities\n";);
-        return false;
-    }
-    CASSERT("predabst", count_bilinear_uninterp_const(lambdas) == 0);
-
-    smt_params new_param;
-    smt::kernel solver(m, new_param);
-    for (unsigned i = 0; i < constraints.size(); ++i) {
-        solver.assert_expr(constraints.get(i));
-    }
-    if (solver.check() != l_true) {
-        STRACE("predabst", tout << "Interpolation failed: constraint is unsatisfiable\n";);
-        return false;
-    }
-
-    model_ref modref;
-    solver.get_model(modref);
-    if (!modref->eval(fmlQ, fmlQ_sol)) {
-        return false;
-    }
-
-    STRACE("predabst", tout << "Interpolation succeeded, with solution " << mk_pp(fmlQ_sol, m) << "\n";);
     return true;
 }
 

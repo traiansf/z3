@@ -654,6 +654,14 @@ refine_sat_tests = [
 (assert (forall ((x Int) (a Int)) (=> (= x a) (__temp__p x a))))""",
      """
 (define-fun p ((x!1 Int)) Bool (= x!1 3))"""),
+
+    ("farkas",
+     """
+(declare-fun p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (=> (and (<= (+ (* 3 y) (* -2 x)) 0) (<= (+ (* 3 y) (* 1 x)) 0)) (p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (>= (+ (* 7 y) (* 6 x)) 20) (p x y)) false)))""",
+     """
+(define-fun p ((x!1 Int)) Bool (= x!1 3))"""),
 ]
 
 refine_unsat_tests = [

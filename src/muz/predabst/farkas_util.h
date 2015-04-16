@@ -38,9 +38,9 @@ struct lambda_info {
     }
 };
 
-bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraints, vector<lambda_info>& lambda_infos, bool eliminate_unsat_disjuncts = false);
+expr_ref make_linear_combination(vector<unsigned> const& coeffs, expr_ref_vector const& inequalities);
 
-bool interpolate(expr_ref_vector const& vars, expr_ref fmlA, expr_ref fmlB, expr_ref& fmlQ_sol);
+bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraints, vector<lambda_info>& lambda_infos, bool eliminate_unsat_disjuncts = false);
 
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease);
 

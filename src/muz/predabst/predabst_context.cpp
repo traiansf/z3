@@ -29,7 +29,9 @@ Revision History:
 #include "smt_kernel.h"
 #include "dl_transforms.h"
 #include "fixedpoint_params.hpp"
+#include "iz3mgr.h"
 #include <vector>
+#include <map>
 #include <algorithm>
 
 #define PREDABST_COMPLETE_CUBE
@@ -47,51 +49,51 @@ namespace datalog {
             m_node_id(node_id) {}
     };
 
-    struct core_clause {
+    struct name_app {
         unsigned        m_name;
         expr_ref_vector m_args;
-        expr_ref        m_body;
-        core_clause(unsigned name, expr_ref_vector const& args, expr_ref const& body) :
+        name_app(unsigned name, expr_ref_vector const& args) :
             m_name(name),
-            m_args(args),
+            m_args(args) {}
+        friend std::ostream& operator<<(std::ostream& out, name_app const& app) {
+            out << app.m_name << "(" << app.m_args << ")";
+            return out;
+        }
+    private:
+        name_app& operator=(name_app const& other) {
+            return *this;
+        }
+    };
+
+    struct core_clause {
+        name_app         m_head;
+        expr_ref_vector  m_interp_body;
+        vector<name_app> m_uninterp_body;
+        core_clause(name_app const& head, expr_ref_vector const& interp_body, vector<name_app> const& uninterp_body) :
+            m_head(head),
+            m_interp_body(interp_body),
+            m_uninterp_body(uninterp_body) {}
+        friend std::ostream& operator<<(std::ostream& out, core_clause const& clause) {
+            out << clause.m_head << " :- " << clause.m_interp_body << ", " << clause.m_uninterp_body;
+            return out;
+        }
+    };
+
+    struct core_clause_solution {
+        name_app m_head;
+        expr_ref m_body;
+        core_clause_solution(name_app const& head, expr_ref const& body) :
+            m_head(head),
             m_body(body) {}
+    private:
+        core_clause_solution& operator=(core_clause_solution const& other) {
+            return *this;
+        }
     };
 
     typedef vector<core_tree_node> core_tree;
     typedef vector<core_clause> core_clauses; // just a sequence; the index has no meaning
-
-    struct refine_cand_info {
-    private:
-        static vector<expr_ref_vector>               m_empty;
-        obj_map<func_decl, vector<expr_ref_vector> > m_allrels_info;
-
-    public:
-        void insert(func_decl* fdecl, expr_ref_vector const& args) {
-            if (!m_allrels_info.contains(fdecl)) {
-                m_allrels_info.insert(fdecl, m_empty);
-            }
-            m_allrels_info[fdecl].push_back(args);
-        }
-
-        vector<expr_ref_vector> const& get(func_decl* fdecl) const {
-            if (m_allrels_info.contains(fdecl)) {
-                return m_allrels_info[fdecl];
-            }
-            else {
-                return m_empty;
-            }
-        }
-    };
-
-    vector<expr_ref_vector> refine_cand_info::m_empty;
-
-    struct refine_pred_info {
-        expr_ref        m_pred;
-        expr_ref_vector m_pred_vars;
-        refine_pred_info(expr_ref const& pred, expr_ref_vector const& pred_vars) :
-            m_pred(pred),
-            m_pred_vars(pred_vars) {}
-    };
+    typedef vector<core_clause_solution> core_clause_solutions; // ditto
 
     class predabst::imp {
         struct stats {
@@ -340,20 +342,22 @@ namespace datalog {
         };
 
         struct core_tree_info {
-            unsigned  m_last_name;
-            unsigned  m_last_pos;
-            core_tree m_core;
+            unsigned                m_last_name;
+            unsigned                m_last_pos;
+            core_tree               m_core;
+            vector<func_decl_info*> m_name2func_decl;
             static const unsigned root_name = 0;
         };
 
         struct core_tree_template_info {
-            core_tree_template_info(ast_manager& m) {}
+            expr_ref m_body;
+            core_tree_template_info(ast_manager& m) :
+                m_body(m) {}
         };
 
         struct core_tree_wf_info {
             expr_ref         m_bound;
             expr_ref         m_decrease;
-            refine_cand_info m_refine_info;
             core_tree_wf_info(ast_manager& m) :
                 m_bound(m),
                 m_decrease(m) {}
@@ -1138,7 +1142,7 @@ namespace datalog {
                                     smt::kernel solver(m, new_param);
                                     solver.assert_expr(inst_preds.get(j));
                                     solver.assert_expr(expr_ref(m.mk_not(inst_preds.get(k)), m));
-                                    if (!solver.check()) {
+                                    if (solver.check() != l_false) {
                                         // preds[j] implies preds[k].
                                         fi.m_preds[j].m_implied.push_back(k);
                                         fi.m_preds[k].m_root_pred = false;
@@ -1208,7 +1212,7 @@ namespace datalog {
                     else if ((error.m_kind == bad_template) && good_template_without_abstraction(error_node, error_args, core_info_template)) {
                         // The problem node implies the template instance without abstraction.
                         // We need to refine the abstraction and retry.
-                        if (!refine_predicates_good_template(core_info_template)) {
+                        if (!refine_predicates_good_template(error_args, core_info, core_info_template)) {
                             STRACE("predabst", tout << "Template predicate refinement unsuccessful: result is UNKNOWN\n";);
                             RETURN_CHECK_CANCELLED(l_undef);
                         }
@@ -1218,7 +1222,7 @@ namespace datalog {
                     else if ((error.m_kind == not_wf) && wf_without_abstraction(error_node, error_args, core_info_wf)) {
                         // The problem node is well-founded without abstraction.
                         // We need to refine the abstraction and retry.
-                        if (!refine_predicates_wf(core_info_wf)) {
+                        if (!refine_predicates_wf(error_args, core_info, core_info_wf)) {
                             STRACE("predabst", tout << "WF predicate refinement unsuccessful: result is UNKNOWN\n";);
                             RETURN_CHECK_CANCELLED(l_undef);
                         }
@@ -1794,74 +1798,81 @@ namespace datalog {
         }
 
         bool not_reachable_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info& core_info) const {
+            STRACE("predabst", tout << "Determining reachability of node " << root_node << " without abstraction\n";);
             bool result = mk_core_tree(root_node, root_args, core_info);
             STRACE("predabst", tout << "Node " << root_node << " is " << (result ? "not " : "") << "reachable without abstraction\n";);
             return result;
         }
 
         bool refine_predicates_not_reachable(expr_ref_vector const& root_args, core_tree_info const& core_info) {
-            refine_cand_info refine_info;
-            core_clauses clauses = mk_core_clauses(root_args, core_info, refine_info);
-            vector<refine_pred_info> interpolants = solve_core_clauses(clauses);
-            return refine_preds(refine_info, interpolants);
+            core_clauses clauses = mk_core_clauses(root_args, core_info);
+            core_clause_solutions solutions = solve_core_clauses(clauses, core_info.root_name);
+            return refine_preds(solutions, core_info.m_name2func_decl);
         }
 
         bool good_template_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_template_info& core_template_info) const {
+            STRACE("predabst", tout << "Determining template implication for node " << root_node << " without abstraction\n";);
             func_decl_info const& fi = root_node.m_fdecl_info;
             CASSERT("predabst", fi.m_has_template);
-            bool result = false; // XXX TODO!
+            template_info const& temp = m_templates[fi.m_template_id];
+            expr_ref actual_cube = mk_leaves(root_node, root_args);
+            smt_params new_param;
+            smt::kernel solver(m, new_param);
+            solver.assert_expr(actual_cube);
+            core_template_info.m_body = mk_conj(apply_subst(temp.m_body, get_temp_subst_vect(temp, root_args)));
+            expr_ref e(m.mk_not(core_template_info.m_body), m);
+            solver.assert_expr(e);
+            bool result = (solver.check() == l_false);
             STRACE("predabst", tout << "Node " << root_node << " does " << (result ? "" : "not ") << "imply the template instance without abstraction\n";);
             return result;
         }
 
-        bool refine_predicates_good_template(core_tree_template_info const& core_template_info) {
-            throw default_exception("predicate refinement for bad templates is not currently supported");
+        bool refine_predicates_good_template(expr_ref_vector const& root_args, core_tree_info const& core_info, core_tree_template_info const& core_template_info) {
+            core_clauses clauses = mk_core_clauses(root_args, core_info);
+            bool result = false;
+            expr_ref e = to_dnf(expr_ref(m.mk_not(core_template_info.m_body), m));
+            expr_ref_vector disjs = get_disj_terms(e);
+            for (unsigned i = 0; i < disjs.size(); ++i) {
+                expr_ref disj(disjs.get(i), m);
+                core_clause_solutions solutions = solve_core_clauses(clauses, core_info.root_name, disj);
+                result |= refine_preds(solutions, core_info.m_name2func_decl);
+            }
+            return result;
         }
 
         bool wf_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_wf_info& core_wf_info) const {
-            func_decl_info const& fi = root_node.m_fdecl_info;
-            CASSERT("predabst", fi.m_is_wf_predicate);
-            expr_ref to_wf = mk_core_tree_wf(root_node, root_args, core_wf_info.m_refine_info);
-            quantifier_elimination(root_args, to_wf);
-            bool result = well_founded(root_args, to_wf, &core_wf_info.m_bound, &core_wf_info.m_decrease);
+            STRACE("predabst", tout << "Determining well-foundedness of node " << root_node << " without abstraction\n";);
+            CASSERT("predabst", root_node.m_fdecl_info.m_is_wf_predicate);
+            expr_ref actual_cube = mk_leaves(root_node, root_args);
+            quantifier_elimination(root_args, actual_cube);
+            bool result = well_founded(root_args, actual_cube, &core_wf_info.m_bound, &core_wf_info.m_decrease);
             STRACE("predabst", tout << "Node " << root_node << " is " << (result ? "" : "not ") << "well-founded without abstraction\n";);
             return result;
         }
 
-        bool refine_predicates_wf(core_tree_wf_info const& core_wf_info) {
-            vector<refine_pred_info> interpolants;
-            interpolants.push_back(refine_pred_info(core_wf_info.m_bound, get_all_vars(core_wf_info.m_bound)));
-            interpolants.push_back(refine_pred_info(core_wf_info.m_decrease, get_all_vars(core_wf_info.m_decrease)));
-            return refine_preds(core_wf_info.m_refine_info, interpolants);
+        bool refine_predicates_wf(expr_ref_vector const& root_args, core_tree_info const& core_info, core_tree_wf_info const& core_wf_info) {
+            core_clauses clauses = mk_core_clauses(root_args, core_info);
+            bool result = false;
+            core_clause_solutions bound_solutions = solve_core_clauses(clauses, core_info.root_name, core_wf_info.m_bound);
+            result |= refine_preds(bound_solutions, core_info.m_name2func_decl);
+            core_clause_solutions decrease_solutions = solve_core_clauses(clauses, core_info.root_name, core_wf_info.m_decrease);
+            result |= refine_preds(decrease_solutions, core_info.m_name2func_decl);
+            return result;
         }
 
-        bool refine_preds(refine_cand_info const& refine_info, vector<refine_pred_info> const& interpolants) {
-            for (unsigned i = 0; i < interpolants.size(); ++i) {
-                STRACE("predabst", tout << "Interpolant " << i << ": "; print_interpolant(tout, interpolants.get(i)););
-            }
+        bool refine_preds(core_clause_solutions const& solutions, vector<func_decl_info*> const& name2func_decl) {
             unsigned new_preds_added = 0;
-            for (unsigned i = 0; i < m_func_decls.size(); ++i) {
-                func_decl_info& fi = *m_func_decl2info[m_func_decls.get(i)];
-                if (fi.m_is_output_predicate) {
-                    // Don't generate predicates for query symbols.
-                }
-                else if (fi.m_has_template) {
-                    // Don't generate predicates for templated predicate symbols.
-                }
-                else {
-                    vector<expr_ref_vector> const& rel_info = refine_info.get(fi.m_fdecl);
-                    for (unsigned j = 0; j < rel_info.size(); ++j) {
-                        for (unsigned k = 0; k < interpolants.size(); ++k) {
-                            new_preds_added += get_interpolant_pred(fi, rel_info.get(j), interpolants.get(k));
-                        }
+            for (unsigned i = 0; i < solutions.size(); ++i) {
+                core_clause_solution const& solution = solutions.get(i);
+                if (solution.m_head.m_name < name2func_decl.size()) {
+                    func_decl_info& fi = *name2func_decl[solution.m_head.m_name];
+                    if (!fi.m_is_output_predicate && !fi.m_has_template) {
+                        expr_ref pred(replace_pred(solution.m_head.m_args, fi.m_vars, solution.m_body), m);
+                        new_preds_added += maybe_add_pred(fi, pred);
                     }
                 }
             }
             return (new_preds_added > 0);
-        }
-
-        static bool is_args_pred(expr_ref_vector const& args, expr_ref_vector const& vars) {
-            return is_subset(vars, args);
         }
 
         static bool contains_pred(vector<pred_info> const& preds, expr_ref const& pred) {
@@ -1873,26 +1884,24 @@ namespace datalog {
             return false;
         }
 
-        unsigned get_interpolant_pred(func_decl_info& fi, expr_ref_vector const& args, refine_pred_info const& interpolant) {
-            unsigned new_preds_added = 0;
-            if (is_args_pred(args, interpolant.m_pred_vars)) {
-                expr_ref const& in_pred = interpolant.m_pred;
-                expr_ref in_pred2(replace_pred(args, fi.m_vars, in_pred), m);
-                if (!contains_pred(fi.m_preds, in_pred2)) {
-                    STRACE("predabst", tout << "Found new predicate " << mk_pp(in_pred2, m) << " for " << fi << "(" << fi.m_vars << ")\n";);
-                    fi.m_preds.push_back(pred_info(in_pred2));
-                    ++new_preds_added;
-                }
-                else {
-                    STRACE("predabst", tout << "Predicate " << mk_pp(in_pred2, m) << " for " << fi << "(" << fi.m_vars << ") is already present\n";);
-                }
+        unsigned maybe_add_pred(func_decl_info& fi, expr_ref const& pred) {
+            if (m.is_true(pred) || m.is_false(pred)) {
+                STRACE("predabst", tout << "Ignoring predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi.m_vars << ")\n";);
+                return 0;
             }
-            STRACE("predabst", tout << "Found " << new_preds_added << " new predicates for " << fi << " using " << args << ", "; print_interpolant(tout, interpolant););
-            return new_preds_added;
+            else if (contains_pred(fi.m_preds, pred)) {
+                STRACE("predabst", tout << "Predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi.m_vars << ") is already present\n";);
+                return 0;
+            }
+            else {
+                STRACE("predabst", tout << "Found new predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi.m_vars << ")\n";);
+                fi.m_preds.push_back(pred_info(pred));
+                return 1;
+            }
         }
 
         void constrain_templates(node_info const& error_node, expr_ref_vector const& error_args, acr_error_kind error_kind) {
-            expr_ref cs = mk_leaf(error_node, error_args);
+            expr_ref cs = mk_leaves(error_node, error_args, false);
             quantifier_elimination(vector_concat(error_args, m_template_params), cs);
 
             expr_ref to_solve(m);
@@ -1933,41 +1942,31 @@ namespace datalog {
         }
 
         bool mk_core_tree(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info &core_info) const {
-            STRACE("predabst", tout << "Determining reachability of node " << root_node << " without abstraction\n";);
             smt_params new_param;
             smt::kernel solver(m, new_param);
             core_tree& core = core_info.m_core;
+            vector<func_decl_info*>& name2func_decl = core_info.m_name2func_decl;
 
-            struct todo_item {
-                unsigned        m_name;
-                expr_ref_vector m_args;
-                todo_item(unsigned name, expr_ref_vector const& args) :
-                    m_name(name),
-                    m_args(args) {}
-            };
-            vector<todo_item> todo;
-
+            vector<name_app> todo;
+            todo.push_back(name_app(core_info.root_name, root_args));
             core.push_back(core_tree_node(root_node.m_id));
-            todo.push_back(todo_item(core_info.root_name, root_args));
+            name2func_decl.push_back(&root_node.m_fdecl_info);
 
             while (!todo.empty()) {
-                todo_item item = todo.back();
+                name_app item = todo.back();
                 todo.pop_back();
 
-                unsigned name = item.m_name;
-                expr_ref_vector const& args = item.m_args;
-
-                node_info const& node = m_nodes[core[name].m_node_id];
+                node_info const& node = m_nodes[core[item.m_name].m_node_id];
                 rule_info const& ri = m_rules[node.m_parent_rule];
 
-                STRACE("predabst", tout << "To reach node " << node << " / tree node " << name << " (" << node.m_fdecl_info << "(" << args << ")) via rule " << node.m_parent_rule << " requires:\n";);
+                STRACE("predabst", tout << "To reach node " << node << " / tree node " << item.m_name << " (" << node.m_fdecl_info << "(" << item.m_args << ")) via rule " << node.m_parent_rule << " requires:\n";);
                 expr_ref_vector rule_subst(m);
-                expr_ref_vector terms = get_rule_terms(ri.m_rule, args, rule_subst);
+                expr_ref_vector terms = get_rule_terms(ri.m_rule, item.m_args, rule_subst);
                 for (unsigned i = 0; i < terms.size(); ++i) {
                     STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
                     solver.assert_expr(terms.get(i));
                     if (solver.check() == l_false) {
-                        core_info.m_last_name = name;
+                        core_info.m_last_name = item.m_name;
                         core_info.m_last_pos = i;
                         return true;
                     }
@@ -1977,16 +1976,19 @@ namespace datalog {
                     unsigned qname = core.size();
                     expr_ref_vector qargs = apply_subst(ri.get_args(i), rule_subst);
                     STRACE("predabst", tout << "  reaching node " << qnode << " / tree node " << qname << " (" << qnode.m_fdecl_info << "(" << qargs << "))\n";);
+                    todo.push_back(name_app(qname, qargs));
                     core.push_back(core_tree_node(qnode.m_id));
-                    todo.push_back(todo_item(qname, qargs));
-                    core[name].m_names.push_back(qname);
+                    core[item.m_name].m_names.push_back(qname);
+                    name2func_decl.push_back(&node.m_fdecl_info);
                 }
             }
 
+            core_info.m_last_name = (unsigned)-1;
+            core_info.m_last_pos = 0;
             return false;
         }
 
-        core_clauses mk_core_clauses(expr_ref_vector const& root_args, core_tree_info const& core_info, refine_cand_info &refine_info) const {
+        core_clauses mk_core_clauses(expr_ref_vector const& root_args, core_tree_info const& core_info) const {
             STRACE("predabst", tout << "Building clauses\n";);
             core_clauses clauses;
 
@@ -1994,42 +1996,29 @@ namespace datalog {
             unsigned last_pos = core_info.m_last_pos;
             core_tree const& core = core_info.m_core;
 
-            struct todo_item {
-                unsigned        m_name;
-                expr_ref_vector m_args;
-                todo_item(unsigned name, expr_ref_vector const& args) :
-                    m_name(name),
-                    m_args(args) {}
-            };
-            vector<todo_item> todo;
-
-            todo.push_back(todo_item(core_info.root_name, root_args));
+            vector<name_app> todo;
+            todo.push_back(name_app(core_info.root_name, root_args));
 
             bool found_last = false;
-            while (!found_last) {
-                CASSERT("predabst", !todo.empty());
-                todo_item item = todo.back();
+            while (!found_last && !todo.empty()) {
+                name_app item = todo.back();
                 todo.pop_back();
 
-                unsigned name = item.m_name;
-                expr_ref_vector const& args = item.m_args;
+                vector<name_app> parents;
 
-                if (name == last_name) {
+                if (item.m_name == last_name) {
                     found_last = true;
                 }
 
                 expr_ref_vector cs(m);
 
-                node_info const& node = m_nodes[core[name].m_node_id];
-                vector<unsigned> const& names = core[name].m_names;
-                refine_info.insert(node.m_fdecl_info.m_fdecl, args);
+                node_info const& node = m_nodes[core[item.m_name].m_node_id];
+                vector<unsigned> const& names = core[item.m_name].m_names;
                 rule_info const& ri = m_rules[node.m_parent_rule];
 
-                STRACE("predabst", tout << "To reach tree node " << name << " (" << node.m_fdecl_info << "(" << args << ")) via rule " << ri << " requires:\n";);
                 expr_ref_vector rule_subst(m);
-                expr_ref_vector terms = get_rule_terms(ri.m_rule, args, rule_subst);
+                expr_ref_vector terms = get_rule_terms(ri.m_rule, item.m_args, rule_subst);
                 for (unsigned i = 0; i < (found_last ? last_pos + 1 : terms.size()); ++i) {
-                    STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
                     cs.push_back(terms.get(i));
                 }
                 for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
@@ -2047,100 +2036,121 @@ namespace datalog {
                             app_ref f(m.mk_fresh_const("x", get_sort(arg_j)), m);
                             qargs.push_back(f);
                             expr_ref constraint(m.mk_eq(f, arg_j), m);
-                            STRACE("predabst", tout << "  " << mk_pp(constraint, m) << "\n";);
                             cs.push_back(constraint);
                         }
                     }
-                    STRACE("predabst", tout << "  reaching tree node " << qname << " (" << qnode.m_fdecl_info << "(" << qargs << "))\n";);
-                    todo.push_back(todo_item(qname, qargs));
+                    todo.push_back(name_app(qname, qargs));
+                    parents.push_back(name_app(qname, qargs));
                 }
 
-                // XXX I'm not sure whether this is an important optimization; leaving this code here (but disabled) until I find out.
-                if (true /* args.size() > 0 || !m.is_true(cs) */) {
-                    STRACE("predabst", tout << "  adding clause " << node.m_fdecl_info << "#" << name << "(" << args << ") :- " << cs << "\n";);
-                    clauses.push_back(core_clause(name, args, mk_conj(cs)));
-                }
+                core_clause clause(item, cs, parents);
+                STRACE("predabst", tout << "Adding clause for " << node.m_fdecl_info << ": " << clause << "\n";);
+                clauses.push_back(clause);
             }
 
             return clauses;
         }
 
-        vector<refine_pred_info> solve_core_clauses(core_clauses const& clauses) const {
-            vector<refine_pred_info> interpolants;
-
-            core_clauses::const_iterator end = clauses.end();
-            end--;
-            for (int i = clauses.size() - 1; i >= 1; i--) {
-                int j = clauses.size() - 1;
-                core_clauses::const_iterator end2 = end;
-
-                expr_ref_vector fmlA_terms(m);
-                for (; j >= i; j--, end2--) {
-                    fmlA_terms.push_back(end2->m_body);
+        vector<unsigned> get_farkas_coeffs(proof_ref const& pr) const {
+            iz3mgr i(m);
+            iz3mgr::ast p(&m, pr.get());
+            iz3mgr::pfrule dk = i.pr(p);
+            if (dk == PR_TH_LEMMA &&
+                i.get_theory_lemma_theory(p) == iz3mgr::ArithTheory &&
+                i.get_theory_lemma_kind(p) == iz3mgr::FarkasKind) {
+                STRACE("predabst", tout << "Proof kind is Farkas\n";);
+                std::vector<rational> rat_coeffs;
+                i.get_farkas_coeffs(p, rat_coeffs);
+                vector<unsigned> coeffs;
+                for (unsigned i = 0; i < rat_coeffs.size(); ++i) {
+                    coeffs.push_back(rat_coeffs[i].get_unsigned());
                 }
-                expr_ref fmlA = mk_conj(fmlA_terms);
-
-                core_clauses::const_iterator end4 = end2;
-                end4++;
-                expr_ref_vector const& vars = end4->m_args;
-
-                expr_ref_vector fmlB_terms(m);
-                for (; j >= 0; j--, end2--) {
-                    fmlB_terms.push_back(end2->m_body);
-                }
-                expr_ref fmlB = mk_conj(fmlB_terms);
-
-                expr_ref fmlQ_sol(m);
-                if (interpolate(vars, fmlA, fmlB, fmlQ_sol)) {
-                    interpolants.push_back(refine_pred_info(fmlQ_sol, get_all_vars(fmlQ_sol)));
-                }
+                return coeffs;
             }
-
-            return interpolants;
+            else {
+                STRACE("predabst", tout << "Proof kind is not Farkas\n";);
+                return vector<unsigned>();
+            }
         }
 
-        expr_ref mk_core_tree_wf(node_info const& root_node, expr_ref_vector const& root_args, refine_cand_info& refine_info) const {
-            STRACE("predabst", tout << "Determining well-foundedness of node " << root_node << " without abstraction\n";);
-            expr_ref_vector cs(m);
-
-            struct todo_item {
-                unsigned        m_node_id;
-                expr_ref_vector m_args;
-                todo_item(unsigned node_id, expr_ref_vector const& args) :
-                    m_node_id(node_id),
-                    m_args(args) {}
-            };
-            vector<todo_item> todo;
-
-            todo.push_back(todo_item(root_node.m_id, root_args));
-
-            while (!todo.empty()) {
-                todo_item item = todo.back();
-                todo.pop_back();
-
-                expr_ref_vector const& args = item.m_args;
-                node_info const& node = m_nodes[item.m_node_id];
-                rule_info const& ri = m_rules[node.m_parent_rule];
-
-                refine_info.insert(node.m_fdecl_info.m_fdecl, args);
-
-                STRACE("predabst", tout << "To reach node " << node << " (" << node.m_fdecl_info << "(" << args << ")) via rule " << ri << " requires:\n";);
-                expr_ref_vector rule_subst(m);
-                expr_ref_vector terms = get_rule_terms(ri.m_rule, args, rule_subst);
-                STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
-                cs.append(terms);
-                for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
-                    node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
-                    expr_ref_vector qargs = apply_subst(ri.get_args(i), rule_subst);
-                    STRACE("predabst", tout << "  reaching node " << qnode << " (" << qnode.m_fdecl_info << "(" << qargs << "))\n";);
-                    todo.push_back(todo_item(qnode.m_id, qargs));
+        core_clause_solutions solve_core_clauses(core_clauses const& clauses, unsigned name) const {
+            proof_gen_mode old_pgm = m.proof_mode();
+            m.toggle_proof_mode(PGM_FINE);
+            smt_params new_param;
+            smt::kernel solver(m, new_param);
+            unsigned num_assertions;
+            vector<unsigned> assertion_start_index;
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                assertion_start_index.push_back(num_assertions);
+                core_clause const& clause = clauses[i];
+                for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
+                    solver.assert_expr(clause.m_interp_body[j]);
+                    ++num_assertions;
                 }
             }
+            lbool result = solver.check();
+            CASSERT("predabst", result == l_false);
 
-            return mk_conj(cs);
+            proof_ref pr(solver.get_proof(), m);
+            m.toggle_proof_mode(old_pgm);
+            vector<unsigned> clause_coeffs = get_farkas_coeffs(pr);
+            if (clause_coeffs.empty()) {
+                STRACE("predabst", tout << "Cannot solve clauses: not a Farkas-style proof\n";);
+                return core_clause_solutions();
+            }
+
+            expr_ref_vector solution_map(m);
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                unsigned j = clauses.size() - 1 - i;
+                core_clause const& clause = clauses[j];
+                if (clause.m_head.m_name == name) {
+                    continue;
+                }
+                vector<unsigned> coeffs;
+                expr_ref_vector inequalities(m);
+                for (unsigned k = 0; k < clause.m_interp_body.size(); ++k) {
+                    coeffs.push_back(clause_coeffs[assertion_start_index[j] + k]);
+                    inequalities.push_back(clause.m_interp_body[k]);
+                }
+                for (unsigned k = 0; k < clause.m_uninterp_body.size(); ++k) {
+                    coeffs.push_back(1);
+                    inequalities.push_back(solution_map.get(clause.m_uninterp_body[k].m_name));
+                }
+                solution_map.reserve(clause.m_head.m_name + 1);
+                solution_map[clause.m_head.m_name] = make_linear_combination(coeffs, inequalities);
+            }
+            core_clause_solutions solutions;
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                name_app const& head = clauses[i].m_head;
+                if (head.m_name == name) {
+                    continue;
+                }
+                solutions.push_back(core_clause_solution(head, expr_ref(solution_map.get(head.m_name), m)));
+            }
+            return solutions;
         }
 
-        expr_ref mk_leaf(node_info const& root_node, expr_ref_vector const& root_args) const {
+        core_clause_solutions solve_core_clauses(core_clauses const& clauses, unsigned name, expr_ref const& extra) {
+            vector<name_app> root_app;
+            CASSERT("predabst", clauses[name].m_head.m_name == name); // >>> this is bogus: clauses don't (currently) get added in order of name.  But root_name is 0 and it's always first, so this just happens to work...
+            root_app.push_back(clauses[name].m_head);
+
+            unsigned name2 = clauses.size();
+            name_app head_app(name2, expr_ref_vector(m));
+
+            expr_ref_vector interp_body(m);
+            interp_body.push_back(mk_not(extra));
+
+            core_clause extra_clause(head_app, interp_body, root_app);
+            STRACE("predabst", tout << "Adding extra clause: " << extra_clause << "\n";);
+
+            core_clauses clauses2(clauses);
+            clauses2.push_back(extra_clause);
+
+            return solve_core_clauses(clauses2, name);
+        }
+
+        expr_ref mk_leaves(node_info const& root_node, expr_ref_vector const& root_args, bool substitute_template_params = true) const {
             STRACE("predabst", tout << "Determining reachability criterion for node " << root_node << " without abstraction\n";);
             expr_ref_vector cs(m);
 
@@ -2152,7 +2162,6 @@ namespace datalog {
                     m_args(args) {}
             };
             vector<todo_item> todo;
-
             todo.push_back(todo_item(root_node.m_id, root_args));
 
             while (!todo.empty()) {
@@ -2165,7 +2174,7 @@ namespace datalog {
 
                 STRACE("predabst", tout << "To reach node " << node << " (" << node.m_fdecl_info << "(" << args << ")) via rule " << ri << " requires:\n";);
                 expr_ref_vector rule_subst(m);
-                expr_ref_vector terms = get_rule_terms(ri.m_rule, args, rule_subst, false);
+                expr_ref_vector terms = get_rule_terms(ri.m_rule, args, rule_subst, substitute_template_params);
                 STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
                 cs.append(terms);
                 for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
@@ -2248,17 +2257,6 @@ namespace datalog {
                 }
                 out << "]\n";
             }
-        }
-
-        void print_core_clauses(std::ostream& out, core_clauses const& clauses) const {
-            for (unsigned i = 0; i < clauses.size(); ++i) {
-                core_clause const& clause = clauses[i];
-                out << "clause --> " << clause.m_name << " (" << clause.m_args << ") : " << mk_pp(clause.m_body, m) << "\n";
-            }
-        }
-
-        void print_interpolant(std::ostream& out, refine_pred_info const& interpolant) const {
-            out << "pred: " << mk_pp(interpolant.m_pred, m) << ", pred_vars: (" << interpolant.m_pred_vars << ")\n";
         }
 
         void print_proof_prolog(std::ostream& out, unsigned id) const {
@@ -2430,15 +2428,3 @@ namespace datalog {
         return m_imp->get_model();
     }
 };
-
-template<class T>
-inline std::ostream& operator<<(std::ostream& out, vector<T> const& v) {
-    unsigned size = v.size();
-    if (size > 0) {
-        out << v[0];
-        for (unsigned i = 1; i < size; ++i) {
-            out << "," << v[i];
-        }
-    }
-    return out;
-}

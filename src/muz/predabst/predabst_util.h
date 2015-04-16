@@ -39,6 +39,17 @@ inline unsigned vector_find(ref_vector<T, TManager> const& v, T const* elem) {
     return UINT_MAX;
 }
 
+template<typename T>
+inline std::ostream& operator<<(std::ostream& out, vector<T> const& v) {
+    for (unsigned i = 0; i < v.size(); ++i) {
+        out << v[i];
+        if (i + 1 < v.size()) {
+            out << ", ";
+        }
+    }
+    return out;
+}
+
 template<typename T, typename TManager>
 std::ostream& operator<<(std::ostream& out, ref_vector<T, TManager> const& v) {
     TManager& m = v.m();

@@ -1983,6 +1983,18 @@ namespace datalog {
                 }
             }
 
+            STRACE("predabst", {
+                model_ref modref;
+                solver.get_model(modref);
+                expr_ref_vector solution(m);
+                for (unsigned i = 0; i < root_args.size(); ++i) {
+                    expr_ref val(m);
+                    modref->eval(root_args.get(i), val, true);
+                    solution.push_back(val);
+                }
+                tout << "Example solution: " << root_node.m_fdecl_info << "(" << solution << ")\n";
+            });
+
             core_info.m_last_name = (unsigned)-1;
             core_info.m_last_pos = 0;
             return false;

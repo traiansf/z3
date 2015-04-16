@@ -59,10 +59,6 @@ namespace datalog {
             out << app.m_name << "(" << app.m_args << ")";
             return out;
         }
-    private:
-        name_app& operator=(name_app const& other) {
-            return *this;
-        }
     };
 
     struct core_clause {
@@ -85,9 +81,9 @@ namespace datalog {
         core_clause_solution(name_app const& head, expr_ref const& body) :
             m_head(head),
             m_body(body) {}
-    private:
-        core_clause_solution& operator=(core_clause_solution const& other) {
-            return *this;
+        friend std::ostream& operator<<(std::ostream& out, core_clause_solution const& solution) {
+            out << solution.m_head << " := " << mk_pp(solution.m_body, solution.m_body.m());
+            return out;
         }
     };
 
@@ -1864,12 +1860,12 @@ namespace datalog {
             unsigned new_preds_added = 0;
             for (unsigned i = 0; i < solutions.size(); ++i) {
                 core_clause_solution const& solution = solutions.get(i);
-                if (solution.m_head.m_name < name2func_decl.size()) {
-                    func_decl_info& fi = *name2func_decl[solution.m_head.m_name];
-                    if (!fi.m_is_output_predicate && !fi.m_has_template) {
-                        expr_ref pred(replace_pred(solution.m_head.m_args, fi.m_vars, solution.m_body), m);
-                        new_preds_added += maybe_add_pred(fi, pred);
-                    }
+                CASSERT("predabst", solution.m_head.m_name < name2func_decl.size());
+                func_decl_info& fi = *name2func_decl[solution.m_head.m_name];
+                CASSERT("predabst", !fi.m_is_output_predicate);
+                if (!fi.m_has_template) {
+                    expr_ref pred(replace_pred(solution.m_head.m_args, fi.m_vars, solution.m_body), m);
+                    new_preds_added += maybe_add_pred(fi, pred);
                 }
             }
             return (new_preds_added > 0);
@@ -1965,7 +1961,7 @@ namespace datalog {
                 for (unsigned i = 0; i < terms.size(); ++i) {
                     STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
                     solver.assert_expr(terms.get(i));
-                    if (solver.check() == l_false) {
+                    if (solver.check() != l_true) {
                         core_info.m_last_name = item.m_name;
                         core_info.m_last_pos = i;
                         return true;
@@ -1979,17 +1975,21 @@ namespace datalog {
                     todo.push_back(name_app(qname, qargs));
                     core.push_back(core_tree_node(qnode.m_id));
                     core[item.m_name].m_names.push_back(qname);
-                    name2func_decl.push_back(&node.m_fdecl_info);
+                    name2func_decl.push_back(&qnode.m_fdecl_info);
                 }
             }
 
             STRACE("predabst", {
+                lbool result = solver.check();
+                CASSERT("predabst", result == l_true);
                 model_ref modref;
                 solver.get_model(modref);
                 expr_ref_vector solution(m);
                 for (unsigned i = 0; i < root_args.size(); ++i) {
                     expr_ref val(m);
-                    modref->eval(root_args.get(i), val, true);
+                    if (modref->eval(root_args.get(i), val, true)) {
+                        tout << "Failed to get model for root_args[" << i << "]\n";
+                    }
                     solution.push_back(val);
                 }
                 tout << "Example solution: " << root_node.m_fdecl_info << "(" << solution << ")\n";
@@ -2070,13 +2070,13 @@ namespace datalog {
             if (dk == PR_TH_LEMMA &&
                 i.get_theory_lemma_theory(p) == iz3mgr::ArithTheory &&
                 i.get_theory_lemma_kind(p) == iz3mgr::FarkasKind) {
-                STRACE("predabst", tout << "Proof kind is Farkas\n";);
                 std::vector<rational> rat_coeffs;
                 i.get_farkas_coeffs(p, rat_coeffs);
                 vector<unsigned> coeffs;
                 for (unsigned i = 0; i < rat_coeffs.size(); ++i) {
                     coeffs.push_back(rat_coeffs[i].get_unsigned());
                 }
+                STRACE("predabst", tout << "Proof kind is Farkas, with coefficients " << coeffs << "\n";);
                 return coeffs;
             }
             else {
@@ -2090,7 +2090,7 @@ namespace datalog {
             m.toggle_proof_mode(PGM_FINE);
             smt_params new_param;
             smt::kernel solver(m, new_param);
-            unsigned num_assertions;
+            unsigned num_assertions = 0;
             vector<unsigned> assertion_start_index;
             for (unsigned i = 0; i < clauses.size(); ++i) {
                 assertion_start_index.push_back(num_assertions);
@@ -2111,7 +2111,8 @@ namespace datalog {
                 return core_clause_solutions();
             }
 
-            expr_ref_vector solution_map(m);
+            core_clause_solutions solutions;
+            expr_ref_vector name2solution(m);
             for (unsigned i = 0; i < clauses.size(); ++i) {
                 unsigned j = clauses.size() - 1 - i;
                 core_clause const& clause = clauses[j];
@@ -2126,18 +2127,14 @@ namespace datalog {
                 }
                 for (unsigned k = 0; k < clause.m_uninterp_body.size(); ++k) {
                     coeffs.push_back(1);
-                    inequalities.push_back(solution_map.get(clause.m_uninterp_body[k].m_name));
+                    inequalities.push_back(name2solution.get(clause.m_uninterp_body[k].m_name));
                 }
-                solution_map.reserve(clause.m_head.m_name + 1);
-                solution_map[clause.m_head.m_name] = make_linear_combination(coeffs, inequalities);
-            }
-            core_clause_solutions solutions;
-            for (unsigned i = 0; i < clauses.size(); ++i) {
-                name_app const& head = clauses[i].m_head;
-                if (head.m_name == name) {
-                    continue;
-                }
-                solutions.push_back(core_clause_solution(head, expr_ref(solution_map.get(head.m_name), m)));
+                expr_ref body = make_linear_combination(coeffs, inequalities);
+                core_clause_solution solution(clause.m_head, body);
+                STRACE("predabst", tout << "Solution for clause " << j << ": " << solution << "\n";);
+                solutions.push_back(solution);
+                name2solution.reserve(clause.m_head.m_name + 1);
+                name2solution[clause.m_head.m_name] = body;
             }
             return solutions;
         }

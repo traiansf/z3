@@ -123,6 +123,8 @@ expr_ref make_linear_combination(vector<unsigned> const& coeffs, expr_ref_vector
         }
     }
     expr_ref lhs = mk_sum(terms);
+    th_rewriter rw(m);
+    rw(lhs);
     expr_ref rhs(arith.mk_numeral(rational::zero(), true), m);
     if (equality) {
         return expr_ref(m.mk_eq(lhs, rhs), m);

@@ -658,10 +658,10 @@ refine_sat_tests = [
     ("farkas",
      """
 (declare-fun p (Int Int) Bool)
-(assert (forall ((x Int) (y Int)) (=> (and (<= (+ (* 3 y) (* -2 x)) 0) (<= (+ (* 3 y) (* 1 x)) 0)) (p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (<= (+ (* 3 y) (* -2 x)) 0) (<= (+ (* 2 y) (* 3 x)) 0)) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (and (>= (+ (* 7 y) (* 6 x)) 20) (p x y)) false)))""",
      """
-(define-fun p ((x!1 Int)) Bool (= x!1 3))"""),
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (<= (+ (* 91 x!2) (* 78 x!1)) 0))"""),
 ]
 
 refine_unsat_tests = [

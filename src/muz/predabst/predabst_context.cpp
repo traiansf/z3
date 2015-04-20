@@ -2038,36 +2038,38 @@ namespace datalog {
                 for (unsigned i = 0; i < (found_last ? last_pos + 1 : terms.size()); ++i) {
                     cs.push_back(terms.get(i));
                 }
-                for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
-                    node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
-                    unsigned qname = names.get(i); // >>> can't this fail, if found_last is true?
-                    // Ensure that all the qargs are (distinct) uninterpreted constants.
-                    expr_ref_vector pargs = apply_subst(ri.get_args(i), rule_subst);
-                    expr_ref_vector qargs(m);
-                    for (unsigned j = 0; j < pargs.size(); ++j) {
-                        expr_ref arg_j(pargs.get(j), m);
-                        if (is_uninterp_const(arg_j) && !qargs.contains(arg_j)) {
-                            qargs.push_back(arg_j);
-                        }
-                        else {
-                            app_ref f(m.mk_fresh_const("x", get_sort(arg_j)), m);
-                            qargs.push_back(f);
-                            expr_ref constraint(m.mk_eq(f, arg_j), m);
-                            cs.push_back(constraint);
-                        }
-                    }
-                    todo.push_back(name_app(qname, qargs));
-                    parents.push_back(name_app(qname, qargs));
-                }
-
-                core_clause clause(item, cs, parents);
-                STRACE("predabst", tout << "Adding clause for " << node.m_fdecl_info << ": " << clause << "\n";);
-                clauses.push_back(clause);
 
                 if (found_last) {
                     CASSERT("predabst", last_clause_body); // found_last => last_clause_body
                     *last_clause_body = cs.get(cs.size() - 1);
                 }
+                else {
+                    for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
+                        node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
+                        unsigned qname = names.get(i);
+                        // Ensure that all the qargs are (distinct) uninterpreted constants.
+                        expr_ref_vector pargs = apply_subst(ri.get_args(i), rule_subst);
+                        expr_ref_vector qargs(m);
+                        for (unsigned j = 0; j < pargs.size(); ++j) {
+                            expr_ref arg_j(pargs.get(j), m);
+                            if (is_uninterp_const(arg_j) && !qargs.contains(arg_j)) {
+                                qargs.push_back(arg_j);
+                            }
+                            else {
+                                app_ref f(m.mk_fresh_const("x", get_sort(arg_j)), m);
+                                qargs.push_back(f);
+                                expr_ref constraint(m.mk_eq(f, arg_j), m);
+                                cs.push_back(constraint);
+                            }
+                        }
+                        todo.push_back(name_app(qname, qargs));
+                        parents.push_back(name_app(qname, qargs));
+                    }
+                }
+
+                core_clause clause(item, cs, parents);
+                STRACE("predabst", tout << "Adding clause for " << node.m_fdecl_info << ": " << clause << "\n";);
+                clauses.push_back(clause);
             }
 
             CASSERT("predabst", !last_clause_body || found_last); // last_clause_body => found_last
@@ -2128,7 +2130,7 @@ namespace datalog {
 
             STRACE("predabst", {
                 for (obj_map<expr, unsigned>::iterator it = component_map.begin(); it != component_map.end(); ++it) {
-                    tout << "  " << mk_pp(it->m_key, m) << " -> " << it->m_value << "\n";
+                    tout << "  " << mk_pp(it->m_key, m) << " -> component " << it->m_value << "\n";
                 }
             });
 

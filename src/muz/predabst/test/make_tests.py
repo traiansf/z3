@@ -577,6 +577,18 @@ refine_sat_tests = [
      """
 (define-fun p ((x!1 Int)) Bool (or (<= x!1 0) (>= x!1 2)))"""), # note that this is just one of multiple resonable solutions
 
+    ("simple-refine-not-leaves",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun q () Bool)
+(declare-fun r () Bool)
+(assert q)
+(assert r)
+(assert (forall ((x Int)) (=> (and (= x 0) q r) (p x))))
+(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (<= x!1 0))"""), # note that this is just one of multiple resonable solutions
+
     ("simple-literal-head",
      """
 (declare-fun p (Int) Bool)

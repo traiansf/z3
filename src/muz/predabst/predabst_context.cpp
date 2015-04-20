@@ -1801,8 +1801,10 @@ namespace datalog {
         }
 
         bool refine_predicates_not_reachable(expr_ref_vector const& root_args, core_tree_info const& core_info) {
-            core_clauses clauses = mk_core_clauses(root_args, core_info);
-            core_clause_solutions solutions = solve_core_clauses(clauses, core_info.root_name);
+            expr_ref last_clause_body(m);
+            core_clauses clauses = mk_core_clauses(root_args, core_info, &last_clause_body);
+            core_clauses clauses2 = cone_of_influence(clauses, core_info.root_name, last_clause_body);
+            core_clause_solutions solutions = solve_core_clauses(clauses2, core_info.root_name);
             return refine_preds(solutions, core_info.m_name2func_decl);
         }
 
@@ -1830,7 +1832,8 @@ namespace datalog {
             expr_ref_vector disjs = get_disj_terms(e);
             for (unsigned i = 0; i < disjs.size(); ++i) {
                 expr_ref disj(disjs.get(i), m);
-                core_clause_solutions solutions = solve_core_clauses(clauses, core_info.root_name, disj);
+                core_clauses clauses2 = cone_of_influence_with_extra(clauses, core_info.root_name, disj);
+                core_clause_solutions solutions = solve_core_clauses(clauses2, core_info.root_name);
                 result |= refine_preds(solutions, core_info.m_name2func_decl);
             }
             return result;
@@ -1849,9 +1852,11 @@ namespace datalog {
         bool refine_predicates_wf(expr_ref_vector const& root_args, core_tree_info const& core_info, core_tree_wf_info const& core_wf_info) {
             core_clauses clauses = mk_core_clauses(root_args, core_info);
             bool result = false;
-            core_clause_solutions bound_solutions = solve_core_clauses(clauses, core_info.root_name, core_wf_info.m_bound);
+            core_clauses bound_clauses = cone_of_influence_with_extra(clauses, core_info.root_name, core_wf_info.m_bound);
+            core_clause_solutions bound_solutions = solve_core_clauses(bound_clauses, core_info.root_name);
             result |= refine_preds(bound_solutions, core_info.m_name2func_decl);
-            core_clause_solutions decrease_solutions = solve_core_clauses(clauses, core_info.root_name, core_wf_info.m_decrease);
+            core_clauses decrease_clauses = cone_of_influence_with_extra(clauses, core_info.root_name, core_wf_info.m_decrease);
+            core_clause_solutions decrease_solutions = solve_core_clauses(decrease_clauses, core_info.root_name);
             result |= refine_preds(decrease_solutions, core_info.m_name2func_decl);
             return result;
         }
@@ -2000,7 +2005,7 @@ namespace datalog {
             return false;
         }
 
-        core_clauses mk_core_clauses(expr_ref_vector const& root_args, core_tree_info const& core_info) const {
+        core_clauses mk_core_clauses(expr_ref_vector const& root_args, core_tree_info const& core_info, expr_ref* last_clause_body = NULL) const {
             STRACE("predabst", tout << "Building clauses\n";);
             core_clauses clauses;
 
@@ -2035,7 +2040,7 @@ namespace datalog {
                 }
                 for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
                     node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
-                    unsigned qname = names.get(i);
+                    unsigned qname = names.get(i); // >>> can't this fail, if found_last is true?
                     // Ensure that all the qargs are (distinct) uninterpreted constants.
                     expr_ref_vector pargs = apply_subst(ri.get_args(i), rule_subst);
                     expr_ref_vector qargs(m);
@@ -2058,9 +2063,116 @@ namespace datalog {
                 core_clause clause(item, cs, parents);
                 STRACE("predabst", tout << "Adding clause for " << node.m_fdecl_info << ": " << clause << "\n";);
                 clauses.push_back(clause);
+
+                if (found_last) {
+                    CASSERT("predabst", last_clause_body); // found_last => last_clause_body
+                    *last_clause_body = cs.get(cs.size() - 1);
+                }
             }
 
+            CASSERT("predabst", !last_clause_body || found_last); // last_clause_body => found_last
             return clauses;
+        }
+
+        core_clauses cone_of_influence(core_clauses const& clauses, unsigned name, expr_ref const& critical) const {
+            STRACE("predabst", tout << "Computing cone of influence for expression " << mk_pp(critical, m) << "\n";);
+                
+            // Find connected components for the graph whose vertices are
+            // the variables used by the clauses, and whose has an edge from
+            // a to b if a and b appear within an atomic expression in the
+            // clauses.  An expression belongs to the same component as the
+            // variables it involves.
+            obj_map<expr, unsigned> component_map;
+            unsigned num_components = 0;
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                core_clause clause = clauses[i];
+                for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
+                    expr_ref e(clause.m_interp_body.get(j), m);
+                    if (!component_map.contains(e)) {
+                        expr_ref_vector vars = get_all_vars(e);
+                        unsigned component;
+                        bool found_component = false;
+                        for (unsigned k = 0; k < vars.size(); ++k) {
+                            expr_ref v(vars.get(k), m);
+                            if (component_map.contains(v)) {
+                                if (found_component) {
+                                    unsigned component2 = component_map.find(v);
+                                    // Variables from both component and component2
+                                    // appear within e; merge the components.
+                                    for (obj_map<expr, unsigned>::iterator it = component_map.begin(); it != component_map.end(); ++it) {
+                                        if (it->m_value == component2) {
+                                            it->m_value = component;
+                                        }
+                                    }
+                                }
+                                else {
+                                    component = component_map.find(v);
+                                    found_component = true;
+                                }
+                            }
+                        }
+                        if (!found_component) {
+                            // None of the variables of e is in a component
+                            // yet, so create a new component to hold them.
+                            component = num_components++;
+                        }
+                        // Map e and all its variables to this component.
+                        component_map.insert(e, component);
+                        for (unsigned k = 0; k < vars.size(); ++k) {
+                            expr_ref v(vars.get(k), m);
+                            component_map.insert_if_not_there(v, component);
+                        }
+                    }
+                }
+            }
+
+            STRACE("predabst", {
+                for (obj_map<expr, unsigned>::iterator it = component_map.begin(); it != component_map.end(); ++it) {
+                    tout << "  " << mk_pp(it->m_key, m) << " -> " << it->m_value << "\n";
+                }
+            });
+
+            // Find the important component, namely the one containing the
+            // critical expression.
+            unsigned important = component_map.find(critical);
+
+            // Copy the clauses, eliminating unimportant expressions.
+            core_clauses clauses2;
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                core_clause const& clause = clauses[i];
+                expr_ref_vector const& interp_body = clause.m_interp_body;
+                expr_ref_vector interp_body2(m);
+                for (unsigned j = 0; j < interp_body.size(); ++j) {
+                    expr_ref e(interp_body.get(j), m);
+                    if (component_map.find(e) == important) {
+                        interp_body2.push_back(e);
+                    }
+                }
+                core_clause clause2(clause.m_head, interp_body2, clause.m_uninterp_body);
+                STRACE("predabst", tout << "  rewriting clause " << i << ": " << clause << " -> " << clause2 << "\n";);
+                clauses2.push_back(clause2);
+            }
+            return clauses2;
+        }
+
+        core_clauses cone_of_influence_with_extra(core_clauses const& clauses, unsigned name, expr_ref const& extra) const {
+            vector<name_app> root_app;
+            CASSERT("predabst", clauses[name].m_head.m_name == name); // >>> this is bogus: clauses don't (currently) get added in order of name.  But root_name is 0 and it's always first, so this just happens to work...
+            root_app.push_back(clauses[name].m_head);
+
+            unsigned name2 = clauses.size();
+            name_app head_app(name2, expr_ref_vector(m));
+
+            expr_ref_vector interp_body(m);
+            interp_body.push_back(mk_not(extra));
+
+            core_clause extra_clause(head_app, interp_body, root_app);
+            STRACE("predabst", tout << "Adding extra clause: " << extra_clause << "\n";);
+
+            core_clauses clauses2(clauses);
+            clauses2.push_back(extra_clause);
+
+            return cone_of_influence(clauses2, name, extra);
         }
 
         vector<unsigned> get_farkas_coeffs(proof_ref const& pr) const {
@@ -2127,9 +2239,12 @@ namespace datalog {
                 }
                 for (unsigned k = 0; k < clause.m_uninterp_body.size(); ++k) {
                     coeffs.push_back(1);
+                    // >>> TODO assert that head and body arguments are distinct uninterpreted constants
+                    // >>> TODO assert that the head arguments and the body arguments are the same (otherwise need to do substitution); otherwise need to do substitution
                     inequalities.push_back(name2solution.get(clause.m_uninterp_body[k].m_name));
                 }
                 expr_ref body = make_linear_combination(coeffs, inequalities);
+                // >>> TODO: assert that body has no uninterpreted constants not in head
                 core_clause_solution solution(clause.m_head, body);
                 STRACE("predabst", tout << "Solution for clause " << j << ": " << solution << "\n";);
                 solutions.push_back(solution);
@@ -2137,26 +2252,6 @@ namespace datalog {
                 name2solution[clause.m_head.m_name] = body;
             }
             return solutions;
-        }
-
-        core_clause_solutions solve_core_clauses(core_clauses const& clauses, unsigned name, expr_ref const& extra) {
-            vector<name_app> root_app;
-            CASSERT("predabst", clauses[name].m_head.m_name == name); // >>> this is bogus: clauses don't (currently) get added in order of name.  But root_name is 0 and it's always first, so this just happens to work...
-            root_app.push_back(clauses[name].m_head);
-
-            unsigned name2 = clauses.size();
-            name_app head_app(name2, expr_ref_vector(m));
-
-            expr_ref_vector interp_body(m);
-            interp_body.push_back(mk_not(extra));
-
-            core_clause extra_clause(head_app, interp_body, root_app);
-            STRACE("predabst", tout << "Adding extra clause: " << extra_clause << "\n";);
-
-            core_clauses clauses2(clauses);
-            clauses2.push_back(extra_clause);
-
-            return solve_core_clauses(clauses2, name);
         }
 
         expr_ref mk_leaves(node_info const& root_node, expr_ref_vector const& root_args, bool substitute_template_params = true) const {

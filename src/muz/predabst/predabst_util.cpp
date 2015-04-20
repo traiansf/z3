@@ -264,8 +264,8 @@ expr_ref_vector get_all_vars(expr_ref const& fml) {
         expr* e = todo.back();
         todo.pop_back();
         CASSERT("predabst", is_app(e));
-        if (to_app(e)->get_num_args() == 0) {
-            if (!arith.is_numeral(e) && !vars.contains(e)) {
+        if (is_uninterp_const(e)) {
+            if (!vars.contains(e)) {
                 vars.push_back(e);
             }
         }

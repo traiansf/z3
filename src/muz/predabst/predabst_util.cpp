@@ -122,6 +122,9 @@ expr_ref mk_not(expr_ref const& term) {
 	else if (m.is_false(term)) {
 		return expr_ref(m.mk_true(), m);
 	}
+    else if (m.is_not(term)) {
+        return expr_ref(to_app(term)->get_arg(0), m);
+    }
     else {
         return expr_ref(m.mk_not(term), m);
     }

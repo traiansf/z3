@@ -2172,7 +2172,7 @@ namespace datalog {
             core_clauses clauses2(clauses);
             clauses2.push_back(extra_clause);
 
-            return cone_of_influence(clauses2, name, extra);
+            return cone_of_influence(clauses2, name, mk_not(extra));
         }
 
         vector<unsigned> get_farkas_coeffs(proof_ref const& pr) const {

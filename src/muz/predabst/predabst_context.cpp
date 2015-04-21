@@ -1019,16 +1019,15 @@ namespace datalog {
 
             expr_ref_vector vars = get_arg_vars(r->get_decl());
             expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
-            expr_ref_vector body = apply_subst(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail()), subst);
-            STRACE("predabst", tout << "  " << suffix_decl->get_name() << "(" << vars << ") := " << body << "\n";);
-
-            for (unsigned i = 0; i < body.size(); ++i) {
-                if (has_free_vars(body.get(i), vars)) {
+            expr_ref_vector body(m);
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
                     STRACE("predabst", tout << "Error: template has free variables\n";);
                     throw default_exception("template for " + suffix.str() + " has free variables");
                 }
+                body.push_back(apply_subst(r->get_tail(i), subst));
             }
-
+            STRACE("predabst", tout << "  " << suffix_decl->get_name() << "(" << vars << ") := " << body << "\n";);
             m_templates.push_back(template_info(vars, body));
         }
 
@@ -1076,12 +1075,12 @@ namespace datalog {
             CASSERT("predabst", !fi.m_is_output_predicate);
             expr_ref_vector subst = build_subst(r->get_head()->get_args(), fi.m_vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                app_ref pred = apply_subst(r->get_tail(i), subst);
-                if (has_free_vars(pred, fi.m_vars)) {
+                if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
                     STRACE("predabst", tout << "Error: predicate has free variables\n";);
                     throw default_exception("predicate for " + suffix.str() + " has free variables");
                 }
 
+                app_ref pred = apply_subst(r->get_tail(i), subst);
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
                 fi.m_preds.push_back(pred_info(pred));
             }
@@ -1826,11 +1825,18 @@ namespace datalog {
         bool refine_predicates_good_template(expr_ref_vector const& root_args, core_tree_info const& core_info, core_tree_template_info const& core_template_info) {
             core_clauses clauses = mk_core_clauses(root_args, core_info);
             bool result = false;
-            expr_ref e = to_dnf(expr_ref(m.mk_not(core_template_info.m_body), m));
-            expr_ref_vector disjs = get_disj_terms(e);
-            for (unsigned i = 0; i < disjs.size(); ++i) {
-                expr_ref disj(disjs.get(i), m);
-                core_clauses clauses2 = cone_of_influence_with_extra(clauses, core_info.root_name, disj);
+            expr_ref e(m.mk_not(core_template_info.m_body), m);
+            if (false /*m_fp_params.solve_clauses_dnf()*/) { // >>>
+                expr_ref_vector disjs = get_disj_terms(to_dnf(e));
+                for (unsigned i = 0; i < disjs.size(); ++i) {
+                    expr_ref disj(disjs.get(i), m);
+                    core_clauses clauses2 = cone_of_influence_with_extra(clauses, core_info.root_name, disj);
+                    core_clause_solutions solutions = solve_core_clauses(clauses2, core_info.root_name);
+                    result |= refine_preds(solutions, core_info.m_name2func_decl);
+                }
+            }
+            else {
+                core_clauses clauses2 = cone_of_influence_with_extra(clauses, core_info.root_name, e);
                 core_clause_solutions solutions = solve_core_clauses(clauses2, core_info.root_name);
                 result |= refine_preds(solutions, core_info.m_name2func_decl);
             }
@@ -2075,6 +2081,11 @@ namespace datalog {
         }
 
         core_clauses cone_of_influence(core_clauses const& clauses, unsigned name, expr_ref const& critical) const {
+            if (false /*!m_fp_params.use_cone_of_influence()*/) { // >>>
+                STRACE("predabst", tout << "Skipping cone of influence\n";);
+                return clauses;
+            }
+
             STRACE("predabst", tout << "Computing cone of influence for expression " << mk_pp(critical, m) << "\n";);
                 
             // Find connected components for the graph whose vertices are

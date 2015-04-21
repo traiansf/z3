@@ -291,10 +291,10 @@ namespace datalog {
         };
 
         struct template_info {
-            expr_ref_vector m_args;
+            expr_ref_vector m_vars;
             expr_ref_vector m_body;
-            template_info(expr_ref_vector const& args, expr_ref_vector const& body) :
-                m_args(args),
+            template_info(expr_ref_vector const& vars, expr_ref_vector const& body) :
+                m_vars(vars),
                 m_body(body) {}
         };
 
@@ -697,7 +697,7 @@ namespace datalog {
         // number) for template temp, which maps the head arguments to hvars
         // and the extra template parameters to their instantiated values.
         expr_ref_vector get_temp_subst_vect(template_info const& temp, expr_ref_vector const& hvars) const {
-            return build_subst(temp.m_args, vector_concat(hvars, m_template_param_values));
+            return build_subst(temp.m_vars, vector_concat(hvars, m_template_param_values));
         }
 
         // Returns a substitution vector (i.e. a vector indexed by variable
@@ -705,7 +705,7 @@ namespace datalog {
         // and the extra template parameters to their corresponding
         // uninterpreted constants.
         expr_ref_vector get_temp_subst_vect_noparams(template_info const& temp, expr_ref_vector const& hvars) const {
-            return build_subst(temp.m_args, vector_concat(hvars, m_template_params));
+            return build_subst(temp.m_vars, vector_concat(hvars, m_template_params));
         }
 
         expr_ref_vector get_rule_body(rule* r, expr_ref_vector const& rule_subst, bool substitute_template_params = true) const {
@@ -1017,18 +1017,19 @@ namespace datalog {
                 throw default_exception("template for " + suffix.str() + " has an uninterpreted tail");
             }
 
-            expr_ref_vector args(m, r->get_head()->get_num_args(), r->get_head()->get_args());
-            expr_ref_vector body(m, r->get_tail_size(), r->get_expr_tail());
-            STRACE("predabst", tout << "  " << suffix_decl->get_name() << "(" << args << ") := " << body << "\n";);
+            expr_ref_vector vars = get_arg_vars(r->get_decl());
+            expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
+            expr_ref_vector body = apply_subst(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail()), subst);
+            STRACE("predabst", tout << "  " << suffix_decl->get_name() << "(" << vars << ") := " << body << "\n";);
 
             for (unsigned i = 0; i < body.size(); ++i) {
-                if (has_free_vars(body.get(i), args)) {
+                if (has_free_vars(body.get(i), vars)) {
                     STRACE("predabst", tout << "Error: template has free variables\n";);
                     throw default_exception("template for " + suffix.str() + " has free variables");
                 }
             }
 
-            m_templates.push_back(template_info(args, body));
+            m_templates.push_back(template_info(vars, body));
         }
 
         static bool is_predicate_list(func_decl const* fdecl) {
@@ -1075,18 +1076,15 @@ namespace datalog {
             CASSERT("predabst", !fi.m_is_output_predicate);
             expr_ref_vector subst = build_subst(r->get_head()->get_args(), fi.m_vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
+                app_ref pred = apply_subst(r->get_tail(i), subst);
+                if (has_free_vars(pred, fi.m_vars)) {
                     STRACE("predabst", tout << "Error: predicate has free variables\n";);
                     throw default_exception("predicate for " + suffix.str() + " has free variables");
                 }
 
-                app_ref pred = apply_subst(r->get_tail(i), subst);
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
                 fi.m_preds.push_back(pred_info(pred));
             }
-        }
-
-        void find_rule_uses(rule_set const& rules) {
         }
 
 #define RETURN_CHECK_CANCELLED(result) return m_cancel ? l_undef : result;
@@ -2393,7 +2391,7 @@ namespace datalog {
                 }
                 else if (it->m_value->m_has_template) {
                     template_info const& temp = m_templates.get(it->m_value->m_template_id);
-                    out << " has template " << *it->m_value << "(" << temp.m_args << ") := " << temp.m_body << std::endl;
+                    out << " has template " << *it->m_value << "(" << temp.m_vars << ") := " << temp.m_body << std::endl;
                     CASSERT("predabst", it->m_value->m_users.empty());
                 }
                 else {

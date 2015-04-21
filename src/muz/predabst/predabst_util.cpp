@@ -196,7 +196,7 @@ expr_ref mk_prod(expr_ref_vector const& terms) {
     }
 }
 
-expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* e) {
+expr* replace_pred(expr_ref_vector const& args, var_ref_vector const& vars, expr* e) {
     ast_manager& m = args.m();
     arith_util arith(m);
     CASSERT("predabst", args.size() == vars.size());

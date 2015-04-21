@@ -29,6 +29,13 @@ inline ref_vector<T, TManager> vector_concat(ref_vector<T, TManager> const& v1, 
 }
 
 template<typename T, typename TManager>
+inline ref_vector<T, TManager> vector_concat(unsigned n1, T* const* p1, ref_vector<T, TManager> const& v2) {
+    ref_vector<T, TManager> v(v2.m(), n1, p1);
+    v.append(v2);
+    return v;
+}
+
+template<typename T, typename TManager>
 inline unsigned vector_find(ref_vector<T, TManager> const& v, T const* elem) {
     for (unsigned i = 0; i < v.size(); ++i) {
         if (v.get(i) == elem) {
@@ -81,7 +88,7 @@ expr_ref mk_conj(expr_ref_vector const& terms);
 expr_ref mk_sum(expr_ref_vector const& terms);
 expr_ref mk_prod(expr_ref_vector const& terms);
 
-expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, expr* e);
+expr* replace_pred(expr_ref_vector const& args, var_ref_vector const& vars, expr* e);
 
 expr_ref_vector get_all_vars(expr_ref const& fml);
 

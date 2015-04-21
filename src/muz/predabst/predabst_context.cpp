@@ -146,7 +146,7 @@ namespace datalog {
 
         struct func_decl_info {
             func_decl*        m_fdecl;
-            expr_ref_vector   m_vars;
+            var_ref_vector    m_vars;
             vector<pred_info> m_preds;
 #ifndef PREDABST_COMPLETE_CUBE
             vector<unsigned>  m_root_preds;
@@ -157,7 +157,7 @@ namespace datalog {
             bool              m_is_wf_predicate;
             bool              m_has_template;
             unsigned          m_template_id;
-            func_decl_info(func_decl* fdecl, expr_ref_vector const& vars, bool is_output_predicate, bool is_wf_predicate) :
+            func_decl_info(func_decl* fdecl, var_ref_vector const& vars, bool is_output_predicate, bool is_wf_predicate) :
                 m_fdecl(fdecl),
                 m_vars(vars),
                 m_is_output_predicate(is_output_predicate),
@@ -295,9 +295,9 @@ namespace datalog {
         };
 
         struct template_info {
-            expr_ref_vector m_vars;
+            var_ref_vector  m_vars;
             expr_ref_vector m_body;
-            template_info(expr_ref_vector const& vars, expr_ref_vector const& body) :
+            template_info(var_ref_vector const& vars, expr_ref_vector const& body) :
                 m_vars(vars),
                 m_body(body) {}
         };
@@ -576,12 +576,11 @@ namespace datalog {
 
         // Returns a substitution vector that maps each variable in vars to the
         // corresponding expression in exprs.
-        expr_ref_vector build_subst(unsigned n, expr* const* vars, expr* const* exprs) const {
+        expr_ref_vector build_subst(unsigned n, var* const* vars, expr* const* exprs) const {
             expr_ref_vector inst(m);
             inst.reserve(n); // note that this is not necessarily the final size of inst
             for (unsigned i = 0; i < n; ++i) {
-                CASSERT("predabst", is_var(vars[i]));
-                unsigned idx = to_var(vars[i])->get_idx();
+                unsigned idx = vars[i]->get_idx();
                 inst.reserve(idx + 1);
                 CASSERT("predabst", !inst.get(idx));
                 inst[idx] = exprs[i];
@@ -589,17 +588,22 @@ namespace datalog {
             return inst;
         }
 
-        expr_ref_vector build_subst(expr* const* vars, expr_ref_vector const& exprs) const {
+        expr_ref_vector build_subst(var* const* vars, expr_ref_vector const& exprs) const {
             return build_subst(exprs.size(), vars, exprs.c_ptr());
         }
 
-        expr_ref_vector build_subst(expr_ref_vector const& vars, expr* const* exprs) const {
+        expr_ref_vector build_subst(var_ref_vector const& vars, expr* const* exprs) const {
             return build_subst(vars.size(), vars.c_ptr(), exprs);
         }
 
-        expr_ref_vector build_subst(expr_ref_vector const& vars, expr_ref_vector const& exprs) const {
+        expr_ref_vector build_subst(var_ref_vector const& vars, expr_ref_vector const& exprs) const {
             CASSERT("predabst", vars.size() == exprs.size());
             return build_subst(vars.size(), vars.c_ptr(), exprs.c_ptr());
+        }
+
+        expr_ref_vector build_subst(var_ref_vector const& vars, var_ref_vector const& exprs) const {
+            CASSERT("predabst", vars.size() == exprs.size());
+            return build_subst(vars.size(), vars.c_ptr(), (expr* const*)exprs.c_ptr());
         }
 
         // Returns a vector of fresh constants of the right type to be arguments to fdecl.
@@ -613,8 +617,8 @@ namespace datalog {
         }
 
         // Returns a vector of variables of the right type to be arguments to fdecl.
-        expr_ref_vector get_arg_vars(func_decl* fdecl) const {
-            expr_ref_vector args(m);
+        var_ref_vector get_arg_vars(func_decl* fdecl) const {
+            var_ref_vector args(m);
             args.reserve(fdecl->get_arity());
             for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
                 args[i] = m.mk_var(i, fdecl->get_domain(i));
@@ -706,6 +710,10 @@ namespace datalog {
             return build_subst(temp.m_vars, vector_concat(hvars, m_template_param_values));
         }
 
+        expr_ref_vector get_temp_subst_vect(template_info const& temp, var_ref_vector const& hvars) const {
+            return build_subst(temp.m_vars, vector_concat(hvars.size(), (expr* const*)hvars.c_ptr(), m_template_param_values));
+        }
+
         // Returns a substitution vector (i.e. a vector indexed by variable
         // number) for template temp, which maps the head arguments to hvars
         // and the extra template parameters to their corresponding
@@ -743,7 +751,7 @@ namespace datalog {
             return vector_concat(unification_terms, body_terms);
         }
 
-        static bool args_are_distinct_vars(app* a) {
+        static bool args_are_distinct_vars(app* a, var_ref_vector& vars) {
             vector<bool> used;
             for (unsigned i = 0; i < a->get_num_args(); ++i) {
                 if (!is_var(a->get_arg(i))) {
@@ -757,6 +765,7 @@ namespace datalog {
                     return false;
                 }
                 used[idx] = true;
+                vars.push_back(to_var(a->get_arg(i)));
             }
             return true;
         }
@@ -892,7 +901,7 @@ namespace datalog {
                 }
 
                 m_func_decls.push_back(fdecl);
-                expr_ref_vector vars = get_arg_vars(fdecl);
+                var_ref_vector vars = get_arg_vars(fdecl);
                 m_func_decl2info.insert(fdecl, alloc(func_decl_info, fdecl, vars, rules.is_output_predicate(fdecl), is_wf));
             }
         }
@@ -934,7 +943,8 @@ namespace datalog {
                 throw default_exception("found multiple extra template constraints");
             }
 
-            if (!args_are_distinct_vars(r->get_head())) {
+            var_ref_vector args(m);
+            if (!args_are_distinct_vars(r->get_head(), args)) {
                 STRACE("predabst", tout << "Error: extra template constraint has invalid argument list\n";);
                 throw default_exception("extra template constraint has invalid argument list");
             }
@@ -946,7 +956,7 @@ namespace datalog {
 
             // Replace the variables corresponding to the extra template parameters with fresh constants.
             expr_ref_vector extra_params = get_fresh_args(r->get_decl(), "b");
-            expr_ref_vector extra_subst = build_subst(r->get_head()->get_args(), extra_params);
+            expr_ref_vector extra_subst = build_subst(args, extra_params);
             expr_ref extras = apply_subst(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
             STRACE("predabst", tout << "  " << mk_pp(extras, m) << "\n";);
 
@@ -1013,7 +1023,8 @@ namespace datalog {
             fi.m_has_template = true;
             fi.m_template_id = m_templates.size();
 
-            if (!args_are_distinct_vars(r->get_head())) {
+            var_ref_vector args(m);
+            if (!args_are_distinct_vars(r->get_head(), args)) {
                 STRACE("predabst", tout << "Error: template has invalid argument list\n";);
                 throw default_exception("template for " + suffix.str() + " has invalid argument list");
             }
@@ -1023,8 +1034,8 @@ namespace datalog {
                 throw default_exception("template for " + suffix.str() + " has an uninterpreted tail");
             }
 
-            expr_ref_vector vars = get_arg_vars(r->get_decl());
-            expr_ref_vector subst = build_subst(r->get_head()->get_args(), vars);
+            var_ref_vector vars = get_arg_vars(r->get_decl());
+            expr_ref_vector subst = build_subst(args, vars);
             expr_ref_vector body(m);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
@@ -1067,7 +1078,8 @@ namespace datalog {
                 throw default_exception("found predicate list for templated predicate symbol " + suffix.str());
             }
 
-            if (!args_are_distinct_vars(r->get_head())) {
+            var_ref_vector args(m);
+            if (!args_are_distinct_vars(r->get_head(), args)) {
                 STRACE("predabst", tout << "Error: predicate list has invalid argument list\n";);
                 throw default_exception("predicate list for " + suffix.str() + " has invalid argument list");
             }
@@ -1079,7 +1091,7 @@ namespace datalog {
 
             // Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
             CASSERT("predabst", !fi.m_is_output_predicate);
-            expr_ref_vector subst = build_subst(r->get_head()->get_args(), fi.m_vars);
+            expr_ref_vector subst = build_subst(args, fi.m_vars);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 if (has_free_vars(r->get_tail(i), expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()))) {
                     STRACE("predabst", tout << "Error: predicate has free variables\n";);

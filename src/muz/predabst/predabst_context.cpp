@@ -1368,65 +1368,65 @@ namespace datalog {
             }
         }
 
-		expr_ref model_eval_app(model_ref const& md, app const* app) {
-			expr_ref exp(m);
-			bool result = md->eval(app->get_decl(), exp);
+        expr_ref model_eval_app(model_ref const& md, app const* app) {
+            expr_ref exp(m);
+            bool result = md->eval(app->get_decl(), exp);
             CASSERT("predabst", result);
             ptr_vector<sort> sorts;
-			get_free_vars(exp, sorts);
-			expr_ref_vector subst(m);
-			subst.reserve(sorts.size());
-			for (unsigned i = 0; i < sorts.size(); ++i) {
+            get_free_vars(exp, sorts);
+            expr_ref_vector subst(m);
+            subst.reserve(sorts.size());
+            for (unsigned i = 0; i < sorts.size(); ++i) {
                 if (sorts[i]) {
                     subst[i] = app->get_arg(i);
                 }
-			}
-			return apply_subst(exp, subst);
-		}
+            }
+            return apply_subst(exp, subst);
+        }
 
-		expr_ref ground(expr_ref const& exp, char const* prefix) {
-			ptr_vector<sort> sorts;
-			get_free_vars(exp, sorts);
-			expr_ref_vector subst(m);
-			subst.reserve(sorts.size());
-			for (unsigned i = 0; i < sorts.size(); ++i) {
+        expr_ref ground(expr_ref const& exp, char const* prefix) {
+            ptr_vector<sort> sorts;
+            get_free_vars(exp, sorts);
+            expr_ref_vector subst(m);
+            subst.reserve(sorts.size());
+            for (unsigned i = 0; i < sorts.size(); ++i) {
                 if (sorts[i]) {
                     subst[i] = m.mk_fresh_const(prefix, sorts[i]);
                 }
-			}
-			return apply_subst(exp, subst);
-		}
+            }
+            return apply_subst(exp, subst);
+        }
 
-		bool check_solution() {
+        bool check_solution() {
             smt_params new_param;
             smt::kernel solver(m, new_param);
-			model_ref md = get_model();
-			for (unsigned i = 0; i < m_rules.size(); ++i) {
-				rule* r = m_rules[i].m_rule;
+            model_ref md = get_model();
+            for (unsigned i = 0; i < m_rules.size(); ++i) {
+                rule* r = m_rules[i].m_rule;
                 unsigned usz = r->get_uninterpreted_tail_size();
                 unsigned tsz = r->get_tail_size();
                 expr_ref_vector body_exp_terms(m, tsz - usz, r->get_expr_tail() + usz);
-				for (unsigned j = 0; j < usz; ++j) {
-					body_exp_terms.push_back(model_eval_app(md, r->get_tail(j)));
-				}
+                for (unsigned j = 0; j < usz; ++j) {
+                    body_exp_terms.push_back(model_eval_app(md, r->get_tail(j)));
+                }
                 expr_ref body_exp = mk_conj(body_exp_terms);
-				expr_ref head_exp(m);
-				if (!m_func_decl2info[r->get_decl()]->m_is_output_predicate) {
-					head_exp = model_eval_app(md, r->get_head());
-				}
+                expr_ref head_exp(m);
+                if (!m_func_decl2info[r->get_decl()]->m_is_output_predicate) {
+                    head_exp = model_eval_app(md, r->get_head());
+                }
                 else {
                     head_exp = m.mk_false();
                 }
 
-				scoped_push push(solver);
+                scoped_push push(solver);
                 solver.assert_expr(ground(expr_ref(m.mk_and(body_exp, mk_not(head_exp)), m), "c"));
-				if (solver.check() != l_false) {
+                if (solver.check() != l_false) {
                     STRACE("predabst", tout << "Solution does not satisfy rule " << i << "\n";);
-					return false;
-				}
-			}
-			return true;
-		}
+                    return false;
+                }
+            }
+            return true;
+        }
 
         bool find_solution(unsigned refine_count, acr_error& error) {
             m_node_worklist.reset();
@@ -1459,9 +1459,9 @@ namespace datalog {
                 }
 
 #ifdef Z3DEBUG
-				if (!m_cancel && !check_solution()) {
-					throw default_exception("check_solution failed");
-				}
+                if (!m_cancel && !check_solution()) {
+                    throw default_exception("check_solution failed");
+                }
 #endif
 
                 // We managed to find a solution.

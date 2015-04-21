@@ -201,48 +201,7 @@ expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, exp
     arith_util arith(m);
     CASSERT("predabst", args.size() == vars.size());
     CASSERT("predabst", is_app(e));
-    expr* e1;
-    expr* e2;
-    if (m.is_eq(e, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        expr* ee2 = replace_pred(args, vars, e2);
-        return m.mk_eq(ee1, ee2);
-    }
-    else if (arith.is_le(e, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        expr* ee2 = replace_pred(args, vars, e2);
-        return arith.mk_le(ee1, ee2);
-    }
-    else if (arith.is_ge(e, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        expr* ee2 = replace_pred(args, vars, e2);
-        return arith.mk_ge(ee1, ee2);
-    }
-    else if (arith.is_lt(e, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        expr* ee2 = replace_pred(args, vars, e2);
-        return arith.mk_lt(ee1, ee2);
-    }
-    else if (arith.is_gt(e, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        expr* ee2 = replace_pred(args, vars, e2);
-        return arith.mk_gt(ee1, ee2);
-    }
-    else if (arith.is_add(e, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        expr* ee2 = replace_pred(args, vars, e2);
-        return arith.mk_add(ee1, ee2);
-    }
-    else if (arith.is_mul(e, e1, e2)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        expr* ee2 = replace_pred(args, vars, e2);
-        return arith.mk_mul(ee1, ee2);
-    }
-    else if (m.is_not(e, e1)) {
-        expr* ee1 = replace_pred(args, vars, e1);
-        return m.mk_not(ee1);
-    }
-    else if (to_app(e)->get_num_args() == 0) {
+    if (to_app(e)->get_num_args() == 0) {
         for (unsigned i = 0; i < args.size(); ++i) {
             if (args.get(i) == e) {
                 return vars.get(i);
@@ -251,9 +210,11 @@ expr* replace_pred(expr_ref_vector const& args, expr_ref_vector const& vars, exp
         return e;
     }
     else {
-        STRACE("predabst", tout << "Unable to recognize predicate " << mk_pp(e, m) << "\n";);
-        UNREACHABLE();
-        return NULL;
+        expr_ref_vector es(m);
+        for (unsigned i = 0; i < to_app(e)->get_num_args(); ++i) {
+            es.push_back(replace_pred(args, vars, to_app(e)->get_arg(i)));
+        }
+        return m.mk_app(to_app(e)->get_decl(), es.size(), es.c_ptr());
     }
 }
 

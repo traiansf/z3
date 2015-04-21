@@ -27,9 +27,11 @@ Revision History:
 #include "reg_decl_plugins.h"
 #include "substitution.h"
 #include "smt_kernel.h"
+#include "smt_solver.h"
 #include "dl_transforms.h"
 #include "fixedpoint_params.hpp"
 #include "iz3mgr.h"
+#include "iz3interp.h"
 #include <vector>
 #include <map>
 #include <algorithm>
@@ -44,8 +46,10 @@ namespace datalog {
 
     struct core_tree_node {
         unsigned         m_node_id;
+        bool             m_visited;
         vector<unsigned> m_names;
         core_tree_node(unsigned node_id) :
+            m_visited(false),
             m_node_id(node_id) {}
     };
 
@@ -342,7 +346,6 @@ namespace datalog {
             unsigned                m_last_pos;
             core_tree               m_core;
             vector<func_decl_info*> m_name2func_decl;
-            static const unsigned root_name = 0;
         };
 
         struct core_tree_template_info {
@@ -1800,8 +1803,8 @@ namespace datalog {
         bool refine_predicates_not_reachable(expr_ref_vector const& root_args, core_tree_info const& core_info) {
             expr_ref last_clause_body(m);
             core_clauses clauses = mk_core_clauses(root_args, core_info, &last_clause_body);
-            core_clauses clauses2 = cone_of_influence(clauses, core_info.root_name, last_clause_body);
-            core_clause_solutions solutions = solve_core_clauses(clauses2, core_info.root_name);
+            core_clauses clauses2 = cone_of_influence(clauses, last_clause_body);
+            core_clause_solutions solutions = solve_core_clauses(clauses2);
             return refine_preds(solutions, core_info.m_name2func_decl);
         }
 
@@ -1830,14 +1833,14 @@ namespace datalog {
                 expr_ref_vector disjs = get_disj_terms(to_dnf(e));
                 for (unsigned i = 0; i < disjs.size(); ++i) {
                     expr_ref disj(disjs.get(i), m);
-                    core_clauses clauses2 = cone_of_influence_with_extra(clauses, core_info.root_name, disj);
-                    core_clause_solutions solutions = solve_core_clauses(clauses2, core_info.root_name);
+                    core_clauses clauses2 = cone_of_influence_with_extra(clauses, disj);
+                    core_clause_solutions solutions = solve_core_clauses(clauses2);
                     result |= refine_preds(solutions, core_info.m_name2func_decl);
                 }
             }
             else {
-                core_clauses clauses2 = cone_of_influence_with_extra(clauses, core_info.root_name, e);
-                core_clause_solutions solutions = solve_core_clauses(clauses2, core_info.root_name);
+                core_clauses clauses2 = cone_of_influence_with_extra(clauses, e);
+                core_clause_solutions solutions = solve_core_clauses(clauses2);
                 result |= refine_preds(solutions, core_info.m_name2func_decl);
             }
             return result;
@@ -1856,11 +1859,11 @@ namespace datalog {
         bool refine_predicates_wf(expr_ref_vector const& root_args, core_tree_info const& core_info, core_tree_wf_info const& core_wf_info) {
             core_clauses clauses = mk_core_clauses(root_args, core_info);
             bool result = false;
-            core_clauses bound_clauses = cone_of_influence_with_extra(clauses, core_info.root_name, core_wf_info.m_bound);
-            core_clause_solutions bound_solutions = solve_core_clauses(bound_clauses, core_info.root_name);
+            core_clauses bound_clauses = cone_of_influence_with_extra(clauses, core_wf_info.m_bound);
+            core_clause_solutions bound_solutions = solve_core_clauses(bound_clauses);
             result |= refine_preds(bound_solutions, core_info.m_name2func_decl);
-            core_clauses decrease_clauses = cone_of_influence_with_extra(clauses, core_info.root_name, core_wf_info.m_decrease);
-            core_clause_solutions decrease_solutions = solve_core_clauses(decrease_clauses, core_info.root_name);
+            core_clauses decrease_clauses = cone_of_influence_with_extra(clauses, core_wf_info.m_decrease);
+            core_clause_solutions decrease_solutions = solve_core_clauses(decrease_clauses);
             result |= refine_preds(decrease_solutions, core_info.m_name2func_decl);
             return result;
         }
@@ -1953,13 +1956,15 @@ namespace datalog {
             vector<func_decl_info*>& name2func_decl = core_info.m_name2func_decl;
 
             vector<name_app> todo;
-            todo.push_back(name_app(core_info.root_name, root_args));
+            todo.push_back(name_app(0, root_args));
             core.push_back(core_tree_node(root_node.m_id));
             name2func_decl.push_back(&root_node.m_fdecl_info);
 
             while (!todo.empty()) {
                 name_app item = todo.back();
                 todo.pop_back();
+
+                core[item.m_name].m_visited = true;
 
                 node_info const& node = m_nodes[core[item.m_name].m_node_id];
                 rule_info const& ri = m_rules[node.m_parent_rule];
@@ -2018,7 +2023,7 @@ namespace datalog {
             core_tree const& core = core_info.m_core;
 
             vector<name_app> todo;
-            todo.push_back(name_app(core_info.root_name, root_args));
+            todo.push_back(name_app(0, root_args));
 
             bool found_last = false;
             while (!found_last && !todo.empty()) {
@@ -2046,11 +2051,16 @@ namespace datalog {
                 if (found_last) {
                     CASSERT("predabst", last_clause_body); // found_last => last_clause_body
                     *last_clause_body = cs.get(cs.size() - 1);
+                    CASSERT("predabst", names.empty());
                 }
                 else {
+                    CASSERT("predabst", names.size() == ri.get_tail_size());
                     for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
                         node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
                         unsigned qname = names.get(i);
+                        if (!core[qname].m_visited) {
+                            continue;
+                        }
                         // Ensure that all the qargs are (distinct) uninterpreted constants.
                         expr_ref_vector pargs = apply_subst(ri.get_args(i), rule_subst);
                         expr_ref_vector qargs(m);
@@ -2080,7 +2090,7 @@ namespace datalog {
             return clauses;
         }
 
-        core_clauses cone_of_influence(core_clauses const& clauses, unsigned name, expr_ref const& critical) const {
+        core_clauses cone_of_influence(core_clauses const& clauses, expr_ref const& critical) const {
             if (false /*!m_fp_params.use_cone_of_influence()*/) { // >>>
                 STRACE("predabst", tout << "Skipping cone of influence\n";);
                 return clauses;
@@ -2166,10 +2176,9 @@ namespace datalog {
             return clauses2;
         }
 
-        core_clauses cone_of_influence_with_extra(core_clauses const& clauses, unsigned name, expr_ref const& extra) const {
+        core_clauses cone_of_influence_with_extra(core_clauses const& clauses, expr_ref const& extra) const {
             vector<name_app> root_app;
-            CASSERT("predabst", clauses[name].m_head.m_name == name); // >>> this is bogus: clauses don't (currently) get added in order of name.  But root_name is 0 and it's always first, so this just happens to work...
-            root_app.push_back(clauses[name].m_head);
+            root_app.push_back(clauses[0].m_head);
 
             unsigned name2 = clauses.size();
             name_app head_app(name2, expr_ref_vector(m));
@@ -2180,10 +2189,11 @@ namespace datalog {
             core_clause extra_clause(head_app, interp_body, root_app);
             STRACE("predabst", tout << "Adding extra clause: " << extra_clause << "\n";);
 
-            core_clauses clauses2(clauses);
+            core_clauses clauses2;
             clauses2.push_back(extra_clause);
+            clauses2.append(clauses);
 
-            return cone_of_influence(clauses2, name, mk_not(extra));
+            return cone_of_influence(clauses2, mk_not(extra));
         }
 
         vector<unsigned> get_farkas_coeffs(proof_ref const& pr) const {
@@ -2208,7 +2218,71 @@ namespace datalog {
             }
         }
 
-        core_clause_solutions solve_core_clauses(core_clauses const& clauses, unsigned name) const {
+        expr_ref clauses_to_iz3_interp_problem(core_clauses const& clauses) const {
+            expr_ref_vector name2node(m);
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                unsigned j = clauses.size() - 1 - i;
+                core_clause const& clause = clauses[j];
+                expr_ref_vector conjs(m);
+                conjs.append(clause.m_interp_body);
+                for (unsigned k = 0; k < clause.m_uninterp_body.size(); ++k) {
+                    conjs.push_back(name2node.get(clause.m_uninterp_body[k].m_name));
+                }
+                name2node.reserve(clause.m_head.m_name + 1);
+                name2node[clause.m_head.m_name] = expr_ref(m.mk_interp(mk_conj(conjs)), m);
+            }
+            return expr_ref(name2node.get(0), m);
+        }
+
+        core_clause_solutions solve_core_clauses_iz3(core_clauses const& clauses) const {
+            proof_gen_mode old_pgm = m.proof_mode();
+            m.toggle_proof_mode(PGM_FINE);
+            params_ref params;
+            solver* s = mk_smt_solver(m, params, symbol::null); // or "QF_LIA"?
+            expr_ref tree = clauses_to_iz3_interp_problem(clauses);
+            STRACE("predabst", tout << "Interpolation problem: " << mk_pp(tree, m) << "\n";);
+            ptr_vector<ast> cnsts;
+            ptr_vector<ast> interps;
+            interpolation_options_struct opts;
+            //>>>opts.set("weak", "1");
+            lbool result = iz3interpolate(m,
+                *s,
+                tree,
+                cnsts,
+                interps,
+                model_ref(),
+                &opts);
+            dealloc(s);
+
+            STRACE("predabst", {
+                tout << "Interpolants:\n";
+                for (unsigned i = 0; i < interps.size(); ++i) {
+                    tout << "  " << i << ": " << mk_pp(interps.get(i), m) << "\n";
+                }
+            });
+
+            core_clause_solutions solutions;
+            for (unsigned i = clauses.size() - 1; i > 0; --i) { // skip clause 0
+                core_clause const& clause = clauses[i];
+                if (i < interps.size()) {
+                    expr_ref body(to_expr(interps.get(clauses.size() - 1 - i)), m);
+                    core_clause_solution solution(clause.m_head, body);
+                    STRACE("predabst", tout << "Solution for clause " << i << ": " << solution << "\n";);
+                    solutions.push_back(solution);
+                }
+            }
+
+            for (unsigned i = 0; i < cnsts.size(); ++i) {
+                m.dec_ref(cnsts[i]);
+            }
+            for (unsigned i = 0; i < interps.size(); ++i) {
+                m.dec_ref(interps[i]);
+            }
+            m.toggle_proof_mode(old_pgm);
+            return solutions;
+        }
+
+        core_clause_solutions solve_core_clauses_non_iz3(core_clauses const& clauses) const {
             proof_gen_mode old_pgm = m.proof_mode();
             m.toggle_proof_mode(PGM_FINE);
             smt_params new_param;
@@ -2236,33 +2310,38 @@ namespace datalog {
 
             core_clause_solutions solutions;
             expr_ref_vector name2solution(m);
-            for (unsigned i = 0; i < clauses.size(); ++i) {
-                unsigned j = clauses.size() - 1 - i;
-                core_clause const& clause = clauses[j];
-                if (clause.m_head.m_name == name) {
-                    continue;
-                }
+            for (unsigned i = clauses.size() - 1; i > 0; --i) { // skip clause 0
+                core_clause const& clause = clauses[i];
                 vector<unsigned> coeffs;
                 expr_ref_vector inequalities(m);
-                for (unsigned k = 0; k < clause.m_interp_body.size(); ++k) {
-                    coeffs.push_back(clause_coeffs[assertion_start_index[j] + k]);
-                    inequalities.push_back(clause.m_interp_body[k]);
+                for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
+                    coeffs.push_back(clause_coeffs[assertion_start_index[i] + j]);
+                    inequalities.push_back(clause.m_interp_body[j]);
                 }
-                for (unsigned k = 0; k < clause.m_uninterp_body.size(); ++k) {
+                for (unsigned j = 0; j < clause.m_uninterp_body.size(); ++j) {
                     coeffs.push_back(1);
                     // >>> TODO assert that head and body arguments are distinct uninterpreted constants
                     // >>> TODO assert that the head arguments and the body arguments are the same (otherwise need to do substitution); otherwise need to do substitution
-                    inequalities.push_back(name2solution.get(clause.m_uninterp_body[k].m_name));
+                    inequalities.push_back(name2solution.get(clause.m_uninterp_body[j].m_name));
                 }
                 expr_ref body = make_linear_combination(coeffs, inequalities);
                 // >>> TODO: assert that body has no uninterpreted constants not in head
                 core_clause_solution solution(clause.m_head, body);
-                STRACE("predabst", tout << "Solution for clause " << j << ": " << solution << "\n";);
+                STRACE("predabst", tout << "Solution for clause " << i << ": " << solution << "\n";);
                 solutions.push_back(solution);
                 name2solution.reserve(clause.m_head.m_name + 1);
                 name2solution[clause.m_head.m_name] = body;
             }
             return solutions;
+        }
+
+        core_clause_solutions solve_core_clauses(core_clauses const& clauses) const {
+            if (true /* && m_fp_params.use_iz3_interpolation() */) {
+                return solve_core_clauses_iz3(clauses);
+            }
+            else {
+                return solve_core_clauses_non_iz3(clauses);
+            }
         }
 
         expr_ref mk_leaves(node_info const& root_node, expr_ref_vector const& root_args, bool substitute_template_params = true) const {

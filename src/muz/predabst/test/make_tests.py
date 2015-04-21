@@ -587,7 +587,23 @@ refine_sat_tests = [
 (assert (forall ((x Int)) (=> (and (= x 0) q r) (p x))))
 (assert (forall ((x Int)) (=> (= x 1) (not (p x)))))""",
      """
-(define-fun p ((x!1 Int)) Bool (<= x!1 0))"""), # note that this is just one of multiple resonable solutions
+(define-fun p ((x!1 Int)) Bool (<= x!1 0))
+(define-fun q () Bool true)
+(define-fun r () Bool true)"""), # note that this is just one of multiple resonable solutions
+
+    ("simple-refine-one-side",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun q (Int) Bool)
+(declare-fun r () Bool)
+(assert (forall ((x Int)) (=> (= x 0) (q x))))
+(assert r)
+(assert (forall ((x Int)) (=> (and (= x 1) (q x) r) (p x))))
+(assert (forall ((x Int)) (not (p x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool false)
+(define-fun q ((x!1 Int)) Bool (<= x!1 0))
+(define-fun r () Bool true)"""), # note that this is just one of multiple resonable solutions
 
     ("simple-literal-head",
      """
@@ -823,7 +839,7 @@ def write_test_out(testname, result, postsat_code):
         f.write(postsat_code + "\n")
 
 def write_sat_test_out(testname, model):
-    write_test_out(testname, "sat", "(model " + model + "\n)")
+    write_test_out(testname, "sat", "" if model is None else "(model " + model + "\n)")
 
 def write_unsat_test_out(testname):
     write_test_out(testname, "unsat", "")
@@ -896,3 +912,68 @@ for test in wf_unknown_tests:
     testname = "wf-unknown-" + name
     write_unknown_test_smt2(testname, code)
     write_unknown_test_out(testname, errmsg)
+
+from z3 import *
+import itertools
+import random
+
+fname_counter = 0
+def new_fname():
+    global fname_counter
+    name = "f%d" % fname_counter
+    fname_counter += 1
+    return name
+
+def new_f(vars):
+    arg_ret_sorts = [v.sort() for v in vars] + [BoolSort()]
+    return Function(new_fname(), *arg_ret_sorts)
+
+aname_counter = 0
+def new_aname():
+    global aname_counter
+    name = "a%d" % aname_counter
+    aname_counter += 1
+    return name
+
+def new_a():
+    return Int(new_aname())
+
+s = SimpleSolver()
+
+def random_split(xs):
+    n = random.randint(1, len(xs))
+    xss = []
+    a = 0
+    for i in range(n - 1):
+       b = random.randint(a + 1, len(xs) - (n - 1) + i)
+       xss.append(xs[a:b])
+       a = b
+    xss.append(xs[a:])
+    assert len(xss) == n
+    assert list(itertools.chain(*xss)) == xs
+    return xss
+
+def node(vars):
+    vars = vars[:] # take a copy
+    random.shuffle(vars)
+    f = new_f(vars)
+    head = f(*vars)
+    assert len(vars) > 0
+    if len(vars) == 1:
+        body = vars[0] >= 0
+    else:
+        body = And(*map(node, random_split(vars)))
+    s.add(ForAll(vars, Implies(body, head)))
+    return head
+
+vars = [new_a() for i in range(30)]
+head = BoolVal(False)
+body = And(node(vars), Sum(vars) < 0)
+s.add(ForAll(vars, Implies(body, head)))
+
+name = "many"
+code = s.to_smt2()
+model = None
+testname = "refine-sat-" + name
+write_sat_test_smt2(testname, code)
+write_sat_test_out(testname, model)

@@ -499,13 +499,16 @@ namespace datalog {
             model_ref md = alloc(model, m);
             for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                 func_decl_info const& fi = *m_func_decl2info[m_func_decls[i]];
+                // Note that the generated model must be in terms of
+                // get_arg_vars(fi.m_fdecl); we generate the model in terms of
+                // fi.m_vars, which we assume to be the same.
                 if (fi.m_is_output_predicate) {
                     // query symbols are ignored
                 }
                 else if (fi.m_has_template) {
                     // templated predicate symbols are instantiated
                     template_info const& temp = m_templates[fi.m_template_id];
-                    expr_ref_vector temp_subst = get_temp_subst_vect(temp, get_arg_vars(fi.m_fdecl));
+                    expr_ref_vector temp_subst = get_temp_subst_vect(temp, fi.m_vars);
                     expr_ref body = mk_conj(apply_subst(temp.m_body, temp_subst));
                     register_decl(md, fi.m_fdecl, body);
                 }

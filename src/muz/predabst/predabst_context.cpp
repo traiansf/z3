@@ -28,6 +28,7 @@ Revision History:
 #include "substitution.h"
 #include "smt_kernel.h"
 #include "smt_solver.h"
+#include "scoped_proof.h"
 #include "dl_transforms.h"
 #include "fixedpoint_params.hpp"
 #include "iz3mgr.h"
@@ -2232,9 +2233,60 @@ namespace datalog {
             return expr_ref(name2node.get(0), m);
         }
 
+        core_clause_solutions solve_core_clauses_iz3_2(core_clauses const& clauses) const {
+            scoped_proof sp(m);
+            expr_ref tree = clauses_to_iz3_interp_problem(clauses);
+            STRACE("predabst", tout << "Interpolation problem: " << mk_pp(tree, m) << "\n";);
+
+            proof_ref_vector proofs(m);
+            ptr_vector<ast> cnsts;
+            for (unsigned i = 0; i < clauses.size(); ++i) {
+                core_clause const& clause = clauses[i];
+                for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
+                    proofs.push_back(m.mk_asserted(clause.m_interp_body.get(j)));
+                    cnsts.push_back(clause.m_interp_body.get(j));
+                }
+            }
+            arith_util arith(m);
+            expr_ref false_ineq(arith.mk_lt(arith.mk_numeral(rational::one(), true), arith.mk_numeral(rational::zero(), true)), m);
+            proof_ref prf(m.mk_th_lemma(arith.get_family_id(), false_ineq, proofs.size(), proofs.c_ptr()), m);
+
+            ptr_vector<ast> interps;
+            interpolation_options_struct opts;
+            //>>>opts.set("weak", "1");
+            iz3interpolate(m,
+                prf,
+                cnsts,
+                tree,
+                interps,
+                &opts);
+
+            STRACE("predabst", {
+                tout << "Interpolants:\n";
+                for (unsigned i = 0; i < interps.size(); ++i) {
+                    tout << "  " << i << ": " << mk_pp(interps.get(i), m) << "\n";
+                }
+            });
+
+            core_clause_solutions solutions;
+            for (unsigned i = clauses.size() - 1; i > 0; --i) { // skip clause 0
+                core_clause const& clause = clauses[i];
+                if (i < interps.size()) {
+                    expr_ref body(to_expr(interps.get(clauses.size() - 1 - i)), m);
+                    core_clause_solution solution(clause.m_head, body);
+                    STRACE("predabst", tout << "Solution for clause " << i << ": " << solution << "\n";);
+                    solutions.push_back(solution);
+                }
+            }
+
+            for (unsigned i = 0; i < interps.size(); ++i) {
+                m.dec_ref(interps[i]);
+            }
+            return solutions;
+        }
+
         core_clause_solutions solve_core_clauses_iz3(core_clauses const& clauses) const {
-            proof_gen_mode old_pgm = m.proof_mode();
-            m.toggle_proof_mode(PGM_FINE);
+            scoped_proof sp(m);
             params_ref params;
             solver* s = mk_smt_solver(m, params, symbol::null); // or "QF_LIA"?
             expr_ref tree = clauses_to_iz3_interp_problem(clauses);
@@ -2276,13 +2328,11 @@ namespace datalog {
             for (unsigned i = 0; i < interps.size(); ++i) {
                 m.dec_ref(interps[i]);
             }
-            m.toggle_proof_mode(old_pgm);
             return solutions;
         }
 
         core_clause_solutions solve_core_clauses_non_iz3(core_clauses const& clauses) const {
-            proof_gen_mode old_pgm = m.proof_mode();
-            m.toggle_proof_mode(PGM_FINE);
+            scoped_proof sp(m);
             smt_params new_param;
             smt::kernel solver(m, new_param);
             unsigned num_assertions = 0;
@@ -2299,7 +2349,6 @@ namespace datalog {
             CASSERT("predabst", result == l_false);
 
             proof_ref pr(solver.get_proof(), m);
-            m.toggle_proof_mode(old_pgm);
             vector<unsigned> clause_coeffs = get_farkas_coeffs(pr);
             if (clause_coeffs.empty()) {
                 STRACE("predabst", tout << "Cannot solve clauses: not a Farkas-style proof\n";);

@@ -2323,7 +2323,7 @@ namespace datalog {
                 }
             }
 
-            vector<unsigned> assertion_coeffs;
+            vector<int64> assertion_coeffs;
             bool result = get_farkas_coeffs(assertions, assertion_coeffs);
             if (!result) {
                 STRACE("predabst", tout << "Cannot solve clauses: not a system of linear (in)equalities\n";);
@@ -2336,7 +2336,7 @@ namespace datalog {
             expr_ref_vector name2solution(m);
             for (unsigned i = clauses.size() - 1; i > 0; --i) { // skip clause 0
                 core_clause const& clause = clauses[i];
-                vector<unsigned> coeffs;
+                vector<int64> coeffs;
                 expr_ref_vector inequalities(m);
                 for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
                     coeffs.push_back(assertion_coeffs[assertion_start_index[i] + j]);

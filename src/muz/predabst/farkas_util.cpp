@@ -107,7 +107,7 @@ static bool leftify_inequality(expr_ref const& e, expr_ref& new_e, rel_op& new_o
     return true;
 }
 
-expr_ref make_linear_combination(vector<unsigned> const& coeffs, expr_ref_vector const& inequalities) {
+expr_ref make_linear_combination(vector<int64> const& coeffs, expr_ref_vector const& inequalities) {
     CASSERT("predabst", coeffs.size() == inequalities.size());
     ast_manager& m = inequalities.m();
     arith_util arith(m);
@@ -118,7 +118,7 @@ expr_ref make_linear_combination(vector<unsigned> const& coeffs, expr_ref_vector
         rel_op new_op;
         bool result = leftify_inequality(expr_ref(inequalities[i], m), new_e, new_op);
         CASSERT("predasbst", result); // >>> why?
-        terms.push_back(arith.mk_mul(arith.mk_numeral(rational(coeffs[i]), true), new_e));
+        terms.push_back(arith.mk_mul(arith.mk_numeral(rational(coeffs[i], rational::i64()), true), new_e));
         CASSERT("predabst", (new_op == op_eq) || (new_op == op_le));
         if (new_op == op_le) {
             equality = false;
@@ -522,7 +522,7 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
     return true;
 }
 
-bool get_farkas_coeffs(proof_ref const& pr, vector<unsigned>& coeffs) {
+bool get_farkas_coeffs(proof_ref const& pr, vector<int64>& coeffs) {
     CASSERT("predabst", coeffs.empty());
     ast_manager& m = pr.m();
     iz3mgr i(m);
@@ -534,7 +534,7 @@ bool get_farkas_coeffs(proof_ref const& pr, vector<unsigned>& coeffs) {
         std::vector<rational> rat_coeffs;
         i.get_farkas_coeffs(p, rat_coeffs);
         for (unsigned i = 0; i < rat_coeffs.size(); ++i) {
-            coeffs.push_back(rat_coeffs[i].get_unsigned());
+            coeffs.push_back(rat_coeffs[i].get_int64());
         }
         STRACE("predabst", tout << "Proof kind is Farkas\n";);
         return true;
@@ -545,7 +545,7 @@ bool get_farkas_coeffs(proof_ref const& pr, vector<unsigned>& coeffs) {
     }
 }
 
-bool get_farkas_coeffs_directly(expr_ref_vector const& assertions, vector<unsigned>& coeffs) {
+bool get_farkas_coeffs_directly(expr_ref_vector const& assertions, vector<int64>& coeffs) {
     CASSERT("predabst", coeffs.empty());
     ast_manager& m = assertions.m();
     scoped_proof sp(m);
@@ -560,7 +560,7 @@ bool get_farkas_coeffs_directly(expr_ref_vector const& assertions, vector<unsign
     return get_farkas_coeffs(pr, coeffs);
 }
 
-bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<unsigned>& coeffs) {
+bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<int64>& coeffs) {
     CASSERT("predabst", coeffs.empty());
     ast_manager& m = assertions.m();
     arith_util arith(m);
@@ -592,12 +592,12 @@ bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<unsign
         result = arith.is_numeral(e, coeff, is_int);
         CASSERT("predabst", result);
         CASSERT("predabst", is_int);
-        coeffs.push_back(coeff.get_unsigned());
+        coeffs.push_back(coeff.get_int64());
     }
     return true;
 }
 
-bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<unsigned>& coeffs) {
+bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<int64>& coeffs) {
     return get_farkas_coeffs_directly(assertions, coeffs) ||
         get_farkas_coeffs_via_dual(assertions, coeffs);
 }

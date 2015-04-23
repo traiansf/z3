@@ -24,6 +24,8 @@ Revision History:
 #include "ast_pp.h"
 #include "smt_kernel.h"
 #include "smt_params.h"
+#include "scoped_proof.h"
+#include "iz3mgr.h"
 
 std::ostream& operator<<(std::ostream& out, rel_op op) {
     switch (op) {
@@ -123,15 +125,8 @@ expr_ref make_linear_combination(vector<unsigned> const& coeffs, expr_ref_vector
         }
     }
     expr_ref lhs = mk_sum(terms);
-    th_rewriter rw(m);
-    rw(lhs);
     expr_ref rhs(arith.mk_numeral(rational::zero(), true), m);
-    if (equality) {
-        return expr_ref(m.mk_eq(lhs, rhs), m);
-    }
-    else {
-        return expr_ref(arith.mk_le(lhs, rhs), m);
-    }
+    return expr_ref(equality ? m.mk_eq(lhs, rhs) : arith.mk_le(lhs, rhs), m);
 }
 
 class linear_inequality {
@@ -167,7 +162,7 @@ public:
     // linear integer (in)equality.  Returns false if this is impossible,
     // i.e. if the expression is not a (binary) (in)equality, if the
     // operands are not integers, or if they are not linear in m_vars.
-    bool set(expr_ref e) {
+    bool set(expr_ref const& e) {
         CASSERT("predabst", is_well_sorted(m, e));
         CASSERT("predabst", is_ground(e));
         arith_util arith(m);
@@ -525,6 +520,86 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
         lambdas.append(f_imp.get_lambdas());
     }
     return true;
+}
+
+bool get_farkas_coeffs(proof_ref const& pr, vector<unsigned>& coeffs) {
+    CASSERT("predabst", coeffs.empty());
+    ast_manager& m = pr.m();
+    iz3mgr i(m);
+    iz3mgr::ast p(&m, pr.get());
+    iz3mgr::pfrule dk = i.pr(p);
+    if (dk == PR_TH_LEMMA &&
+        i.get_theory_lemma_theory(p) == iz3mgr::ArithTheory &&
+        i.get_theory_lemma_kind(p) == iz3mgr::FarkasKind) {
+        std::vector<rational> rat_coeffs;
+        i.get_farkas_coeffs(p, rat_coeffs);
+        for (unsigned i = 0; i < rat_coeffs.size(); ++i) {
+            coeffs.push_back(rat_coeffs[i].get_unsigned());
+        }
+        STRACE("predabst", tout << "Proof kind is Farkas\n";);
+        return true;
+    }
+    else {
+        STRACE("predabst", tout << "Proof kind is not Farkas\n";);
+        return false;
+    }
+}
+
+bool get_farkas_coeffs_directly(expr_ref_vector const& assertions, vector<unsigned>& coeffs) {
+    CASSERT("predabst", coeffs.empty());
+    ast_manager& m = assertions.m();
+    scoped_proof sp(m);
+    smt_params new_param;
+    smt::kernel solver(m, new_param);
+    for (unsigned i = 0; i < assertions.size(); ++i) {
+        solver.assert_expr(assertions.get(i));
+    }
+    lbool result = solver.check();
+    CASSERT("predabst", result == l_false);
+    proof_ref pr(solver.get_proof(), m);
+    return get_farkas_coeffs(pr, coeffs);
+}
+
+bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<unsigned>& coeffs) {
+    CASSERT("predabst", coeffs.empty());
+    ast_manager& m = assertions.m();
+    arith_util arith(m);
+    farkas_imp f_imp(get_all_vars(mk_conj(assertions)));
+    expr_ref false_ineq(arith.mk_le(arith.mk_numeral(rational::one(), true), arith.mk_numeral(rational::zero(), true)), m);
+    bool result = f_imp.set(assertions, false_ineq);
+    if (!result) {
+        return false;
+    }
+    STRACE("predabst", f_imp.display(tout););
+    smt_params new_param;
+    smt::kernel solver(m, new_param);
+    expr_ref_vector constraints = f_imp.get_constraints();
+    for (unsigned i = 0; i < constraints.size(); ++i) {
+        solver.assert_expr(constraints.get(i));
+    }
+    lbool lresult = solver.check();
+    CASSERT("predabst", lresult == l_true);
+    model_ref modref;
+    solver.get_model(modref);
+    vector<lambda_info> lambdas = f_imp.get_lambdas();
+    CASSERT("predabst", lambdas.size() == assertions.size());
+    for (unsigned i = 0; i < lambdas.size(); ++i) {
+        expr_ref e(m);
+        bool result = modref->eval(lambdas.get(i).m_lambda, e);
+        CASSERT("predabst", result);
+        rational coeff;
+        bool is_int;
+        result = arith.is_numeral(e, coeff, is_int);
+        CASSERT("predabst", result);
+        CASSERT("predabst", is_int);
+        coeffs.push_back(coeff.get_unsigned());
+    }
+    return true;
+}
+
+bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<unsigned>& coeffs) {
+    return get_farkas_coeffs_directly(assertions, coeffs) ||
+        get_farkas_coeffs_via_dual(assertions, coeffs);
 }
 
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease) {

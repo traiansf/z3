@@ -42,6 +42,8 @@ expr_ref make_linear_combination(vector<unsigned> const& coeffs, expr_ref_vector
 
 bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, expr_ref_vector& constraints, vector<lambda_info>& lambda_infos, bool eliminate_unsat_disjuncts = false);
 
+bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<unsigned>& coeffs);
+
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease);
 
 bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* sol_bound, expr_ref* sol_decrease);

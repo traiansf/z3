@@ -437,9 +437,9 @@ norefine_sat_tests = [
 (declare-fun __pred__p (Bool Real) Bool)
 (assert (p true 0.0))
 (assert (forall ((y Real)) (=> (p true y) (p false (- 1.0 y)))))
-(assert (forall ((x Bool) (y Real)) (=> (and (= x true) (= x false) (<= y 0.0) (>= y 1.0)) (__pred__p x y))))""",
+(assert (forall ((x Bool) (y Real)) (=> (and x (not x) (<= y 0.0) (>= y 1.0)) (__pred__p x y))))""",
      """
-(define-fun p ((x!1 Bool) (x!2 Real)) Bool (or (and (= x!1 true) (<= x!2 0.0)) (and (= x!1 false) (>= x!2 1.0))))"""),
+(define-fun p ((x!1 Bool) (x!2 Real)) Bool (or (and x!1 (<= x!2 0.0)) (and (not x!1) (>= x!2 1.0))))"""),
 ]
 
 norefine_unsat_tests = [
@@ -563,16 +563,16 @@ refine_sat_tests = [
     ("simple-refine-once",
      """
 (declare-fun p (Int) Bool)
-(assert (forall ((x Int)) (=> (= x 0) (p x))))
-(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))""",
+(assert (forall ((x Int)) (=> (<= x 0) (p x))))
+(assert (forall ((x Int)) (=> (>= x 1) (not (p x)))))""",
      """
 (define-fun p ((x!1 Int)) Bool (<= x!1 0))"""), # note that this is just one of multiple resonable solutions
 
     ("simple-refine-twice",
      """
 (declare-fun p (Int) Bool)
-(assert (forall ((x Int)) (=> (= x 0) (p x))))
-(assert (forall ((x Int)) (=> (= x 2) (p x))))
+(assert (forall ((x Int)) (=> (<= x 0) (p x))))
+(assert (forall ((x Int)) (=> (>= x 2) (p x))))
 (assert (forall ((x Int)) (=> (= x 1) (not (p x)))))""",
      """
 (define-fun p ((x!1 Int)) Bool (or (<= x!1 0) (>= x!1 2)))"""), # note that this is just one of multiple resonable solutions
@@ -584,26 +584,26 @@ refine_sat_tests = [
 (declare-fun r () Bool)
 (assert q)
 (assert r)
-(assert (forall ((x Int)) (=> (and (= x 0) q r) (p x))))
-(assert (forall ((x Int)) (=> (= x 1) (not (p x)))))""",
+(assert (forall ((x Int)) (=> (and (<= x 0) q r) (p x))))
+(assert (forall ((x Int)) (=> (>= x 1) (not (p x)))))""",
      """
-(define-fun p ((x!1 Int)) Bool (<= x!1 0))
 (define-fun q () Bool true)
-(define-fun r () Bool true)"""), # note that this is just one of multiple resonable solutions
+(define-fun r () Bool true)
+(define-fun p ((x!1 Int)) Bool (<= x!1 0))"""), # note that this is just one of multiple resonable solutions
 
     ("simple-refine-one-side",
      """
 (declare-fun p (Int) Bool)
 (declare-fun q (Int) Bool)
 (declare-fun r () Bool)
-(assert (forall ((x Int)) (=> (= x 0) (q x))))
+(assert (forall ((x Int)) (=> (<= x 0) (q x))))
 (assert r)
-(assert (forall ((x Int)) (=> (and (= x 1) (q x) r) (p x))))
+(assert (forall ((x Int)) (=> (and (>= x 1) (q x) r) (p x))))
 (assert (forall ((x Int)) (not (p x))))""",
      """
-(define-fun p ((x!1 Int)) Bool false)
+(define-fun r () Bool true)
 (define-fun q ((x!1 Int)) Bool (<= x!1 0))
-(define-fun r () Bool true)"""), # note that this is just one of multiple resonable solutions
+(define-fun p ((x!1 Int)) Bool false)"""), # note that this is just one of multiple resonable solutions
 
     ("simple-literal-head",
      """
@@ -611,7 +611,7 @@ refine_sat_tests = [
 (assert (p 0))
 (assert (not (p 1)))""",
      """
-(define-fun p ((x!1 Int)) Bool (<= x!1 0))"""),
+(define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
 
 # XXX The following two test cases are incomplete.
 #    ("templ-xxx",
@@ -654,8 +654,8 @@ refine_sat_tests = [
 (declare-fun p () Bool)
 (declare-fun q (Int) Bool)
 (assert p)
-(assert (forall ((x Int)) (=> (= x 1) (q x))))
-(assert (forall ((x Int)) (=> (and (= x 0) p) (not (q x)))))""",
+(assert (forall ((x Int)) (=> (>= x 1) (q x))))
+(assert (forall ((x Int)) (=> (and (<= x 0) p) (not (q x)))))""",
      """
 (define-fun p () Bool true)
 (define-fun q ((x!1 Int)) Bool (>= x!1 1))"""),
@@ -665,7 +665,7 @@ refine_sat_tests = [
 (declare-fun p (Int) Bool)
 (declare-fun q (Int) Bool)
 (declare-fun __temp__p (Int) Bool)
-(assert (forall ((x Int)) (=> (= x 1) (q x))))
+(assert (forall ((x Int)) (=> (>= x 1) (q x))))
 (assert (forall ((x Int)) (=> (and (p x) (q x)) false)))
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      """
@@ -739,7 +739,7 @@ wf_sat_tests = [
 (assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (< x_ x)) (__wf__p x x_))))
 (assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (< x_ x)) (__pred____wf__p x x_))))""",
      """
-(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (< x!2 x!1) (>= x!1 0)))"""),
+(define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (not (<= x!1 x!2)) (>= x!1 0)))"""),
 
     ("simple-refine",
      """

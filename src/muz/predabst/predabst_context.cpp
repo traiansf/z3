@@ -1155,9 +1155,9 @@ namespace datalog {
                     throw default_exception("predicate for " + suffix.str() + " has free variables");
                 }
 
-                app_ref pred = apply_subst(r->get_tail(i), subst);
+                expr_ref pred = apply_subst(to_expr(r->get_tail(i)), subst);
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
-                fi->m_preds.push_back(pred_info(pred));
+                maybe_add_pred(fi, pred);
             }
         }
 
@@ -1902,7 +1902,10 @@ namespace datalog {
             return false;
         }
 
-        unsigned maybe_add_pred(func_decl_info* fi, expr_ref const& pred) {
+        unsigned maybe_add_pred(func_decl_info* fi, expr_ref const& p) {
+            expr_ref pred(p);
+            th_rewriter tw(m);
+            tw(pred);
             if (m.is_true(pred) || m.is_false(pred)) {
                 STRACE("predabst", tout << "Ignoring predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
                 return 0;
@@ -2000,7 +2003,7 @@ namespace datalog {
                 expr_ref_vector solution(m);
                 for (unsigned i = 0; i < root_args.size(); ++i) {
                     expr_ref val(m);
-                    if (modref->eval(root_args.get(i), val, true)) {
+                    if (!modref->eval(root_args.get(i), val, true)) {
                         tout << "Failed to get model for root_args[" << i << "]\n";
                     }
                     solution.push_back(val);
@@ -2195,28 +2198,6 @@ namespace datalog {
             return cone_of_influence(clauses2, mk_not(extra));
         }
 
-        vector<unsigned> get_farkas_coeffs(proof_ref const& pr) const {
-            iz3mgr i(m);
-            iz3mgr::ast p(&m, pr.get());
-            iz3mgr::pfrule dk = i.pr(p);
-            if (dk == PR_TH_LEMMA &&
-                i.get_theory_lemma_theory(p) == iz3mgr::ArithTheory &&
-                i.get_theory_lemma_kind(p) == iz3mgr::FarkasKind) {
-                std::vector<rational> rat_coeffs;
-                i.get_farkas_coeffs(p, rat_coeffs);
-                vector<unsigned> coeffs;
-                for (unsigned i = 0; i < rat_coeffs.size(); ++i) {
-                    coeffs.push_back(rat_coeffs[i].get_unsigned());
-                }
-                STRACE("predabst", tout << "Proof kind is Farkas, with coefficients " << coeffs << "\n";);
-                return coeffs;
-            }
-            else {
-                STRACE("predabst", tout << "Proof kind is not Farkas\n";);
-                return vector<unsigned>();
-            }
-        }
-
         expr_ref clauses_to_iz3_interp_problem(core_clauses const& clauses) const {
             expr_ref_vector name2node(m);
             for (unsigned i = 0; i < clauses.size(); ++i) {
@@ -2332,28 +2313,24 @@ namespace datalog {
         }
 
         core_clause_solutions solve_core_clauses_non_iz3(core_clauses const& clauses) const {
-            scoped_proof sp(m);
-            smt_params new_param;
-            smt::kernel solver(m, new_param);
-            unsigned num_assertions = 0;
+            expr_ref_vector assertions(m);
             vector<unsigned> assertion_start_index;
             for (unsigned i = 0; i < clauses.size(); ++i) {
-                assertion_start_index.push_back(num_assertions);
+                assertion_start_index.push_back(assertions.size());
                 core_clause const& clause = clauses[i];
                 for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
-                    solver.assert_expr(clause.m_interp_body[j]);
-                    ++num_assertions;
+                    assertions.push_back(to_nnf(expr_ref(clause.m_interp_body[j], m))); // >>> to_nnf is a bit of a hack here
                 }
             }
-            lbool result = solver.check();
-            CASSERT("predabst", result == l_false);
 
-            proof_ref pr(solver.get_proof(), m);
-            vector<unsigned> clause_coeffs = get_farkas_coeffs(pr);
-            if (clause_coeffs.empty()) {
-                STRACE("predabst", tout << "Cannot solve clauses: not a Farkas-style proof\n";);
+            vector<unsigned> assertion_coeffs;
+            bool result = get_farkas_coeffs(assertions, assertion_coeffs);
+            if (!result) {
+                STRACE("predabst", tout << "Cannot solve clauses: not a system of linear (in)equalities\n";);
                 return core_clause_solutions();
             }
+
+            STRACE("predabst", tout << "Farkas coefficients are: " << assertion_coeffs << "\n";);
 
             core_clause_solutions solutions;
             expr_ref_vector name2solution(m);
@@ -2362,7 +2339,7 @@ namespace datalog {
                 vector<unsigned> coeffs;
                 expr_ref_vector inequalities(m);
                 for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
-                    coeffs.push_back(clause_coeffs[assertion_start_index[i] + j]);
+                    coeffs.push_back(assertion_coeffs[assertion_start_index[i] + j]);
                     inequalities.push_back(clause.m_interp_body[j]);
                 }
                 for (unsigned j = 0; j < clause.m_uninterp_body.size(); ++j) {
@@ -2383,7 +2360,7 @@ namespace datalog {
         }
 
         core_clause_solutions solve_core_clauses(core_clauses const& clauses) const {
-            if (true /* && m_fp_params.use_iz3_interpolation() */) {
+            if (false /* && m_fp_params.use_iz3_interpolation() */) {
                 return solve_core_clauses_iz3(clauses);
             }
             else {

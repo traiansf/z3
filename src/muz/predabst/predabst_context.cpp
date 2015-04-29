@@ -342,7 +342,7 @@ namespace datalog {
         mutable simplifier     m_simplifier;
 #endif
         volatile bool          m_cancel;      // Boolean flag to track external cancelation.
-        stats                  m_stats;       // statistics information specific to the predabst module.
+        mutable stats          m_stats;       // statistics information specific to the predabst module.
 
         func_decl_ref_vector                m_func_decls;
         obj_map<func_decl, func_decl_info*> m_func_decl2info;
@@ -1361,8 +1361,8 @@ namespace datalog {
             return apply_subst(fi->m_preds, inst);
         }
 
-#ifdef PREDABST_ASSERT_EXPR_UPFRONT
-        expr_ref_vector assert_exprs_upfront(expr_ref_vector const& preds, smt::kernel* solver) {
+//#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+        expr_ref_vector assert_exprs_upfront(expr_ref_vector const& preds, smt::kernel* solver) const {
             expr_ref_vector cond_vars(m);
             for (unsigned i = 0; i < preds.size(); ++i) {
                 expr_ref c(m.mk_fresh_const("cv", m.mk_bool_sort()), m);
@@ -1373,7 +1373,7 @@ namespace datalog {
             }
             return cond_vars;
         }
-#endif
+//#endif
 
         bool rule_body_satisfiable(rule_info const& ri) {
             rule_instance_info const& info = ri.m_instance_info;
@@ -1950,6 +1950,27 @@ namespace datalog {
             return expr_ref(m.mk_or(m.mk_not(cs), m.mk_and(bound, decrease)), m);
         }
 
+        unsigned mk_core_tree_binary(smt::kernel& solver, expr_ref_vector const& cond_vars, unsigned lo, unsigned hi) const {
+            // pre-conditions:
+            // -  conjunction of first lo terms (sequence e_0 .. e_{lo-1}) is sat
+            // -  conjunction of first hi terms (sequence e_0 .. e_{hi-1}) is unsat
+            // returns:
+            // -  smallest n such that first n terms is unsat
+            CASSERT("predabst", lo < hi);
+            if (lo + 1 == hi) {
+                return hi;
+            }
+            unsigned mid = lo + (hi - lo) / 2;
+            CASSERT("predabst", lo < mid);
+            CASSERT("predabst", mid < hi);
+            if (solver.check(mid, cond_vars.c_ptr()) != l_true) {
+                return mk_core_tree_binary(solver, cond_vars, lo, mid);
+            }
+            else {
+                return mk_core_tree_binary(solver, cond_vars, mid, hi);
+            }
+        }
+
         bool mk_core_tree(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info &core_info) const {
             smt_params new_param;
 #ifndef _TRACE
@@ -1957,47 +1978,14 @@ namespace datalog {
 #endif
             smt::kernel solver(m, new_param);
 
-            vector<name_app> todo; // >>> this is not actually a name_app, it's a "node_app".
-            todo.push_back(name_app(root_node.m_id, root_args));
-
-            while (!todo.empty()) {
-                name_app item = todo.back();
-                todo.pop_back();
-
-                node_info const& node = m_nodes[item.m_name];
-                rule_info const& ri = m_rules[node.m_parent_rule];
-
-                STRACE("predabst", tout << "To reach node " << node << " (" << node.m_fdecl_info << "(" << item.m_args << ")) via rule " << node.m_parent_rule << " requires:\n";);
-                expr_ref_vector rule_subst(m);
-                expr_ref_vector terms = get_rule_terms(ri, item.m_args, rule_subst);
-                pre_simplify(terms);
-
-                for (unsigned i = 0; i < terms.size(); ++i) {
-                    core_info.m_count++;
-                    expr_ref e(terms.get(i), m);
-                    if (!m.is_true(e)) {
-                        bool ignore = false;
-#if 0
-                        solver.push();
-                        solver.assert_expr(m.mk_not(e));
-                        bool ignore = (solver.check() != l_true);
-                        solver.pop(1);
-#endif
-                        if (!ignore) {
-                            STRACE("predabst", tout << "  " << mk_pp(e, m) << "\n";);
-                            solver.assert_expr(e);
-                            if (solver.check() != l_true) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-                for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
-                    node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
-                    expr_ref_vector qargs = apply_subst(ri.get_args(i, this), rule_subst);
-                    STRACE("predabst", tout << "  reaching node " << qnode << " (" << qnode.m_fdecl_info << "(" << qargs << "))\n";);
-                    todo.push_back(name_app(qnode.m_id, qargs));
-                }
+            expr_ref_vector terms = get_conj_terms(mk_leaves(root_node, root_args));
+            pre_simplify(terms);
+            expr_ref_vector cond_vars = assert_exprs_upfront(terms, &solver);
+            if (solver.check(cond_vars.size(), cond_vars.c_ptr()) != l_true) {
+                core_info.m_count = mk_core_tree_binary(solver, cond_vars, 0, terms.size());
+                CASSERT("predabst", core_info.m_count > 0);
+                CASSERT("predabst", core_info.m_count <= cond_vars.size());
+                return true;
             }
 
             STRACE("predabst", {
@@ -2016,11 +2004,12 @@ namespace datalog {
                 tout << "Example solution: " << root_node.m_fdecl_info << "(" << solution << ")\n";
             });
 
+            core_info.m_count = cond_vars.size();
             return false;
         }
 
         core_clauses mk_core_clauses(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info const& core_info, vector<func_decl_info*>& name2func_decl, expr_ref* last_clause_body = NULL) const {
-            STRACE("predabst", tout << "Building clauses\n";);
+            STRACE("predabst", tout << "Building clauses from " << core_info.m_count << " assertions\n";);
             core_clauses clauses;
 
             unsigned last_count = core_info.m_count;

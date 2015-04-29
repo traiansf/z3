@@ -45,15 +45,6 @@ Revision History:
 
 namespace datalog {
 
-    struct core_tree_node {
-        unsigned         m_node_id;
-        bool             m_visited;
-        vector<unsigned> m_names;
-        core_tree_node(unsigned node_id) :
-            m_visited(false),
-            m_node_id(node_id) {}
-    };
-
     struct name_app {
         unsigned        m_name;
         expr_ref_vector m_args;
@@ -92,7 +83,6 @@ namespace datalog {
         }
     };
 
-    typedef vector<core_tree_node> core_tree;
     typedef vector<core_clause> core_clauses; // just a sequence; the index has no meaning
     typedef vector<core_clause_solution> core_clause_solutions; // ditto
 
@@ -379,10 +369,9 @@ namespace datalog {
         };
 
         struct core_tree_info {
-            unsigned                m_last_name;
-            unsigned                m_last_pos;
-            core_tree               m_core;
-            vector<func_decl_info*> m_name2func_decl;
+            unsigned m_count;
+            core_tree_info() :
+                m_count(0) {}
         };
 
         struct core_tree_template_info {
@@ -1262,7 +1251,7 @@ namespace datalog {
                     if (not_reachable_without_abstraction(error_node, error_args, core_info)) {
                         // The problem node isn't reachable without abstraction.
                         // We need to refine the abstraction and retry.
-                        if (!refine_predicates_not_reachable(error_args, core_info)) {
+                        if (!refine_predicates_not_reachable(error_node, error_args, core_info)) {
                             STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
                             RETURN_CHECK_CANCELLED(l_undef);
                         }
@@ -1272,7 +1261,7 @@ namespace datalog {
                     else if ((error.m_kind == not_wf) && wf_without_abstraction(error_node, error_args, core_info_wf)) {
                         // The problem node is well-founded without abstraction.
                         // We need to refine the abstraction and retry.
-                        if (!refine_predicates_wf(error_args, core_info, core_info_wf)) {
+                        if (!refine_predicates_wf(error_node, error_args, core_info, core_info_wf)) {
                             STRACE("predabst", tout << "WF predicate refinement unsuccessful: result is UNKNOWN\n";);
                             RETURN_CHECK_CANCELLED(l_undef);
                         }
@@ -1850,12 +1839,13 @@ namespace datalog {
             return result;
         }
 
-        bool refine_predicates_not_reachable(expr_ref_vector const& root_args, core_tree_info const& core_info) {
+        bool refine_predicates_not_reachable(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info const& core_info) {
+            vector<func_decl_info*> name2func_decl;
             expr_ref last_clause_body(m);
-            core_clauses clauses = mk_core_clauses(root_args, core_info, &last_clause_body);
+            core_clauses clauses = mk_core_clauses(root_node, root_args, core_info, name2func_decl, &last_clause_body);
             core_clauses clauses2 = cone_of_influence(clauses, last_clause_body);
             core_clause_solutions solutions = solve_core_clauses(clauses2);
-            return refine_preds(solutions, core_info.m_name2func_decl);
+            return refine_preds(solutions, name2func_decl);
         }
 
         bool wf_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_wf_info& core_wf_info) const {
@@ -1868,15 +1858,16 @@ namespace datalog {
             return result;
         }
 
-        bool refine_predicates_wf(expr_ref_vector const& root_args, core_tree_info const& core_info, core_tree_wf_info const& core_wf_info) {
-            core_clauses clauses = mk_core_clauses(root_args, core_info);
+        bool refine_predicates_wf(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info const& core_info, core_tree_wf_info const& core_wf_info) {
+            vector<func_decl_info*> name2func_decl;
+            core_clauses clauses = mk_core_clauses(root_node, root_args, core_info, name2func_decl);
             bool result = false;
             core_clauses bound_clauses = cone_of_influence_with_extra(clauses, core_wf_info.m_bound);
             core_clause_solutions bound_solutions = solve_core_clauses(bound_clauses);
-            result |= refine_preds(bound_solutions, core_info.m_name2func_decl);
+            result |= refine_preds(bound_solutions, name2func_decl);
             core_clauses decrease_clauses = cone_of_influence_with_extra(clauses, core_wf_info.m_decrease);
             core_clause_solutions decrease_solutions = solve_core_clauses(decrease_clauses);
-            result |= refine_preds(decrease_solutions, core_info.m_name2func_decl);
+            result |= refine_preds(decrease_solutions, name2func_decl);
             return result;
         }
 
@@ -1965,29 +1956,24 @@ namespace datalog {
             new_param.m_model = false;
 #endif
             smt::kernel solver(m, new_param);
-            core_tree& core = core_info.m_core;
-            vector<func_decl_info*>& name2func_decl = core_info.m_name2func_decl;
 
-            vector<name_app> todo;
-            todo.push_back(name_app(0, root_args));
-            core.push_back(core_tree_node(root_node.m_id));
-            name2func_decl.push_back(root_node.m_fdecl_info);
+            vector<name_app> todo; // >>> this is not actually a name_app, it's a "node_app".
+            todo.push_back(name_app(root_node.m_id, root_args));
 
             while (!todo.empty()) {
                 name_app item = todo.back();
                 todo.pop_back();
 
-                core[item.m_name].m_visited = true;
-
-                node_info const& node = m_nodes[core[item.m_name].m_node_id];
+                node_info const& node = m_nodes[item.m_name];
                 rule_info const& ri = m_rules[node.m_parent_rule];
 
-                STRACE("predabst", tout << "To reach node " << node << " / tree node " << item.m_name << " (" << node.m_fdecl_info << "(" << item.m_args << ")) via rule " << node.m_parent_rule << " requires:\n";);
+                STRACE("predabst", tout << "To reach node " << node << " (" << node.m_fdecl_info << "(" << item.m_args << ")) via rule " << node.m_parent_rule << " requires:\n";);
                 expr_ref_vector rule_subst(m);
                 expr_ref_vector terms = get_rule_terms(ri, item.m_args, rule_subst);
                 pre_simplify(terms);
 
                 for (unsigned i = 0; i < terms.size(); ++i) {
+                    core_info.m_count++;
                     expr_ref e(terms.get(i), m);
                     if (!m.is_true(e)) {
                         bool ignore = false;
@@ -2001,8 +1987,6 @@ namespace datalog {
                             STRACE("predabst", tout << "  " << mk_pp(e, m) << "\n";);
                             solver.assert_expr(e);
                             if (solver.check() != l_true) {
-                                core_info.m_last_name = item.m_name;
-                                core_info.m_last_pos = i;
                                 return true;
                             }
                         }
@@ -2010,13 +1994,9 @@ namespace datalog {
                 }
                 for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
                     node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
-                    unsigned qname = core.size();
                     expr_ref_vector qargs = apply_subst(ri.get_args(i, this), rule_subst);
-                    STRACE("predabst", tout << "  reaching node " << qnode << " / tree node " << qname << " (" << qnode.m_fdecl_info << "(" << qargs << "))\n";);
-                    todo.push_back(name_app(qname, qargs));
-                    core.push_back(core_tree_node(qnode.m_id));
-                    core[item.m_name].m_names.push_back(qname);
-                    name2func_decl.push_back(qnode.m_fdecl_info);
+                    STRACE("predabst", tout << "  reaching node " << qnode << " (" << qnode.m_fdecl_info << "(" << qargs << "))\n";);
+                    todo.push_back(name_app(qnode.m_id, qargs));
                 }
             }
 
@@ -2036,75 +2016,70 @@ namespace datalog {
                 tout << "Example solution: " << root_node.m_fdecl_info << "(" << solution << ")\n";
             });
 
-            core_info.m_last_name = (unsigned)-1;
-            core_info.m_last_pos = 0;
             return false;
         }
 
-        core_clauses mk_core_clauses(expr_ref_vector const& root_args, core_tree_info const& core_info, expr_ref* last_clause_body = NULL) const {
+        core_clauses mk_core_clauses(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info const& core_info, vector<func_decl_info*>& name2func_decl, expr_ref* last_clause_body = NULL) const {
             STRACE("predabst", tout << "Building clauses\n";);
             core_clauses clauses;
 
-            unsigned last_name = core_info.m_last_name;
-            unsigned last_pos = core_info.m_last_pos;
-            core_tree const& core = core_info.m_core;
+            unsigned last_count = core_info.m_count;
+            unsigned count = 0;
 
             vector<name_app> todo;
+            vector<unsigned> name2node_id;
+            name2node_id.push_back(root_node.m_id);
+            name2func_decl.push_back(root_node.m_fdecl_info);
             todo.push_back(name_app(0, root_args));
 
-            bool found_last = false;
-            while (!found_last && !todo.empty()) {
+            while (!todo.empty()) {
                 name_app item = todo.back();
                 todo.pop_back();
 
+                expr_ref_vector cs(m);
                 vector<name_app> parents;
 
-                if (item.m_name == last_name) {
-                    found_last = true;
-                }
-
-                expr_ref_vector cs(m);
-
-                node_info const& node = m_nodes[core[item.m_name].m_node_id];
-                vector<unsigned> const& names = core[item.m_name].m_names;
+                node_info const& node = m_nodes[name2node_id[item.m_name]];
                 rule_info const& ri = m_rules[node.m_parent_rule];
 
-                expr_ref_vector rule_subst(m);
-                expr_ref_vector terms = get_rule_terms(ri, item.m_args, rule_subst);
-                for (unsigned i = 0; i < (found_last ? last_pos + 1 : terms.size()); ++i) {
-                    cs.push_back(terms.get(i));
-                }
+                if (count < last_count) {
+                    expr_ref_vector rule_subst(m);
+                    expr_ref_vector terms = get_rule_terms(ri, item.m_args, rule_subst);
+                    for (unsigned i = 0; i < terms.size(); ++i) {
+                        cs.push_back(terms.get(i));
+                        count++;
+                        if (count == last_count) {
+                            if (last_clause_body) {
+                                *last_clause_body = cs.get(cs.size() - 1);
+                            }
+                            break;
+                        }
+                    }
 
-                if (found_last) {
-                    CASSERT("predabst", last_clause_body); // found_last => last_clause_body
-                    *last_clause_body = cs.get(cs.size() - 1);
-                    CASSERT("predabst", names.empty());
-                }
-                else {
-                    CASSERT("predabst", names.size() == ri.get_tail_size());
-                    for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
-                        node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
-                        unsigned qname = names.get(i);
-                        if (!core[qname].m_visited) {
-                            continue;
-                        }
-                        // Ensure that all the qargs are (distinct) uninterpreted constants.
-                        expr_ref_vector pargs = apply_subst(ri.get_args(i, this), rule_subst);
-                        expr_ref_vector qargs(m);
-                        for (unsigned j = 0; j < pargs.size(); ++j) {
-                            expr_ref arg_j(pargs.get(j), m);
-                            if (is_uninterp_const(arg_j) && !qargs.contains(arg_j)) {
-                                qargs.push_back(arg_j);
+                    if (count < last_count) {
+                        for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
+                            node_info const& qnode = m_nodes[node.m_parent_nodes[i]];
+                            unsigned qname = name2node_id.size();
+                            // Ensure that all the qargs are (distinct) uninterpreted constants.
+                            expr_ref_vector pargs = apply_subst(ri.get_args(i, this), rule_subst);
+                            expr_ref_vector qargs(m);
+                            for (unsigned j = 0; j < pargs.size(); ++j) {
+                                expr_ref arg_j(pargs.get(j), m);
+                                if (is_uninterp_const(arg_j) && !qargs.contains(arg_j)) {
+                                    qargs.push_back(arg_j);
+                                }
+                                else {
+                                    app_ref f(m.mk_fresh_const("x", get_sort(arg_j)), m);
+                                    qargs.push_back(f);
+                                    expr_ref constraint(m.mk_eq(f, arg_j), m);
+                                    cs.push_back(constraint);
+                                }
                             }
-                            else {
-                                app_ref f(m.mk_fresh_const("x", get_sort(arg_j)), m);
-                                qargs.push_back(f);
-                                expr_ref constraint(m.mk_eq(f, arg_j), m);
-                                cs.push_back(constraint);
-                            }
+                            name2node_id.push_back(qnode.m_id);
+                            name2func_decl.push_back(qnode.m_fdecl_info);
+                            todo.push_back(name_app(qname, qargs));
+                            parents.push_back(name_app(qname, qargs));
                         }
-                        todo.push_back(name_app(qname, qargs));
-                        parents.push_back(name_app(qname, qargs));
                     }
                 }
 
@@ -2113,7 +2088,7 @@ namespace datalog {
                 clauses.push_back(clause);
             }
 
-            CASSERT("predabst", !last_clause_body || found_last); // last_clause_body => found_last
+            CASSERT("predabst", count == last_count);
             return clauses;
         }
 
@@ -2489,16 +2464,6 @@ namespace datalog {
                 func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
                 fi->set_else(e);
                 md->register_decl(fdecl, fi);
-            }
-        }
-
-        void print_core_tree(std::ostream& out, core_tree const& core) {
-            for (unsigned i = 0; i < core.size(); ++i) {
-                out << "core_name: " << i << ", core_id: " << core[i].m_node_id << ", core_ids: [";
-                for (unsigned j = 0; j < core[i].m_names.size(); ++j) {
-                    out << " " << core[i].m_names.get(j);
-                }
-                out << "]\n";
             }
         }
 

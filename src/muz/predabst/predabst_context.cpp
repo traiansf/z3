@@ -1367,9 +1367,11 @@ namespace datalog {
             for (unsigned i = 0; i < preds.size(); ++i) {
                 expr_ref c(m.mk_fresh_const("cv", m.mk_bool_sort()), m);
                 cond_vars.push_back(c);
-                expr_ref e(m.mk_iff(preds.get(i), c), m);
-                m_stats.m_num_solver_assert_invocations++;
-                solver->assert_expr(e);
+                if (!m.is_true(preds.get(i))) {
+                    expr_ref e(m.mk_iff(preds.get(i), c), m);
+                    m_stats.m_num_solver_assert_invocations++;
+                    solver->assert_expr(e);
+                }
             }
             return cond_vars;
         }
@@ -1950,24 +1952,29 @@ namespace datalog {
             return expr_ref(m.mk_or(m.mk_not(cs), m.mk_and(bound, decrease)), m);
         }
 
-        unsigned mk_core_tree_binary(smt::kernel& solver, expr_ref_vector const& cond_vars, unsigned lo, unsigned hi) const {
+        // Returns the smallest n such that the conjunction of the first n
+        // assumptions is unsatisfiable, if any; otherwise returns the
+        // number of assumptions.
+        unsigned find_unsat_prefix(smt::kernel& solver, expr_ref_vector const& assumptions) const {
+            return find_unsat_prefix(solver, assumptions.c_ptr(), 0, assumptions.size());
+        }
+
+        unsigned find_unsat_prefix(smt::kernel& solver, expr* const* assumptions, unsigned lo, unsigned hi) const {
             // pre-conditions:
             // -  conjunction of first lo terms (sequence e_0 .. e_{lo-1}) is sat
-            // -  conjunction of first hi terms (sequence e_0 .. e_{hi-1}) is unsat
-            // returns:
-            // -  smallest n such that first n terms is unsat
-            CASSERT("predabst", lo < hi);
-            if (lo + 1 == hi) {
+            // -  conjunction of first hi terms (sequence e_0 .. e_{hi-1}) is either unsat, or else hi = #terms
+            CASSERT("predabst", lo <= hi);
+            if ((lo == hi) || (lo + 1 == hi)) {
                 return hi;
             }
             unsigned mid = lo + (hi - lo) / 2;
             CASSERT("predabst", lo < mid);
             CASSERT("predabst", mid < hi);
-            if (solver.check(mid, cond_vars.c_ptr()) != l_true) {
-                return mk_core_tree_binary(solver, cond_vars, lo, mid);
+            if (solver.check(mid, assumptions) != l_true) {
+                return find_unsat_prefix(solver, assumptions, lo, mid);
             }
             else {
-                return mk_core_tree_binary(solver, cond_vars, mid, hi);
+                return find_unsat_prefix(solver, assumptions, mid, hi);
             }
         }
 
@@ -1981,31 +1988,29 @@ namespace datalog {
             expr_ref_vector terms = get_conj_terms(mk_leaves(root_node, root_args));
             pre_simplify(terms);
             expr_ref_vector cond_vars = assert_exprs_upfront(terms, &solver);
-            if (solver.check(cond_vars.size(), cond_vars.c_ptr()) != l_true) {
-                core_info.m_count = mk_core_tree_binary(solver, cond_vars, 0, terms.size());
-                CASSERT("predabst", core_info.m_count > 0);
-                CASSERT("predabst", core_info.m_count <= cond_vars.size());
+            core_info.m_count = find_unsat_prefix(solver, cond_vars);
+            CASSERT("predabst", core_info.m_count <= cond_vars.size());
+
+            if ((core_info.m_count == cond_vars.size()) &&
+                (solver.check(cond_vars.size(), cond_vars.c_ptr()) == l_true)) {
+                STRACE("predabst", {
+                    model_ref modref;
+                    solver.get_model(modref);
+                    expr_ref_vector solution(m);
+                    for (unsigned i = 0; i < root_args.size(); ++i) {
+                        expr_ref val(m);
+                        if (!modref->eval(root_args.get(i), val, true)) {
+                            tout << "Failed to get model for root_args[" << i << "]\n";
+                        }
+                        solution.push_back(val);
+                    }
+                    tout << "Example solution: " << root_node.m_fdecl_info << "(" << solution << ")\n";
+                });
+                return false;
+            }
+            else {
                 return true;
             }
-
-            STRACE("predabst", {
-                lbool result = solver.check();
-                CASSERT("predabst", result == l_true);
-                model_ref modref;
-                solver.get_model(modref);
-                expr_ref_vector solution(m);
-                for (unsigned i = 0; i < root_args.size(); ++i) {
-                    expr_ref val(m);
-                    if (!modref->eval(root_args.get(i), val, true)) {
-                        tout << "Failed to get model for root_args[" << i << "]\n";
-                    }
-                    solution.push_back(val);
-                }
-                tout << "Example solution: " << root_node.m_fdecl_info << "(" << solution << ")\n";
-            });
-
-            core_info.m_count = cond_vars.size();
-            return false;
         }
 
         core_clauses mk_core_clauses(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info const& core_info, vector<func_decl_info*>& name2func_decl, expr_ref* last_clause_body = NULL) const {

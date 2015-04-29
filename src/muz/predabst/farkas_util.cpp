@@ -134,7 +134,7 @@ class linear_inequality {
     //
     // Specifically, represents the (in)equality:
     //     (Sigma_i (m_vars[i] * m_coeffs[i])) m_op m_const
-    // where m_vars are distinct (grounded) variables, and m_coeffs and
+    // where m_vars are distinct variables, and m_coeffs and
     // m_const do not contain any of those variables.
 
     expr_ref_vector const m_vars;
@@ -153,7 +153,7 @@ public:
         m_const(vars.get_manager()),
         m(vars.get_manager()) {
         for (unsigned i = 0; i < vars.size(); ++i) {
-            CASSERT("predabst", is_uninterp_const(vars[i]));
+            CASSERT("predabst", is_var(vars[i]) || is_uninterp_const(vars[i]));
             CASSERT("predabst", sort_is_int(vars[i], m));
         }
     }
@@ -164,7 +164,6 @@ public:
     // operands are not integers, or if they are not linear in m_vars.
     bool set(expr_ref const& e) {
         CASSERT("predabst", is_well_sorted(m, e));
-        CASSERT("predabst", is_ground(e));
         arith_util arith(m);
         th_rewriter rw(m);
 
@@ -240,7 +239,9 @@ public:
 
         // Move the constant terms to the RHS of the (in)equality.
         m_const = arith.mk_uminus(mk_sum(const_terms));
+        STRACE("predabst", tout << "m_const before rewrite: " << mk_pp(m_const, m) << "\n";);
         rw(m_const);
+        STRACE("predabst", tout << "m_const after rewrite: " << mk_pp(m_const, m) << "\n";);
 
         for (unsigned i = 0; i < m_vars.size(); ++i) {
             m_coeffs.push_back(mk_sum(var_terms.get(i)));
@@ -263,6 +264,76 @@ public:
 
     bool has_params() const {
         return m_has_params;
+    }
+
+    expr_ref to_expr() const {
+        arith_util arith(m);
+        expr_ref_vector lhs_terms(m);
+        expr_ref_vector rhs_terms(m);
+
+        for (unsigned i = 0; i < m_vars.size(); ++i) {
+            expr* coeff = m_coeffs.get(i);
+            rational val;
+            bool is_int;
+            bool result = arith.is_numeral(coeff, val, is_int);
+            CASSERT("predabst", result);
+            CASSERT("predabst", is_int);
+            if (val.is_pos()) {
+                if (val.is_one()) {
+                    lhs_terms.push_back(m_vars.get(i));
+                }
+                else {
+                    lhs_terms.push_back(arith.mk_mul(coeff, m_vars.get(i)));
+                }
+            }
+            else if (val.is_neg()) {
+                if (val.is_minus_one()) {
+                    rhs_terms.push_back(m_vars.get(i));
+                }
+                else {
+                    expr_ref neg_coeff(arith.mk_numeral(-val, is_int), m);
+                    rhs_terms.push_back(arith.mk_mul(neg_coeff, m_vars.get(i)));
+                }
+            }
+            else {
+                CASSERT("predabst", val.is_zero());
+            }
+        }
+
+        // Prefer X + Y >= Z to Z <= X + Y, but prefer X + Y <= Z + W to Z + W >= X + Y.
+        bool swap = (rhs_terms.size() > lhs_terms.size());
+        bool strict = false;
+
+        rational val;
+        bool is_int;
+        bool result = arith.is_numeral(m_const, val, is_int);
+        CASSERT("predabst", result);
+        CASSERT("predabst", is_int);
+        if (val.is_pos()) {
+            rhs_terms.push_back(m_const);
+        }
+        else if (val.is_neg()) {
+            if ((m_op == op_le) && val.is_minus_one() && !lhs_terms.empty()) {
+                // Prefer X < Y to X + 1 <= Y, but prefer X <= 1 to X < 0.
+                strict = true;
+            }
+            else {
+                expr_ref neg_const(arith.mk_numeral(-val, is_int), m);
+                lhs_terms.push_back(neg_const);
+            }
+        }
+        else {
+            CASSERT("predabst", val.is_zero());
+        }
+
+        // Prefer X + Y + C <= Z + W to Z + W <= X + Y + C.
+        swap |= (rhs_terms.size() > lhs_terms.size());
+
+        expr_ref lhs = mk_sum(lhs_terms);
+        expr_ref rhs = mk_sum(rhs_terms);
+        return expr_ref(m_op == op_eq ? (swap ? m.mk_eq(rhs, lhs) : m.mk_eq(lhs, rhs)) :
+            strict ? (swap ? arith.mk_gt(rhs, lhs) : arith.mk_lt(lhs, rhs)) :
+            (swap ? arith.mk_ge(rhs, lhs) : arith.mk_le(lhs, rhs)), m);
     }
 
     friend std::ostream& operator<<(std::ostream& out, linear_inequality const& lineq);
@@ -502,6 +573,7 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
         expr_ref_vector conjs = get_conj_terms(expr_ref(disjs.get(i), m));
         if (eliminate_unsat_disjuncts) {
             smt_params new_param;
+            new_param.m_model = false;
             smt::kernel solver(fml.m(), new_param);
             for (unsigned j = 0; j < conjs.size(); ++j) {
                 solver.assert_expr(conjs.get(j));
@@ -550,6 +622,7 @@ bool get_farkas_coeffs_directly(expr_ref_vector const& assertions, vector<int64>
     ast_manager& m = assertions.m();
     scoped_proof sp(m);
     smt_params new_param;
+    new_param.m_model = false;
     smt::kernel solver(m, new_param);
     for (unsigned i = 0; i < assertions.size(); ++i) {
         solver.assert_expr(assertions.get(i));
@@ -598,7 +671,7 @@ bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<int64>
 }
 
 bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<int64>& coeffs) {
-    return get_farkas_coeffs_directly(assertions, coeffs) ||
+    return /* get_farkas_coeffs_directly(assertions, coeffs) || >>> */
         get_farkas_coeffs_via_dual(assertions, coeffs);
 }
 
@@ -768,4 +841,26 @@ expr_ref_vector mk_bilinear_lambda_constraints(vector<lambda_info> const& lambda
         }
     }
     return constraints;
+}
+
+expr_ref normalize_pred(expr_ref const& e, var_ref_vector const& vars) {
+    ast_manager& m = e.m();
+    STRACE("predabst", tout << "Normalizing: " << mk_pp(e, m) << " -> ";);
+    th_rewriter tw(m);
+    expr_ref e2 = e;
+    tw(e2); // >>> convert 0 = 0 to true, etc.
+    e2 = to_nnf(e2); // >>> bit of a hack; eliminates 'not'; but also turns not (x=y) into a disjunction, which we probably don't want here.
+    for (unsigned i = 0; i < vars.size(); ++i) {
+        if (!sort_is_int(vars.get(i), m)) {
+            STRACE("predabst", tout << mk_pp(e2, m) << "\n";);
+            return e2;
+        }
+    }
+    expr_ref_vector expr_vars(m, vars.size(), (expr* const*)vars.c_ptr());
+    linear_inequality ineq(expr_vars);
+    if (ineq.set(e2)) {
+        e2 = ineq.to_expr();
+    }
+    STRACE("predabst", tout << mk_pp(e2, m) << "\n";);
+    return e2;
 }

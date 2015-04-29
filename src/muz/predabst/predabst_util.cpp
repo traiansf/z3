@@ -227,13 +227,13 @@ expr_ref_vector get_all_vars(expr_ref const& fml) {
     while (!todo.empty()) {
         expr* e = todo.back();
         todo.pop_back();
-        CASSERT("predabst", is_app(e));
-        if (is_uninterp_const(e)) {
+        if (is_var(e) || is_uninterp_const(e)) {
             if (!vars.contains(e)) {
                 vars.push_back(e);
             }
         }
         else {
+            CASSERT("predabst", is_app(e));
             todo.append(to_app(e)->get_num_args(), to_app(e)->get_args());
         }
     }
@@ -244,9 +244,9 @@ void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
     ast_manager& m = fml.get_manager();
     app_ref_vector q_vars(m);
     expr_ref_vector all_vars = get_all_vars(fml);
-    for (unsigned j = 0; j < all_vars.size(); j++) {
-        if (!vars.contains(all_vars.get(j))) {
-            q_vars.push_back(to_app(all_vars.get(j)));
+    for (unsigned i = 0; i < all_vars.size(); ++i) {
+        if (!vars.contains(all_vars.get(i))) {
+            q_vars.push_back(to_app(all_vars.get(i)));
         }
     }
     STRACE("predabst", tout << "Eliminating existentials " << q_vars << " from " << mk_pp(fml, m) << " in variables " << vars << " ...\n";);

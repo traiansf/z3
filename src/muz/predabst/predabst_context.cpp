@@ -349,7 +349,7 @@ namespace datalog {
 #endif
         mutable var_subst      m_var_subst;   // substitution object. It gets updated and reset.
 #ifdef PREDABST_PRE_SIMPLIFY
-        simplifier             m_simplifier;
+        mutable simplifier     m_simplifier;
 #endif
         volatile bool          m_cancel;      // Boolean flag to track external cancelation.
         stats                  m_stats;       // statistics information specific to the predabst module.
@@ -1303,7 +1303,7 @@ namespace datalog {
             }
         }
 
-        void pre_simplify(expr_ref_vector& exprs) {
+        void pre_simplify(expr_ref_vector& exprs) const {
 #ifdef PREDABST_PRE_SIMPLIFY
             for (unsigned i = 0; i < exprs.size(); ++i) {
                 proof_ref pr(m);
@@ -1504,11 +1504,11 @@ namespace datalog {
                     }
                 }
 
-#ifdef Z3DEBUG
+//#ifdef Z3DEBUG
                 if (!m_cancel && !check_solution()) {
                     throw default_exception("check_solution failed");
                 }
-#endif
+//#endif
 
                 // We managed to find a solution.
                 return true;
@@ -1903,9 +1903,7 @@ namespace datalog {
         }
 
         unsigned maybe_add_pred(func_decl_info* fi, expr_ref const& p) {
-            expr_ref pred(p);
-            th_rewriter tw(m);
-            tw(pred);
+            expr_ref pred = normalize_pred(p, fi->m_vars);
             if (m.is_true(pred) || m.is_false(pred)) {
                 STRACE("predabst", tout << "Ignoring predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
                 return 0;
@@ -1937,7 +1935,17 @@ namespace datalog {
             }
 
             m_template_constraints.push_back(to_solve);
+
+            expr_ref_vector evars = get_all_vars(cs);
+            for (unsigned i = 0; i < error_args.size(); ++i) {
+                evars.erase(error_args.get(i));
+            }
+            for (unsigned i = 0; i < m_template_params.size(); ++i) {
+                evars.erase(m_template_params.get(i));
+            }
+
             m_template_constraint_vars.append(error_args);
+            m_template_constraint_vars.append(evars);
         }
 
         expr_ref template_constraint_reached_query(expr_ref cs) {
@@ -1953,6 +1961,9 @@ namespace datalog {
 
         bool mk_core_tree(node_info const& root_node, expr_ref_vector const& root_args, core_tree_info &core_info) const {
             smt_params new_param;
+#ifndef _TRACE
+            new_param.m_model = false;
+#endif
             smt::kernel solver(m, new_param);
             core_tree& core = core_info.m_core;
             vector<func_decl_info*>& name2func_decl = core_info.m_name2func_decl;
@@ -1974,13 +1985,27 @@ namespace datalog {
                 STRACE("predabst", tout << "To reach node " << node << " / tree node " << item.m_name << " (" << node.m_fdecl_info << "(" << item.m_args << ")) via rule " << node.m_parent_rule << " requires:\n";);
                 expr_ref_vector rule_subst(m);
                 expr_ref_vector terms = get_rule_terms(ri, item.m_args, rule_subst);
+                pre_simplify(terms);
+
                 for (unsigned i = 0; i < terms.size(); ++i) {
-                    STRACE("predabst", tout << "  " << mk_pp(terms.get(i), m) << "\n";);
-                    solver.assert_expr(terms.get(i));
-                    if (solver.check() != l_true) {
-                        core_info.m_last_name = item.m_name;
-                        core_info.m_last_pos = i;
-                        return true;
+                    expr_ref e(terms.get(i), m);
+                    if (!m.is_true(e)) {
+                        bool ignore = false;
+#if 0
+                        solver.push();
+                        solver.assert_expr(m.mk_not(e));
+                        bool ignore = (solver.check() != l_true);
+                        solver.pop(1);
+#endif
+                        if (!ignore) {
+                            STRACE("predabst", tout << "  " << mk_pp(e, m) << "\n";);
+                            solver.assert_expr(e);
+                            if (solver.check() != l_true) {
+                                core_info.m_last_name = item.m_name;
+                                core_info.m_last_pos = i;
+                                return true;
+                            }
+                        }
                     }
                 }
                 for (unsigned i = 0; i < ri.get_tail_size(); ++i) {

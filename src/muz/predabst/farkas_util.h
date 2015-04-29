@@ -50,4 +50,6 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
 
 expr_ref_vector mk_bilinear_lambda_constraints(vector<lambda_info> const& lambda_infos, int max_lambda, ast_manager& m);
 
+expr_ref normalize_pred(expr_ref const& e, var_ref_vector const& vars);
+
 #endif /* _FARKAS_UTIL_H_ */

@@ -1987,11 +1987,36 @@ namespace datalog {
 
             expr_ref_vector terms = get_conj_terms(mk_leaves(root_node, root_args));
             pre_simplify(terms);
-            expr_ref_vector cond_vars = assert_exprs_upfront(terms, &solver);
-            core_info.m_count = find_unsat_prefix(solver, cond_vars);
+
+            expr_ref_vector cond_vars(m);
+            unsigned lo = 0;
+            unsigned hi = 0;
+            unsigned increment = 4;
+            while (hi < terms.size()) {
+                lo = hi;
+                hi += increment;
+                if (hi > terms.size()) {
+                    hi = terms.size();
+                }
+                for (unsigned i = lo; i < hi; ++i) {
+                    expr_ref c(m.mk_fresh_const("cv", m.mk_bool_sort()), m);
+                    cond_vars.push_back(c);
+                    if (!m.is_true(terms.get(i))) {
+                        expr_ref e(m.mk_iff(terms.get(i), c), m);
+                        m_stats.m_num_solver_assert_invocations++;
+                        solver.assert_expr(e);
+                    }
+                }
+                if (solver.check(cond_vars.size(), cond_vars.c_ptr()) != l_true) {
+                    break;
+                }
+                increment *= 2;
+            }
+            // first 'lo' are sat; first 'hi' are unsat, or else hi = #terms
+            core_info.m_count = find_unsat_prefix(solver, cond_vars.c_ptr(), lo, hi);
             CASSERT("predabst", core_info.m_count <= cond_vars.size());
 
-            if ((core_info.m_count == cond_vars.size()) &&
+            if ((core_info.m_count == terms.size()) &&
                 (solver.check(cond_vars.size(), cond_vars.c_ptr()) == l_true)) {
                 STRACE("predabst", {
                     model_ref modref;

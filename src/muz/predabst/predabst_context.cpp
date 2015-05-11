@@ -37,7 +37,6 @@ Revision History:
 #include <map>
 #include <algorithm>
 
-#define PREDABST_COMPLETE_CUBE
 #define PREDABST_ORDER_CARTPROD_CHOICES
 #undef PREDABST_ASSERT_EXPR_UPFRONT
 #define PREDABST_PRE_SIMPLIFY
@@ -121,35 +120,19 @@ namespace datalog {
         typedef uint_set node_set;
         //typedef uint_set rule_set; // rule_set has another meaning; use node_id_set/rule_id_set?
 
-        struct pred_info {
-            expr_ref         m_pred;
-            bool             m_root_pred;
-#ifndef PREDABST_COMPLETE_CUBE
-            vector<unsigned> m_implied;
-#endif
-            pred_info(expr_ref const& pred) :
-                m_pred(pred),
-                m_root_pred(false) {}
-            pred_info(app_ref const& pred) :
-                m_pred(expr_ref(pred.get(), pred.m())),
-                m_root_pred(false) {}
-        };
-
         struct func_decl_info {
-            func_decl*        m_fdecl;
-            var_ref_vector    m_vars;
-            vector<pred_info> m_preds;
-#ifndef PREDABST_COMPLETE_CUBE
-            vector<unsigned>  m_root_preds;
-#endif
-            uint_set          m_users;
-            node_set          m_max_reach_nodes;
-            bool              m_is_wf_predicate;
-            bool              m_has_template;
-            unsigned          m_template_id;
+            func_decl*      m_fdecl;
+            var_ref_vector  m_vars;
+            expr_ref_vector m_preds;
+            uint_set        m_users;
+            node_set        m_max_reach_nodes;
+            bool            m_is_wf_predicate;
+            bool            m_has_template;
+            unsigned        m_template_id;
             func_decl_info(func_decl* fdecl, var_ref_vector const& vars, bool is_wf_predicate) :
                 m_fdecl(fdecl),
                 m_vars(vars),
+                m_preds(vars.m()),
                 m_is_wf_predicate(is_wf_predicate),
                 m_has_template(false),
                 m_template_id(0) {}
@@ -586,17 +569,6 @@ namespace datalog {
             return exprs2;
         }
 
-        // Apply a substitution vector to each expression in a vector of
-        // expressions, returning the result.
-        expr_ref_vector apply_subst(vector<pred_info> const& preds, expr_ref_vector const& subst) const {
-            expr_ref_vector exprs2(m);
-            exprs2.reserve(preds.size());
-            for (unsigned i = 0; i < preds.size(); ++i) {
-                exprs2[i] = apply_subst(preds[i].m_pred, subst);
-            }
-            return exprs2;
-        }
-
         // Returns a substitution vector that maps each variable in vars to the
         // corresponding expression in exprs.
         expr_ref_vector build_subst(unsigned n, var* const* vars, expr* const* exprs) const {
@@ -836,30 +808,9 @@ namespace datalog {
             return has_free_vars(e, expr_ref_vector(m));
         }
 
-#ifndef PREDABST_COMPLETE_CUBE
-        static void add_implied_to_cube(cube_t& cube, vector<pred_info> const& preds, unsigned idx) {
-            CASSERT("predabst", !cube[idx]);
-            cube[idx] = true;
-            for (unsigned i = 0; i < preds[idx].m_implied.size(); ++i) {
-                add_implied_to_cube(cube, preds, preds[idx].m_implied[i]);
-            }
-        }
-
-        // Return the completion of cube, i.e. the vector containing all predicates that are implied by those in cube.
-        static cube_t complete_cube(cube_t const& cube, func_decl_info const* fi) {
-            cube_t completion;
-            for (unsigned i = 0; i < cube.size(); ++i) {
-                if (cube[i]) {
-                    add_implied_to_cube(completion, fi->m_preds, i);
-                }
-            }
-            return completion;
-        }
-#endif
-
         // Returns whether c1 implies c2, or in other words, whether the set
         // represented by c1 is a (non-strict) subset of that represented by c2.
-        static bool complete_cube_leq(cube_t const& c1, cube_t const& c2) {
+        static bool cube_leq(cube_t const& c1, cube_t const& c2) {
             CASSERT("predabst", c1.size() == c2.size());
             unsigned size = c1.size();
             for (unsigned i = 0; i < size; ++i) {
@@ -874,19 +825,11 @@ namespace datalog {
             return true;
         }
 
-        static bool cube_leq(cube_t const& c1, cube_t const& c2, func_decl_info const* fi) {
-#ifdef PREDABST_COMPLETE_CUBE
-            return complete_cube_leq(c1, c2);
-#else
-            return complete_cube_leq(complete_cube(c1, fi), c2);
-#endif
-        }
-
-        expr_ref cube_to_formula(cube_t const& cube, vector<pred_info> const& preds) const {
+        expr_ref cube_to_formula(cube_t const& cube, expr_ref_vector const& preds) const {
             expr_ref_vector es(m);
             for (unsigned i = 0; i < cube.size(); ++i) {
                 if (cube[i]) {
-                    es.push_back(preds[i].m_pred);
+                    es.push_back(preds[i]);
                 }
             }
             return mk_conj(es);
@@ -1173,52 +1116,6 @@ namespace datalog {
                     func_decl_info* fi = m_func_decl2info[m_func_decls.get(i)];
                     if (!fi->m_has_template) {
                         fi->m_max_reach_nodes.reset();
-#ifndef PREDABST_COMPLETE_CUBE
-                        // Set up m_func_decl2info::m_preds::m_implied for this iteration.
-                        for (unsigned j = 0; j < fi->m_preds.size(); ++j) {
-                            fi->m_preds[j].m_implied.reset();
-                            fi->m_preds[j].m_root_pred = true;
-                        }
-
-                        expr_ref_vector subst = build_subst(fi->m_vars, get_fresh_args(fi, "a"));
-                        expr_ref_vector inst_preds = apply_subst(fi->m_preds, subst);
-
-                        for (unsigned j = 0; j < fi->m_preds.size(); ++j) {
-                            for (unsigned k = 0; k < fi->m_preds.size(); ++k) {
-                                if (j != k) {
-                                    // Does preds[j] imply preds[k]?
-                                    smt_params new_param;
-                                    smt::kernel solver(m, new_param);
-                                    solver.assert_expr(inst_preds.get(j));
-                                    solver.assert_expr(expr_ref(m.mk_not(inst_preds.get(k)), m));
-                                    if (solver.check() != l_false) {
-                                        // preds[j] implies preds[k].
-                                        fi->m_preds[j].m_implied.push_back(k);
-                                        fi->m_preds[k].m_root_pred = false;
-                                    }
-                                }
-                            }
-                        }
-
-                        fi->m_root_preds.reset();
-                        for (unsigned j = 0; j < fi->m_preds.size(); ++j) {
-                            if (fi->m_preds[j].m_root_pred) {
-                                fi->m_root_preds.push_back(j);
-                            }
-                        }
-
-                        STRACE("predabst", print_preds_forest(tout, fi););
-
-                        // Debug code: check that every predicate appears precisely once in the forest.
-                        cube_t full_cube;
-                        full_cube.resize(fi->m_preds.size());
-                        for (unsigned j = 0; j < fi->m_root_preds.size(); ++j) {
-                            add_implied_to_cube(full_cube, fi->m_preds, fi->m_root_preds[j]);
-                        }
-                        for (unsigned j = 0; j < full_cube.size(); ++j) {
-                            CASSERT("predabst", full_cube[j]);
-                        }
-#endif
                     }
                 }
 
@@ -1640,21 +1537,6 @@ namespace datalog {
             return (result == l_false);
         }
 
-#ifndef PREDABST_COMPLETE_CUBE
-        void build_cube(cube_t& cube, expr_ref_vector const& es, vector<pred_info> const& preds, vector<unsigned> const& pred_idxs, rule_instance_info const& info, expr_ref_vector& cond_vars) {
-            for (unsigned i = 0; i < pred_idxs.size(); ++i) {
-                unsigned idx = pred_idxs[i];
-                CASSERT("predabst", !cube[idx]);
-                if (is_implied(es[idx], info, cond_vars)) {
-                    cube[idx] = true;
-                }
-                else {
-                    build_cube(cube, es, preds, preds[idx].m_implied, info, cond_vars);
-                }
-            }
-        }
-#endif
-
         static uint_set singleton_set(unsigned n) {
             uint_set s;
             s.insert(n);
@@ -1758,14 +1640,9 @@ namespace datalog {
             unsigned num_preds = es.size();
             cube_t cube;
             cube.resize(num_preds);
-#ifdef PREDABST_COMPLETE_CUBE
             for (unsigned i = 0; i < num_preds; ++i) {
                 cube[i] = is_implied(es.get(i), info, cond_vars);
             }
-#else
-            func_decl_info const* fi = ri.get_decl(this);
-            build_cube(cube, es, fi->m_preds, fi->m_root_preds, info, cond_vars);
-#endif
             return cube;
         }
 
@@ -1802,14 +1679,14 @@ namespace datalog {
                 for (node_set::iterator it = fi->m_max_reach_nodes.begin(); it != fi->m_max_reach_nodes.end(); ++it) {
                     cube_t const& old_cube = m_nodes[*it].m_cube;
                     // if cube implies existing cube then nothing to add
-                    if (cube_leq(cube, old_cube, fi)) {
+                    if (cube_leq(cube, old_cube)) {
                         STRACE("predabst", tout << "New node is subsumed by node " << *it << " with cube [" << old_cube << "]\n";);
                         CASSERT("predabst", old_lt_nodes.empty());
                         m_stats.m_num_nodes_suppressed++;
                         return NULL;
                     }
                     // stronger old cubes will not be considered maximal
-                    if (cube_leq(old_cube, cube, fi)) {
+                    if (cube_leq(old_cube, cube)) {
                         STRACE("predabst", tout << "New node subsumes node " << *it << " with cube [" << old_cube << "]\n";);
                         old_lt_nodes.push_back(*it);
                     }
@@ -1886,28 +1763,19 @@ namespace datalog {
             return (new_preds_added > 0);
         }
 
-        static bool contains_pred(vector<pred_info> const& preds, expr_ref const& pred) {
-            for (vector<pred_info>::const_iterator it = preds.begin(); it != preds.end(); ++it) {
-                if (it->m_pred == pred) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         unsigned maybe_add_pred(func_decl_info* fi, expr_ref const& p) {
             expr_ref pred = normalize_pred(p, fi->m_vars);
             if (m.is_true(pred) || m.is_false(pred)) {
                 STRACE("predabst", tout << "Ignoring predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
                 return 0;
             }
-            else if (contains_pred(fi->m_preds, pred)) {
+            else if (fi->m_preds.contains(pred)) {
                 STRACE("predabst", tout << "Predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ") is already present\n";);
                 return 0;
             }
             else {
                 STRACE("predabst", tout << "Found new predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
-                fi->m_preds.push_back(pred_info(pred));
+                fi->m_preds.push_back(pred);
                 return 1;
             }
         }
@@ -2526,20 +2394,6 @@ namespace datalog {
             out << "=====================================\n";
         }
 
-#ifndef PREDABST_COMPLETE_CUBE
-        void print_preds_forest(std::ostream& out, vector<pred_info> const& preds, vector<unsigned> const& preds_idxs, std::string const& prefix) const {
-            for (unsigned i = 0; i < preds_idxs.size(); ++i) {
-                unsigned idx = preds_idxs[i];
-                out << prefix << mk_pp(preds[idx].m_pred, m) << "\n";
-                print_preds_forest(out, preds, preds[idx].m_implied, prefix + "  ");
-            }
-        }
-
-        void print_preds_forest(std::ostream& out, func_decl_info const& fi) const {
-            print_preds_forest(out, fi->m_preds, fi->m_root_preds, "");
-        }
-#endif
-
         void print_refinement_state(std::ostream& out, unsigned refine_count) const {
             out << "=====================================\n";
             out << "State before refinement step " << refine_count << ":\n";
@@ -2554,12 +2408,7 @@ namespace datalog {
                     if (it->m_value->m_preds.empty()) {
                         out << "no ";
                     }
-                    out << "predicates ";
-                    for (vector<pred_info>::iterator it2 = it->m_value->m_preds.begin();
-                        it2 != it->m_value->m_preds.end(); ++it2) {
-                        out << mk_pp(it2->m_pred, m) << ", ";
-                    }
-                    out << std::endl;
+                    out << "predicates " << it->m_value->m_preds << std::endl;
                 }
             }
             out << "  Template parameter instances:" << std::endl;

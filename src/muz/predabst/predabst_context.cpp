@@ -124,6 +124,7 @@ namespace datalog {
             func_decl*      m_fdecl;
             var_ref_vector  m_vars;
             expr_ref_vector m_preds;
+            unsigned        m_new_preds;
             uint_set        m_users;
             node_set        m_max_reach_nodes;
             bool            m_is_wf_predicate;
@@ -133,6 +134,7 @@ namespace datalog {
                 m_fdecl(fdecl),
                 m_vars(vars),
                 m_preds(vars.m()),
+                m_new_preds(0),
                 m_is_wf_predicate(is_wf_predicate),
                 m_has_template(false),
                 m_template_id(0) {}
@@ -217,14 +219,18 @@ namespace datalog {
             unsigned                m_id;
             rule*                   m_rule;
             vector<unsigned>        m_uninterp_pos;
+            expr_ref_vector         m_rule_subst;
             rule_instance_info      m_instance_info;
             bool                    m_unsat;
             ast_manager&            m;
-            rule_info(unsigned id, rule* rule, ast_manager& m) :
+            rule_info(unsigned id, rule* r, expr_ref_vector& rule_subst, ast_manager& m) :
                 m_id(id),
-                m_rule(rule),
+                m_rule(r),
+                m_rule_subst(m),
                 m_instance_info(m),
-                m(m) {}
+                m(m) {
+                m_rule_subst.swap(rule_subst);
+            }
             unsigned get_tail_size() const {
                 return m_uninterp_pos.size();
             }
@@ -432,7 +438,7 @@ namespace datalog {
             CASSERT("predabst", m_rules.empty());
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
                 rule* r = rules.get_rule(i);
-                m_rules.push_back(rule_info(m_rules.size(), r, m));
+                m_rules.push_back(rule_info(m_rules.size(), r, get_subst_vect_free(r, "c"), m));
                 rule_info& ri = m_rules.back();
                 ri.m_instance_info.alloc_solver(m, m_fparams);
 
@@ -680,12 +686,12 @@ namespace datalog {
 
         // Returns a substitution vector mapping each variable used in r to a
         // fresh constant.
-        expr_ref_vector get_subst_vect_free(rule_info const& ri, char const* prefix) const {
+        expr_ref_vector get_subst_vect_free(rule* r, char const* prefix) const {
             used_vars used;
             // The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
-            used.process(ri.m_rule->get_head());
-            for (unsigned i = 0; i < ri.m_rule->get_tail_size(); ++i) {
-                used.process(ri.m_rule->get_tail(i));
+            used.process(r->get_head());
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                used.process(r->get_tail(i));
             }
 
             expr_ref_vector rule_subst(m);
@@ -1101,6 +1107,12 @@ namespace datalog {
                 RETURN_CHECK_CANCELLED(l_true);
             }
 
+            for (unsigned i = 0; !m_cancel && i < m_rules.size(); ++i) {
+                rule_info& ri = m_rules[i];
+                instantiate_rule_body(ri);
+                ri.m_unsat = !rule_body_satisfiable(ri);
+            }
+
             // The only things that change on subsequent iterations of this loop are
             // the predicate lists
             // (m_func_decl2info::m_preds) and template instances.  The latter can have an
@@ -1121,12 +1133,16 @@ namespace datalog {
                 // for each rule: ground body and instantiate predicates for applications
                 for (unsigned i = 0; !m_cancel && i < m_rules.size(); ++i) {
                     rule_info& ri = m_rules[i];
-                    instantiate_rule(ri);
-                    ri.m_unsat = !rule_body_satisfiable(ri);
+                    instantiate_rule_preds(ri);
                 }
 
                 STRACE("predabst", print_refinement_state(tout, refine_count););
 
+                for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+                    func_decl_info* fi = m_func_decl2info[m_func_decls.get(i)];
+                    fi->m_new_preds = 0;
+                }
+                
                 acr_error error;
                 if (find_solution(refine_count, error)) {
                     STRACE("predabst", tout << "Solution found: result is SAT\n";);
@@ -1174,6 +1190,12 @@ namespace datalog {
                         }
 
                         STRACE("predabst", tout << "Template refinement successful: retrying\n";);
+
+                        for (unsigned i = 0; !m_cancel && i < m_rules.size(); ++i) {
+                            rule_info& ri = m_rules[i];
+                            instantiate_rule_body(ri);
+                            ri.m_unsat = !rule_body_satisfiable(ri);
+                        }
                     }
                 }
 
@@ -1198,16 +1220,13 @@ namespace datalog {
 #endif
         }
 
-        void instantiate_rule(rule_info& ri) {
-            STRACE("predabst", tout << "Instantiating rule " << ri << "\n";);
+        void instantiate_rule_body(rule_info& ri) {
+            STRACE("predabst", tout << "Instantiating body of rule " << ri << "\n";);
             rule_instance_info& info = ri.m_instance_info;
             info.reset();
 
-            // create grounding substitution
-            expr_ref_vector rule_subst = get_subst_vect_free(ri, "c");
-
             // create ground body (including templated head/body applications)
-            expr_ref_vector body = get_rule_body(ri, rule_subst);
+            expr_ref_vector body = get_rule_body(ri, ri.m_rule_subst);
             pre_simplify(body);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
             for (unsigned i = 0; i < body.size(); ++i) {
@@ -1218,18 +1237,39 @@ namespace datalog {
             info.m_body.swap(body);
 #endif
 
+            // create placeholders for non-templated body applications
+            for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
+#ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                info.m_body_pred_cond_vars.push_back(expr_ref_vector(m));
+#else
+                info.m_body_preds.push_back(expr_ref_vector(m));
+#endif
+            }
+        }
+
+        void instantiate_rule_preds(rule_info& ri) {
+            STRACE("predabst", tout << "Instantiating predicates for rule " << ri << "\n";);
+            rule_instance_info& info = ri.m_instance_info;
+
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+            scoped_push push(m_solver);
+            for (unsigned i = 0; i < info.m_body.size(); ++i) {
+                m_solver.assert_expr(info.m_body.get(i));
+            }
+#endif
+
             // create instantiations for non-templated head applications
             func_decl_info const* fi = ri.get_decl(this);
             if (fi) {
                 CASSERT("predabst", !fi->m_has_template);
-                expr_ref_vector heads = app_inst_preds(fi, apply_subst(ri.get_args(this), rule_subst));
+                expr_ref_vector heads = app_inst_preds(fi, apply_subst(ri.get_args(this), ri.m_rule_subst));
                 invert(heads);
                 pre_simplify(heads);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                 expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);
                 info.m_head_pred_cond_vars.swap(head_cond_vars);
 #else
-                info.m_head_preds.swap(heads);
+                info.m_head_preds.append(heads);
 #endif
             }
 
@@ -1237,13 +1277,13 @@ namespace datalog {
             for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
                 func_decl_info const* fi = ri.get_decl(i, this);
                 CASSERT("predabst", fi && !fi->m_has_template);
-                expr_ref_vector tails = app_inst_preds(fi, apply_subst(ri.get_args(i, this), rule_subst));
+                expr_ref_vector tails = app_inst_preds(fi, apply_subst(ri.get_args(i, this), ri.m_rule_subst));
                 pre_simplify(tails);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                 expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
-                info.m_body_pred_cond_vars.push_back(tail_cond_vars);
+                info.m_body_pred_cond_vars.get(i).append(tail_cond_vars);
 #else
-                info.m_body_preds.push_back(tails);
+                info.m_body_preds.get(i).append(tails);
 #endif
             }
         }
@@ -1253,7 +1293,7 @@ namespace datalog {
             // instantiation maps preds variables to head arguments
             expr_ref_vector inst = build_subst(fi->m_vars, args);
             // preds instantiates to inst_preds
-            return apply_subst(fi->m_preds, inst);
+            return apply_subst(expr_ref_vector(m, fi->m_new_preds, fi->m_preds.c_ptr() + (fi->m_preds.size() - fi->m_new_preds)), inst);
         }
 
 //#ifdef PREDABST_ASSERT_EXPR_UPFRONT
@@ -1774,6 +1814,7 @@ namespace datalog {
             else {
                 STRACE("predabst", tout << "Found new predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
                 fi->m_preds.push_back(pred);
+                fi->m_new_preds++;
                 return 1;
             }
         }
@@ -2406,7 +2447,11 @@ namespace datalog {
                     if (it->m_value->m_preds.empty()) {
                         out << "no ";
                     }
-                    out << "predicates " << it->m_value->m_preds << std::endl;
+                    out << "predicates " << it->m_value->m_preds;
+                    if (it->m_value->m_new_preds > 0) {
+                        out << " (last " << it->m_value->m_new_preds << " new)";
+                    }
+                    out << std::endl;
                 }
             }
             out << "  Template parameter instances:" << std::endl;

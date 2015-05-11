@@ -662,8 +662,7 @@ namespace datalog {
                 if (!rule_subst.get(i)) {
                     sort* s = used.get(i);
                     if (s) {
-                        app *c = m.mk_fresh_const(prefix, s);
-                        rule_subst[i] = c;
+                        rule_subst[i] = m.mk_fresh_const(prefix, s);
                     }
                 }
             }
@@ -694,8 +693,7 @@ namespace datalog {
             for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
                 sort* s = used.get(i);
                 if (s) {
-                    app *c = m.mk_fresh_const(prefix, s);
-                    rule_subst[i] = c;
+                    rule_subst[i] = m.mk_fresh_const(prefix, s);
                 }
             }
 

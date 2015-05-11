@@ -177,11 +177,11 @@ namespace datalog {
                 dealloc(m_rule_solver);
                 m_rule_solver = NULL;
             }
-            void display(std::ostream& out, rule_info const& info) const {
-                out << "      head preds cond vars (" << info.get_decl()->get_name() << "): " << m_head_pred_cond_vars << "\n";
+            void display(std::ostream& out, rule_info const& info, imp const* _this) const {
+                out << "      head preds cond vars (" << info.get_decl(_this) << "): " << m_head_pred_cond_vars << "\n";
                 CASSERT("predabst", info.get_tail_size() == m_body_pred_cond_vars.size());
                 for (unsigned i = 0; i < info.get_tail_size(); ++i) {
-                    out << "      body pred cond vars " << i << " (" << info.get_decl(i)->get_name() << "): " << m_body_pred_cond_vars[i] << "\n";
+                    out << "      body pred cond vars " << i << " (" << info.get_decl(i, _this) << "): " << m_body_pred_cond_vars[i] << "\n";
                 }
             }
         };

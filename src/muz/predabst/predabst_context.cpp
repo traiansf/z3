@@ -1220,6 +1220,16 @@ namespace datalog {
 #endif
         }
 
+        void maybe_make_false(expr_ref_vector& exprs, smt::kernel* solver) const {
+            for (unsigned i = 0; i < exprs.size(); ++i) {
+                scoped_push _push(*solver);
+                solver->assert_expr(exprs.get(i));
+                if (solver->check() == l_false) {
+                    exprs[i] = m.mk_false();
+                }
+            }
+        }
+
         void instantiate_rule_body(rule_info& ri) {
             STRACE("predabst", tout << "Instantiating body of rule " << ri << "\n";);
             rule_instance_info& info = ri.m_instance_info;
@@ -1266,9 +1276,11 @@ namespace datalog {
                 invert(heads);
                 pre_simplify(heads);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                maybe_make_false(heads, info.m_rule_solver);
                 expr_ref_vector head_cond_vars = assert_exprs_upfront(heads, info.m_rule_solver);
                 info.m_head_pred_cond_vars.swap(head_cond_vars);
 #else
+                maybe_make_false(heads, &m_solver);
                 info.m_head_preds.append(heads);
 #endif
             }
@@ -1280,9 +1292,11 @@ namespace datalog {
                 expr_ref_vector tails = app_inst_preds(fi, apply_subst(ri.get_args(i, this), ri.m_rule_subst));
                 pre_simplify(tails);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
+                maybe_make_false(tails, info.m_rule_solver);
                 expr_ref_vector tail_cond_vars = assert_exprs_upfront(tails, info.m_rule_solver);
                 info.m_body_pred_cond_vars.get(i).append(tail_cond_vars);
 #else
+                maybe_make_false(tails, &m_solver);
                 info.m_body_preds.get(i).append(tails);
 #endif
             }
@@ -1493,6 +1507,61 @@ namespace datalog {
                 return;
             }
 
+            STRACE("predabst", {
+                if (fixed_node_id == NON_NODE) {
+                    tout << "Using rule " << ri << "\n";
+                }
+                else {
+                    tout << "Using rule " << ri << " with node " << fixed_node_id << " in position " << fixed_pos << "\n";
+                }
+            });
+
+            // Build the sets of cubes for each position.
+            vector<node_set> all_nodes;
+            vector<unsigned> all_nodes_sizes;
+            unsigned all_combs = 1;
+            for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
+                node_set pos_nodes;
+                unsigned pos_nodes_size = 0;
+                node_set const& nodes = (i == fixed_pos) ? singleton_set(fixed_node_id) : ri.get_decl(i, this)->m_max_reach_nodes;
+                for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it) {
+                    unsigned node_id = *it;
+                    if ((node_id > fixed_node_id) || ((i > fixed_pos) && (node_id == fixed_node_id))) {
+                        // Don't use any nodes newer than the fixed node; we'll have a chance to use newer nodes when they are taken off the worklist later.
+                        // Furthermore, don't use the fixed node further along that the fixed position; we'll have a chance to use it in both places when the fixed position advances.
+                        // Note that iterating over the max_reach_nodes set return nodes in ascending order, so we can bail out here.
+                        break;
+                    }
+
+                    bool skip = false;
+#ifndef PREDABST_ASSERT_EXPR_UPFRONT
+                    // Skip parent nodes that are trivially inconsistent with this rule.
+                    cube_t const& cube = m_nodes[node_id].m_cube;
+                    expr_ref_vector const& body_preds = info.m_body_preds[i];
+                    unsigned num_preds = body_preds.size();
+                    CASSERT("predabst", num_preds == cube.size());
+                    for (unsigned j = 0; j < num_preds; ++j) {
+                        if (cube[j] && m.is_false(body_preds[j])) {
+                            skip = true;
+                            break;
+                        }
+                    }
+#endif
+                    if (!skip) {
+                        pos_nodes.insert(node_id);
+                        ++pos_nodes_size;
+                    }
+                }
+                all_nodes.push_back(pos_nodes);
+                all_nodes_sizes.push_back(pos_nodes_size);
+                all_combs *= pos_nodes_size;
+            }
+
+            if (all_combs == 0) {
+                STRACE("predabst", tout << "Candidate node set (" << all_nodes << ") has empty product\n";);
+                return;
+            }
+
 #ifndef PREDABST_ASSERT_EXPR_UPFRONT
             scoped_push _push1(m_solver);
             for (unsigned i = 0; i < info.m_body.size(); ++i) {
@@ -1501,16 +1570,16 @@ namespace datalog {
             }
 #endif
 
-            vector<unsigned> positions = get_rule_position_ordering(ri, fixed_pos);
+            vector<unsigned> positions = get_rule_position_ordering(all_nodes_sizes);
             node_vector chosen_nodes;
             expr_ref_vector cond_vars(m); // unused unless PREDABST_ASSERT_EXPR_UPFRONT defined
-            cart_pred_abst_rule(ri, fixed_pos, fixed_node_id, positions, chosen_nodes, cond_vars);
+            cart_pred_abst_rule(ri, all_nodes, all_nodes_sizes, positions, chosen_nodes, cond_vars);
         }
 
-        vector<unsigned> get_rule_position_ordering(rule_info const& ri, unsigned fixed_pos) {
+        vector<unsigned> get_rule_position_ordering(vector<unsigned> const& all_nodes_sizes) {
             std::vector<std::pair<unsigned, unsigned>> pos_counts;
-            for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
-                unsigned n = (i == fixed_pos) ? 1 : ri.get_decl(i, this)->m_max_reach_nodes.num_elems();
+            for (unsigned i = 0; i < all_nodes_sizes.size(); ++i) {
+                unsigned n = all_nodes_sizes.get(i);
                 STRACE("predabst-cprod", tout << "There are " << n << " option(s) for position " << i << "\n";);
                 pos_counts.push_back(std::make_pair(n, i));
             }
@@ -1581,23 +1650,18 @@ namespace datalog {
             return s;
         }
 
-        void cart_pred_abst_rule(rule_info const& ri, unsigned fixed_pos, unsigned fixed_node_id, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& cond_vars) {
+        void cart_pred_abst_rule(rule_info const& ri, vector<node_set> const& all_nodes, vector<unsigned> const& all_nodes_sizes, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& cond_vars) {
+            CASSERT("predabst", all_nodes.size() == ri.get_tail_size());
+            CASSERT("predabst", all_nodes_sizes.size() == ri.get_tail_size());
             CASSERT("predabst", positions.size() == ri.get_tail_size());
             CASSERT("predabst", chosen_nodes.size() <= ri.get_tail_size());
             rule_instance_info const& info = ri.m_instance_info;
 
-            if (chosen_nodes.size() < ri.get_tail_size()) {
+            if (chosen_nodes.size() < all_nodes.size()) {
                 unsigned i = positions[chosen_nodes.size()];
-
-                node_set nodes = (i == fixed_pos) ? singleton_set(fixed_node_id) : ri.get_decl(i, this)->m_max_reach_nodes; // make a copy, to prevent it from changing while we iterate over it
+                node_set const& nodes = all_nodes.get(i);
                 for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it) {
                     unsigned chosen_node_id = *it;
-                    if ((chosen_node_id > fixed_node_id) || ((i > fixed_pos) && (chosen_node_id == fixed_node_id))) {
-                        // Don't use any nodes newer than the fixed node; we'll have a chance to use newer nodes when they are taken off the worklist later.
-                        // Furthermore, don't use the fixed node further along that the fixed position; we'll have a chance to use it in both places when the fixed position advances.
-                        // Note that iterating over the max_reach_nodes set return nodes in ascending order, so we can bail out here.
-                        break;
-                    }
                     chosen_nodes.push_back(chosen_node_id);
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT
                     unsigned num_cond_vars_pushed = 0;
@@ -1637,7 +1701,7 @@ namespace datalog {
                         m_stats.m_num_rules_failed++;
                     }
                     else {
-                        cart_pred_abst_rule(ri, fixed_pos, fixed_node_id, positions, chosen_nodes, cond_vars);
+                        cart_pred_abst_rule(ri, all_nodes, all_nodes_sizes, positions, chosen_nodes, cond_vars);
                     }
 
 #ifdef PREDABST_ASSERT_EXPR_UPFRONT

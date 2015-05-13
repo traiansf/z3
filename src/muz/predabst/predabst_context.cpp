@@ -1498,12 +1498,10 @@ namespace datalog {
 
             // Build the sets of cubes for each position.
             vector<node_set> all_nodes;
-            vector<unsigned> all_nodes_sizes;
             vector<vector<expr_ref_vector>> all_cubes; // >>> I'm not sure vector<vector<...>> works correctly, since vector's copy-constructor copies its members using memcpy.
             unsigned all_combs = 1;
             for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
                 node_set pos_nodes;
-                unsigned pos_nodes_size = 0;
                 vector<expr_ref_vector> pos_cubes;
                 node_set const& nodes = (i == fixed_pos) ? singleton_set(fixed_node_id) : ri.get_decl(i, this)->m_max_reach_nodes;
                 for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it) {
@@ -1536,14 +1534,12 @@ namespace datalog {
                     }
                     if (!skip) {
                         pos_nodes.insert(node_id);
-                        ++pos_nodes_size;
                         pos_cubes.push_back(pos_cube);
                     }
                 }
                 all_nodes.push_back(pos_nodes);
-                all_nodes_sizes.push_back(pos_nodes_size);
                 all_cubes.push_back(pos_cubes);
-                all_combs *= pos_nodes_size;
+                all_combs *= all_cubes.size();
             }
 
             if (all_combs == 0) {
@@ -1558,16 +1554,17 @@ namespace datalog {
                 m_solver.assert_expr(info.m_body[i]);
             }
 #endif
-            vector<unsigned> positions = get_rule_position_ordering(all_nodes_sizes);
+            vector<unsigned> positions = get_rule_position_ordering(all_cubes);
             node_vector chosen_nodes;
             expr_ref_vector assumptions(m); // unused unless PREDABST_USE_ASSUMPTIONS defined
             cart_pred_abst_rule(ri, all_nodes, all_cubes, positions, chosen_nodes, assumptions);
         }
 
-        vector<unsigned> get_rule_position_ordering(vector<unsigned> const& all_nodes_sizes) {
+        template<typename T>
+        vector<unsigned> get_rule_position_ordering(vector<vector<T>> const& sizes) {
             std::vector<std::pair<unsigned, unsigned>> pos_counts;
-            for (unsigned i = 0; i < all_nodes_sizes.size(); ++i) {
-                unsigned n = all_nodes_sizes.get(i);
+            for (unsigned i = 0; i < sizes.size(); ++i) {
+                unsigned n = sizes.get(i).size();
                 STRACE("predabst-cprod", tout << "There are " << n << " option(s) for position " << i << "\n";);
                 pos_counts.push_back(std::make_pair(n, i));
             }
@@ -1622,17 +1619,18 @@ namespace datalog {
             return s;
         }
 
-        void cart_pred_abst_rule(rule_info const& ri, vector<node_set> const& all_nodes, vector<vector<expr_ref_vector>> const& all_cubes, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& assumptions) {
-            CASSERT("predabst", all_nodes.size() == ri.get_tail_size());
-            CASSERT("predabst", all_cubes.size() == ri.get_tail_size());
+        void cart_pred_abst_rule(rule_info const& ri, vector<node_set> const& nodes, vector<vector<expr_ref_vector>> const& cubes, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& assumptions) {
+            CASSERT("predabst", nodes.size() == ri.get_tail_size());
+            CASSERT("predabst", cubes.size() == ri.get_tail_size());
             CASSERT("predabst", positions.size() == ri.get_tail_size());
             CASSERT("predabst", chosen_nodes.size() <= ri.get_tail_size());
 
-            if (chosen_nodes.size() < all_nodes.size()) {
+            if (chosen_nodes.size() < nodes.size()) {
                 unsigned i = positions[chosen_nodes.size()];
-                node_set const& nodes = all_nodes.get(i);
+                node_set const& pos_nodes = nodes[i];
+                vector<expr_ref_vector> const& pos_cubes = cubes[i];
                 unsigned j = 0;
-                for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it, ++j) {
+                for (node_set::iterator it = pos_nodes.begin(); it != pos_nodes.end(); ++it, ++j) {
                     unsigned chosen_node_id = *it;
                     chosen_nodes.push_back(chosen_node_id);
 #ifdef PREDABST_USE_ASSUMPTIONS
@@ -1640,7 +1638,7 @@ namespace datalog {
 #else
                     scoped_push _push1(*solver_for(ri));
 #endif
-                    expr_ref_vector const& pos_cube = all_cubes[i][j];
+                    expr_ref_vector const& pos_cube = pos_cubes[j];
                     for (unsigned k = 0; k < pos_cube.size(); ++k) {
 #ifdef PREDABST_USE_ASSUMPTIONS
                         num_assumptions_pushed++;
@@ -1659,7 +1657,7 @@ namespace datalog {
                         m_stats.m_num_rules_failed++;
                     }
                     else {
-                        cart_pred_abst_rule(ri, all_nodes, all_cubes, positions, chosen_nodes, assumptions);
+                        cart_pred_abst_rule(ri, nodes, cubes, positions, chosen_nodes, assumptions);
                     }
 
 #ifdef PREDABST_USE_ASSUMPTIONS
@@ -1669,14 +1667,14 @@ namespace datalog {
 #endif
                     chosen_nodes.pop_back();
                 }
-                CASSERT("predabst", j == all_cubes[i].size());
+                CASSERT("predabst", j == pos_cubes.size());
             }
             else {
                 CASSERT("predabst", solver_for(ri)->check(assumptions.size(), assumptions.c_ptr()) != l_false);
 
                 // collect abstract cube
                 cube_t cube = cart_pred_abst_cube(ri, assumptions);
-                STRACE("predabst", tout << "Applying rule " << ri << " to nodes (" << chosen_nodes << ") succeeded, with cube [" << cube << "]\n";);
+                STRACE("predabst", tout << "Applying rule " << ri << " to nodes ("; reorder_output_nodes(tout, chosen_nodes, positions); tout << ") succeeded, with cube [" << cube << "]\n";);
                 m_stats.m_num_rules_succeeded++;
 
                 // add and check the node

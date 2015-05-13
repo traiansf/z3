@@ -1499,10 +1499,12 @@ namespace datalog {
             // Build the sets of cubes for each position.
             vector<node_set> all_nodes;
             vector<unsigned> all_nodes_sizes;
+            vector<vector<expr_ref_vector>> all_cubes; // >>> I'm not sure vector<vector<...>> works correctly, since vector's copy-constructor copies its members using memcpy.
             unsigned all_combs = 1;
             for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
                 node_set pos_nodes;
                 unsigned pos_nodes_size = 0;
+                vector<expr_ref_vector> pos_cubes;
                 node_set const& nodes = (i == fixed_pos) ? singleton_set(fixed_node_id) : ri.get_decl(i, this)->m_max_reach_nodes;
                 for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it) {
                     unsigned node_id = *it;
@@ -1514,24 +1516,33 @@ namespace datalog {
                     }
 
                     bool skip = false;
-                    // Skip parent nodes that are trivially inconsistent with this rule.
+                    expr_ref_vector pos_cube(m);
                     cube_t const& cube = m_nodes[node_id].m_cube;
                     expr_ref_vector const& body_preds = info.m_body_preds[i];
                     unsigned num_preds = body_preds.size();
                     CASSERT("predabst", num_preds == cube.size());
                     for (unsigned j = 0; j < num_preds; ++j) {
-                        if (cube[j] && m.is_false(body_preds[j])) {
-                            skip = true;
-                            break;
+                        if (cube[j]) {
+                            if (m.is_false(body_preds[j])) {
+                                // Skip parent nodes that are trivially inconsistent with this rule.
+                                skip = true;
+                                break;
+                            }
+                            if (m.is_true(body_preds[j])) {
+                                continue;
+                            }
+                            pos_cube.push_back(body_preds[j]);
                         }
                     }
                     if (!skip) {
                         pos_nodes.insert(node_id);
                         ++pos_nodes_size;
+                        pos_cubes.push_back(pos_cube);
                     }
                 }
                 all_nodes.push_back(pos_nodes);
                 all_nodes_sizes.push_back(pos_nodes_size);
+                all_cubes.push_back(pos_cubes);
                 all_combs *= pos_nodes_size;
             }
 
@@ -1550,7 +1561,7 @@ namespace datalog {
             vector<unsigned> positions = get_rule_position_ordering(all_nodes_sizes);
             node_vector chosen_nodes;
             expr_ref_vector assumptions(m); // unused unless PREDABST_USE_ASSUMPTIONS defined
-            cart_pred_abst_rule(ri, all_nodes, positions, chosen_nodes, assumptions);
+            cart_pred_abst_rule(ri, all_nodes, all_cubes, positions, chosen_nodes, assumptions);
         }
 
         vector<unsigned> get_rule_position_ordering(vector<unsigned> const& all_nodes_sizes) {
@@ -1611,16 +1622,17 @@ namespace datalog {
             return s;
         }
 
-        void cart_pred_abst_rule(rule_info const& ri, vector<node_set> const& all_nodes, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& assumptions) {
+        void cart_pred_abst_rule(rule_info const& ri, vector<node_set> const& all_nodes, vector<vector<expr_ref_vector>> const& all_cubes, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& assumptions) {
             CASSERT("predabst", all_nodes.size() == ri.get_tail_size());
+            CASSERT("predabst", all_cubes.size() == ri.get_tail_size());
             CASSERT("predabst", positions.size() == ri.get_tail_size());
             CASSERT("predabst", chosen_nodes.size() <= ri.get_tail_size());
-            rule_instance_info const& info = ri.m_instance_info;
 
             if (chosen_nodes.size() < all_nodes.size()) {
                 unsigned i = positions[chosen_nodes.size()];
                 node_set const& nodes = all_nodes.get(i);
-                for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it) {
+                unsigned j = 0;
+                for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it, ++j) {
                     unsigned chosen_node_id = *it;
                     chosen_nodes.push_back(chosen_node_id);
 #ifdef PREDABST_USE_ASSUMPTIONS
@@ -1628,24 +1640,15 @@ namespace datalog {
 #else
                     scoped_push _push1(*solver_for(ri));
 #endif
-                    cube_t const& pos_cube = m_nodes[chosen_node_id].m_cube;
-                    expr_ref_vector const& body_preds = info.m_body_preds[i];
-                    unsigned num_preds = body_preds.size();
-                    CASSERT("predabst", num_preds == pos_cube.size());
-                    for (unsigned i = 0; i < num_preds; ++i) {
-                        if (pos_cube[i]) {
-                            CASSERT("predabst", !m.is_false(body_preds[i]));
-                            if (m.is_true(body_preds[i])) {
-                                continue;
-                            }
+                    expr_ref_vector const& pos_cube = all_cubes[i][j];
+                    for (unsigned k = 0; k < pos_cube.size(); ++k) {
 #ifdef PREDABST_USE_ASSUMPTIONS
-                            num_assumptions_pushed++;
-                            assumptions.push_back(body_preds[i]);
+                        num_assumptions_pushed++;
+                        assumptions.push_back(pos_cube.get(k));
 #else
-                            m_stats.m_num_solver_assert_invocations++;
-                            solver_for(ri)->assert_expr(body_preds[i]);
+                        m_stats.m_num_solver_assert_invocations++;
+                        solver_for(ri)->assert_expr(pos_cube.get(k));
 #endif
-                        }
                     }
 
                     m_stats.m_num_solver_check_body_invocations++;
@@ -1656,7 +1659,7 @@ namespace datalog {
                         m_stats.m_num_rules_failed++;
                     }
                     else {
-                        cart_pred_abst_rule(ri, all_nodes, positions, chosen_nodes, assumptions);
+                        cart_pred_abst_rule(ri, all_nodes, all_cubes, positions, chosen_nodes, assumptions);
                     }
 
 #ifdef PREDABST_USE_ASSUMPTIONS
@@ -1666,6 +1669,7 @@ namespace datalog {
 #endif
                     chosen_nodes.pop_back();
                 }
+                CASSERT("predabst", j == all_cubes[i].size());
             }
             else {
                 CASSERT("predabst", solver_for(ri)->check(assumptions.size(), assumptions.c_ptr()) != l_false);

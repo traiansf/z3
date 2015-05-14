@@ -45,8 +45,16 @@ Revision History:
 #undef PREDABST_SUMMARIZE_CUBES
 #define PREDABST_PRE_SIMPLIFY
 #define PREDABST_NO_SIMPLIFY
+#define PREDABST_SOLVER_LOGIC "QF_UFLIA"
 
 namespace datalog {
+
+    static void set_logic(smt::kernel& solver) {
+#ifdef PREDABST_SOLVER_LOGIC
+        bool result = solver.set_logic(symbol(PREDABST_SOLVER_LOGIC));
+        CASSERT("predabst", result);
+#endif
+    }
 
     struct name_app {
         unsigned        m_name;
@@ -185,6 +193,7 @@ namespace datalog {
             void alloc_solver(ast_manager& m, smt_params& fparams) {
                 CASSERT("predabst", !m_rule_solver);
                 m_rule_solver = alloc(smt::kernel, m, fparams);
+                set_logic(m_rule_solver);
             }
             void dealloc_solver() {
                 CASSERT("predabst", m_rule_solver);
@@ -396,6 +405,7 @@ namespace datalog {
 #ifdef PREDABST_NO_SIMPLIFY
             m_fparams.m_preprocess = false;
 #endif
+            set_logic(m_solver);
 
 #ifdef PREDABST_PRE_SIMPLIFY
             basic_simplifier_plugin* bsimp = alloc(basic_simplifier_plugin, m);
@@ -1387,6 +1397,7 @@ namespace datalog {
         bool check_solution() {
             smt_params new_param;
             smt::kernel solver(m, new_param);
+            set_logic(solver);
             model_ref md = get_model();
             for (unsigned i = 0; i < m_rules.size(); ++i) {
                 rule* r = m_rules[i].m_rule;
@@ -2100,6 +2111,7 @@ namespace datalog {
             new_param.m_preprocess = false;
 #endif
             smt::kernel solver(m, new_param);
+            set_logic(solver);
 
             expr_ref_vector terms = get_conj_terms(mk_leaves(root_node, root_args));
             pre_simplify(terms);
@@ -2560,6 +2572,7 @@ namespace datalog {
 
             smt_params new_param;
             smt::kernel solver(m, new_param);
+            set_logic(solver);
             if (m_template_extras) {
                 solver.assert_expr(m_template_extras);
             }

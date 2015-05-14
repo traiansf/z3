@@ -43,6 +43,7 @@ Revision History:
 #undef PREDABST_USE_BODY_ASSUMPTIONS
 #undef PREDABST_USE_HEAD_ASSUMPTIONS
 #undef PREDABST_SUMMARIZE_CUBES
+#undef PREDABST_SUMMARIZE_CUBES_USING_IFF
 #define PREDABST_PRE_SIMPLIFY
 #define PREDABST_NO_SIMPLIFY
 #define PREDABST_SOLVER_LOGIC "QF_UFLIA"
@@ -1630,10 +1631,16 @@ namespace datalog {
                     expr_ref_vector& pos_cube = pos_cubes.get(j);
                     expr_ref_vector pos_cube2(m);
                     expr_ref cube_guard_var(m.mk_fresh_const("cv", m.mk_bool_sort()), m);
+#ifdef PREDABST_SUMMARIZE_CUBES_USING_IFF
+                    expr_ref to_assert(m.mk_iff(mk_conj(pos_cube), cube_guard_var), m);
+                    pre_simplify(to_assert);
+                    solver_for(ri)->assert_expr(to_assert);
+#else
                     for (unsigned j = 0; j < pos_cube.size(); ++j) {
                         expr_ref to_assert(m.mk_or(m.mk_not(cube_guard_var), pos_cube.get(j)), m);
                         solver_for(ri)->assert_expr(to_assert);
                     }
+#endif
                     pos_cube.reset();
                     pos_cube.push_back(cube_guard_var);
                 }

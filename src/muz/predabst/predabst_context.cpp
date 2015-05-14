@@ -37,9 +37,12 @@ Revision History:
 #include <map>
 #include <algorithm>
 
+#undef PREDABST_USE_MAXSAT
 #define PREDABST_ORDER_CARTPROD_CHOICES
 #undef PREDABST_SOLVER_PER_RULE
-#undef PREDABST_USE_ASSUMPTIONS
+#undef PREDABST_USE_BODY_ASSUMPTIONS
+#undef PREDABST_USE_HEAD_ASSUMPTIONS
+#undef PREDABST_SUMMARIZE_CUBES
 #define PREDABST_PRE_SIMPLIFY
 #define PREDABST_NO_SIMPLIFY
 
@@ -1138,7 +1141,7 @@ namespace datalog {
                     func_decl_info* fi = m_func_decl2info[m_func_decls.get(i)];
                     fi->m_new_preds = 0;
                 }
-                
+
                 acr_error error;
                 if (find_solution(refine_count, error)) {
                     STRACE("predabst", tout << "Solution found: result is SAT\n";);
@@ -1205,15 +1208,19 @@ namespace datalog {
             }
         }
 
-        void pre_simplify(expr_ref_vector& exprs) const {
+        void pre_simplify(expr_ref& e) const {
 #ifdef PREDABST_PRE_SIMPLIFY
+            proof_ref pr(m);
+            m_simplifier(e, e, pr);
+#endif
+        }
+
+        void pre_simplify(expr_ref_vector& exprs) const {
             for (unsigned i = 0; i < exprs.size(); ++i) {
-                proof_ref pr(m);
                 expr_ref e(exprs.get(i), m);
-                m_simplifier(e, e, pr);
+                pre_simplify(e);
                 exprs[i] = e;
             }
-#endif
         }
 
         void maybe_make_false(expr_ref_vector& exprs, smt::kernel* solver) const {
@@ -1222,6 +1229,18 @@ namespace datalog {
                 solver->assert_expr(exprs.get(i));
                 if (solver->check() == l_false) {
                     exprs[i] = m.mk_false();
+                }
+            }
+        }
+
+        void maybe_make_true(expr_ref_vector& exprs, smt::kernel* solver) const {
+            for (unsigned i = 0; i < exprs.size(); ++i) {
+                scoped_push _push(*solver);
+                expr_ref e(m.mk_not(exprs.get(i)), m);
+                pre_simplify(e);
+                solver->assert_expr(e);
+                if (solver->check() == l_false) {
+                    exprs[i] = m.mk_true();
                 }
             }
         }
@@ -1267,6 +1286,7 @@ namespace datalog {
                 expr_ref_vector heads = app_inst_preds(fi, apply_subst(ri.get_args(this), ri.m_rule_subst));
                 invert(heads);
                 pre_simplify(heads);
+                maybe_make_true(heads, solver_for(ri));
                 maybe_make_false(heads, solver_for(ri));
 #ifdef PREDABST_SOLVER_PER_RULE
                 assert_guarded_exprs(heads, solver_for(ri));
@@ -1280,6 +1300,7 @@ namespace datalog {
                 CASSERT("predabst", fi && !fi->m_has_template);
                 expr_ref_vector tails = app_inst_preds(fi, apply_subst(ri.get_args(i, this), ri.m_rule_subst));
                 pre_simplify(tails);
+                maybe_make_true(tails, solver_for(ri));
                 maybe_make_false(tails, solver_for(ri));
 #ifdef PREDABST_SOLVER_PER_RULE
                 assert_guarded_exprs(tails, solver_for(ri));
@@ -1476,6 +1497,25 @@ namespace datalog {
             return positions;
         }
 
+        bool model_eval_true(model_ref const& modref, expr_ref const& cube) {
+            expr_ref val(m);
+#ifdef PREDABST_SUMMARIZE_CUBES
+            if (!modref->eval(cube, val)) {
+                CASSERT("predabst", "Failed to evaluate!\n"); // >>>
+                throw default_exception("failed to evaluate");
+            }
+            CASSERT("predabst", m.is_true(val) || m.is_false(val) || val == cube);
+            return !m.is_false(val);
+#else
+            if (!modref->eval(cube, val, true)) {
+                CASSERT("predabst", "Failed to evaluate!\n"); // >>>
+                throw default_exception("failed to evaluate");
+            }
+            CASSERT("predabst", m.is_true(val) || m.is_false(val));
+            return m.is_true(val);
+#endif
+        }
+
         // This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
         // With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
         void cart_pred_abst_rule(rule_info const& ri, unsigned fixed_pos = 0, unsigned fixed_node_id = NON_NODE) {
@@ -1496,7 +1536,7 @@ namespace datalog {
                 }
             });
 
-            // Build the sets of cubes for each position.
+            // Build the sets of nodes/cubes for each position.
             vector<node_set> all_nodes;
             vector<vector<expr_ref_vector>> all_cubes; // >>> I'm not sure vector<vector<...>> works correctly, since vector's copy-constructor copies its members using memcpy.
             unsigned all_combs = 1;
@@ -1542,22 +1582,151 @@ namespace datalog {
                 all_combs *= all_cubes.size();
             }
 
-            if (all_combs == 0) {
+            unsigned found_combs = 0;
+            if (found_combs == all_combs) {
                 STRACE("predabst", tout << "Candidate node set (" << all_nodes << ") has empty product\n";);
                 return;
             }
 
+            STRACE("predabst", tout << "Using candidate node set (" << all_nodes << ") with cubes (" << all_cubes << ")\n";); // "cubes" here are not useful if they're cv's
+
+#if !defined(PREDABST_SOLVER_PER_RULE) || defined(PREDABST_USE_MAXSAT)
+            scoped_push _push1(*solver_for(ri));
+#endif
+
 #ifndef PREDABST_SOLVER_PER_RULE
-            scoped_push _push1(m_solver);
             for (unsigned i = 0; i < info.m_body.size(); ++i) {
                 m_stats.m_num_solver_assert_invocations++;
                 m_solver.assert_expr(info.m_body[i]);
             }
 #endif
-            vector<unsigned> positions = get_rule_position_ordering(all_cubes);
+
+#if defined(PREDABST_USE_HEAD_ASSUMPTIONS) && !defined(PREDABST_SOLVER_PER_RULE)
+            expr_ref_vector head_es = info.m_head_preds;
+            assert_guarded_exprs(head_es, solver_for(ri));
+#else
+            expr_ref_vector const& head_es = info.m_head_preds;
+#endif
+
+#if defined(PREDABST_USE_BODY_ASSUMPTIONS) && (!defined(PREDABST_SOLVER_PER_RULE) && !defined(PREDABST_SUMMARIZE_CUBES))
+#error "can't use body assumptions without having guard variables to assume"
+#endif
+
+#ifdef PREDABST_SUMMARIZE_CUBES
+            for (unsigned i = 0; i < all_cubes.size(); ++i) {
+                vector<expr_ref_vector>& pos_cubes = all_cubes[i];
+                for (unsigned j = 0; j < pos_cubes.size(); ++j) {
+                    expr_ref_vector& pos_cube = pos_cubes.get(j);
+                    expr_ref_vector pos_cube2(m);
+                    expr_ref cube_guard_var(m.mk_fresh_const("cv", m.mk_bool_sort()), m);
+                    for (unsigned j = 0; j < pos_cube.size(); ++j) {
+                        expr_ref to_assert(m.mk_or(m.mk_not(cube_guard_var), pos_cube.get(j)), m);
+                        solver_for(ri)->assert_expr(to_assert);
+                    }
+                    pos_cube.reset();
+                    pos_cube.push_back(cube_guard_var);
+                }
+            }
+#endif
+
+#ifdef PREDABST_USE_MAXSAT
+            for (unsigned i = 0; i < all_cubes.size(); ++i) {
+                vector<expr_ref_vector> const& pos_cubes = all_cubes[i];
+                if (pos_cubes.size() == 1) {
+                    expr_ref_vector const& pos_cube = pos_cubes[0];
+                    for (unsigned k = 0; k < pos_cube.size(); ++k) {
+                        solver_for(ri)->assert_expr(pos_cube.get(k));
+                    }
+                }
+                else {
+                    expr_ref_vector pos_disjs(m);
+                    for (unsigned j = 0; j < pos_cubes.size(); ++i) {
+                        expr_ref_vector const& pos_cube = pos_cubes[j];
+                        pos_disjs.push_back(mk_conj(pos_cube));
+                    }
+                    expr_ref to_assert = mk_disj(pos_disjs);
+                    pre_simplify(to_assert);
+                    solver_for(ri)->assert_expr(to_assert);
+                }
+            }
+
+            m_fparams.m_model = (all_combs > 1);
+
+            while (solver_for(ri)->check() == l_true) {
+                m_stats.m_num_solver_check_body_invocations++; // >>> inc stats on fail?
+
+                model_ref modref;
+                if (all_combs > 1) {
+                    solver_for(ri)->get_model(modref);
+                }
+
+                // Build the sets of true nodes/cubes for each position.
+                vector<node_set> true_nodes;
+                vector<vector<expr_ref_vector>> true_cubes;
+                unsigned true_combs = 1;
+                for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
+                    node_set true_pos_nodes;
+                    vector<expr_ref_vector> true_pos_cubes;
+                    node_set const& pos_nodes = all_nodes[i];
+                    vector<expr_ref_vector> const& pos_cubes = all_cubes[i];
+                    unsigned j = 0;
+                    for (node_set::iterator it = pos_nodes.begin(); it != pos_nodes.end(); ++it, ++j) {
+                        unsigned node_id = *it;
+                        expr_ref cube(mk_conj(pos_cubes[j]), m);
+                        // No need to evaluate P with respect to the model when we know that the model already satisfies P.
+                        // >>> This optimization is probably not worth anything if the "cubes" here were guard_vars.
+                        if ((pos_cubes.size() == 1) || model_eval_true(modref, cube)) {
+                            true_pos_nodes.insert(node_id);
+                            true_pos_cubes.push_back(pos_cubes[j]);
+                        }
+                    }
+                    CASSERT("predabst", j == pos_cubes.size());
+                    true_nodes.push_back(true_pos_nodes);
+                    true_cubes.push_back(true_pos_cubes);
+                    true_combs *= true_cubes.size();
+                }
+
+                STRACE("predabst", tout << "Found true node set (" << true_nodes << ") with cubes (" << true_cubes << ")\n";); // "cubes" here are not useful if they're cv's
+
+                // Now take the Cartesian product.
+                m_fparams.m_model = false;
+                cart_pred_abst_rule(ri, head_es, all_cubes, true_nodes, true_cubes, true);
+                m_fparams.m_model = (all_combs > 1);
+
+                CASSERT("predabst", true_combs > 0);
+                found_combs += true_combs;
+                CASSERT("predabst", found_combs <= all_combs);
+                if (found_combs == all_combs) {
+                    break;
+                }
+
+                // Add a constraint to avoid visiting this solution again.
+                expr_ref_vector conjs(m);
+                for (unsigned i = 0; i < true_cubes.size(); ++i) {
+                    vector<expr_ref_vector> const& true_pos_cubes = true_cubes[i];
+                    expr_ref_vector disjs(m);
+                    for (unsigned j = 0; j < true_pos_cubes.size(); ++i) {
+                        disjs.push_back(mk_conj(true_pos_cubes[j]));
+                    }
+                    conjs.push_back(mk_disj(disjs));
+                }
+                expr_ref to_assert = mk_not(mk_conj(conjs));
+                STRACE("predabst", tout << "  " << mk_pp(to_assert, m) << "\n";);
+                pre_simplify(to_assert);
+                solver_for(ri)->assert_expr(to_assert);
+            }
+
+            m_fparams.m_model = false;
+#else
+            cart_pred_abst_rule(ri, head_es, all_cubes, all_nodes, all_cubes, false);
+#endif
+        }
+
+        void cart_pred_abst_rule(rule_info const& ri, expr_ref_vector const& head_es, vector<vector<expr_ref_vector>> const& all_cubes, vector<node_set> const& nodes, vector<vector<expr_ref_vector>> const& cubes, bool assume_sat) {
+            vector<unsigned> positions = get_rule_position_ordering(cubes);
             node_vector chosen_nodes;
-            expr_ref_vector assumptions(m); // unused unless PREDABST_USE_ASSUMPTIONS defined
-            cart_pred_abst_rule(ri, all_nodes, all_cubes, positions, chosen_nodes, assumptions);
+            expr_ref_vector assumptions(m);
+            cart_pred_abst_rule(ri, head_es, all_cubes, nodes, cubes, positions, chosen_nodes, assumptions, assume_sat);
         }
 
         template<typename T>
@@ -1619,13 +1788,14 @@ namespace datalog {
             return s;
         }
 
-        void cart_pred_abst_rule(rule_info const& ri, vector<node_set> const& nodes, vector<vector<expr_ref_vector>> const& cubes, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& assumptions) {
+        void cart_pred_abst_rule(rule_info const& ri, expr_ref_vector const& head_es, vector<vector<expr_ref_vector>> const& all_cubes, vector<node_set> const& nodes, vector<vector<expr_ref_vector>> const& cubes, vector<unsigned> const& positions, node_vector& chosen_nodes, expr_ref_vector& assumptions, bool assume_sat) {
+            CASSERT("predabst", all_cubes.size() == ri.get_tail_size());
             CASSERT("predabst", nodes.size() == ri.get_tail_size());
             CASSERT("predabst", cubes.size() == ri.get_tail_size());
             CASSERT("predabst", positions.size() == ri.get_tail_size());
             CASSERT("predabst", chosen_nodes.size() <= ri.get_tail_size());
 
-            if (chosen_nodes.size() < nodes.size()) {
+            if (chosen_nodes.size() < positions.size()) {
                 unsigned i = positions[chosen_nodes.size()];
                 node_set const& pos_nodes = nodes[i];
                 vector<expr_ref_vector> const& pos_cubes = cubes[i];
@@ -1633,38 +1803,41 @@ namespace datalog {
                 for (node_set::iterator it = pos_nodes.begin(); it != pos_nodes.end(); ++it, ++j) {
                     unsigned chosen_node_id = *it;
                     chosen_nodes.push_back(chosen_node_id);
-#ifdef PREDABST_USE_ASSUMPTIONS
-                    unsigned num_assumptions_pushed = 0;
-#else
-                    scoped_push _push1(*solver_for(ri));
-#endif
-                    expr_ref_vector const& pos_cube = pos_cubes[j];
-                    for (unsigned k = 0; k < pos_cube.size(); ++k) {
-#ifdef PREDABST_USE_ASSUMPTIONS
-                        num_assumptions_pushed++;
-                        assumptions.push_back(pos_cube.get(k));
-#else
-                        m_stats.m_num_solver_assert_invocations++;
-                        solver_for(ri)->assert_expr(pos_cube.get(k));
-#endif
-                    }
-
-                    m_stats.m_num_solver_check_body_invocations++;
-                    lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
-                    if (result == l_false) {
-                        // unsat body
-                        STRACE("predabst", tout << "Applying rule " << ri << " to nodes ("; reorder_output_nodes(tout, chosen_nodes, positions); tout << ") failed\n";);
-                        m_stats.m_num_rules_failed++;
+                    if (assume_sat && (all_cubes[i].size() == 1)) {
+                        // No need to assert P again when we have already done so.
+                        cart_pred_abst_rule(ri, head_es, all_cubes, nodes, cubes, positions, chosen_nodes, assumptions, assume_sat);
                     }
                     else {
-                        cart_pred_abst_rule(ri, nodes, cubes, positions, chosen_nodes, assumptions);
-                    }
-
-#ifdef PREDABST_USE_ASSUMPTIONS
-                    for (unsigned i = 0; i < num_assumptions_pushed; ++i) {
-                        assumptions.pop_back();
-                    }
+                        expr_ref_vector const& pos_cube = pos_cubes[j];
+#ifdef PREDABST_USE_BODY_ASSUMPTIONS
+                        assumptions.append(pos_cube);
+#else
+                        scoped_push _push1(*solver_for(ri));
+                        for (unsigned k = 0; k < pos_cube.size(); ++k) {
+                            m_stats.m_num_solver_assert_invocations++;
+                            solver_for(ri)->assert_expr(pos_cube.get(k));
+                        }
 #endif
+                       
+                        bool sat = true;
+                        if (!assume_sat) {
+                            m_stats.m_num_solver_check_body_invocations++;
+                            lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
+                            sat = (result != l_false);
+                        }
+
+                        if (!sat) {
+                            // unsat body
+                            STRACE("predabst", tout << "Applying rule " << ri << " to nodes ("; reorder_output_nodes(tout, chosen_nodes, positions); tout << ") failed\n";);
+                            m_stats.m_num_rules_failed++;
+                        }
+                        else {
+                            cart_pred_abst_rule(ri, head_es, all_cubes, nodes, cubes, positions, chosen_nodes, assumptions, assume_sat);
+                        }
+#ifdef PREDABST_USE_BODY_ASSUMPTIONS
+                        assumptions.resize(assumptions.size() - pos_cube.size());
+#endif
+                    }
                     chosen_nodes.pop_back();
                 }
                 CASSERT("predabst", j == pos_cubes.size());
@@ -1673,8 +1846,8 @@ namespace datalog {
                 CASSERT("predabst", solver_for(ri)->check(assumptions.size(), assumptions.c_ptr()) != l_false);
 
                 // collect abstract cube
-                cube_t cube = cart_pred_abst_cube(ri, assumptions);
-                STRACE("predabst", tout << "Applying rule " << ri << " to nodes ("; reorder_output_nodes(tout, chosen_nodes, positions); tout << ") succeeded, with cube [" << cube << "]\n";);
+                cube_t cube = cart_pred_abst_cube(ri, head_es, assumptions);
+                STRACE("predabst", tout << "Applying rule " << ri << " to nodes ("; reorder_output_nodes(tout, chosen_nodes, positions); tout << ") gives cube [" << cube << "]\n";);
                 m_stats.m_num_rules_succeeded++;
 
                 // add and check the node
@@ -1685,29 +1858,29 @@ namespace datalog {
             }
         }
 
-        cube_t cart_pred_abst_cube(rule_info const& ri, expr_ref_vector& assumptions) {
+        cube_t cart_pred_abst_cube(rule_info const& ri, expr_ref_vector const& es, expr_ref_vector& assumptions) {
             rule_instance_info const& info = ri.m_instance_info;
-            unsigned num_preds = info.m_head_preds.size();
+            unsigned num_preds = es.size();
             cube_t cube;
             cube.resize(num_preds);
             for (unsigned i = 0; i < num_preds; ++i) {
-                if (m.is_false(info.m_head_preds[i])) {
+                if (m.is_false(es.get(i))) {
                     cube[i] = true;
                 }
-                else if (m.is_true(info.m_head_preds[i])) {
+                else if (m.is_true(es.get(i))) {
                     cube[i] = false;
                 }
                 else {
-#ifdef PREDABST_USE_ASSUMPTIONS
-                    assumptions.push_back(info.m_head_preds[i]);
+#ifdef PREDABST_USE_HEAD_ASSUMPTIONS
+                    assumptions.push_back(es.get(i));
 #else
                     scoped_push _push2(*solver_for(ri));
                     m_stats.m_num_solver_assert_invocations++;
-                    solver_for(ri)->assert_expr(info.m_head_preds[i]);
+                    solver_for(ri)->assert_expr(es.get(i));
 #endif
                     m_stats.m_num_solver_check_head_invocations++;
                     lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
-#ifdef PREDABST_USE_ASSUMPTIONS
+#ifdef PREDABST_USE_HEAD_ASSUMPTIONS
                     assumptions.pop_back();
 #endif
                     cube[i] = (result == l_false);
@@ -1894,6 +2067,7 @@ namespace datalog {
         // Returns the smallest n such that the conjunction of the first n
         // assumptions is unsatisfiable, if any; otherwise returns the
         // number of assumptions.
+        // >>> not currently used
         unsigned find_unsat_prefix(smt::kernel& solver, expr_ref_vector const& assumptions) const {
             return find_unsat_prefix(solver, assumptions.c_ptr(), 0, assumptions.size());
         }
@@ -1921,6 +2095,9 @@ namespace datalog {
             smt_params new_param;
 #ifndef _TRACE
             new_param.m_model = false;
+#endif
+#ifdef PREDABST_NO_SIMPLIFY
+            new_param.m_preprocess = false;
 #endif
             smt::kernel solver(m, new_param);
 
@@ -2027,7 +2204,7 @@ namespace datalog {
                                     qargs.push_back(arg_j);
                                 }
                                 else {
-                                    app_ref f(m.mk_fresh_const("x", get_sort(arg_j)), m);
+                                    expr_ref f(m.mk_fresh_const("x", get_sort(arg_j)), m);
                                     qargs.push_back(f);
                                     expr_ref constraint(m.mk_eq(f, arg_j), m);
                                     cs.push_back(constraint);

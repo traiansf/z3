@@ -37,7 +37,7 @@ Revision History:
 #include <map>
 #include <algorithm>
 
-#undef PREDABST_USE_MAXSAT
+#undef PREDABST_USE_ALLSAT
 #define PREDABST_ORDER_CARTPROD_CHOICES
 #undef PREDABST_SOLVER_PER_RULE
 #undef PREDABST_USE_BODY_ASSUMPTIONS
@@ -1602,7 +1602,7 @@ namespace datalog {
 
             STRACE("predabst", tout << "Using candidate node set (" << all_nodes << ") with cubes (" << all_cubes << ")\n";); // "cubes" here are not useful if they're cv's
 
-#if !defined(PREDABST_SOLVER_PER_RULE) || defined(PREDABST_USE_MAXSAT)
+#if !defined(PREDABST_SOLVER_PER_RULE) || defined(PREDABST_USE_ALLSAT)
             scoped_push _push1(*solver_for(ri));
 #endif
 
@@ -1647,7 +1647,7 @@ namespace datalog {
             }
 #endif
 
-#ifdef PREDABST_USE_MAXSAT
+#ifdef PREDABST_USE_ALLSAT
             for (unsigned i = 0; i < all_cubes.size(); ++i) {
                 vector<expr_ref_vector> const& pos_cubes = all_cubes[i];
                 if (pos_cubes.size() == 1) {

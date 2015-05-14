@@ -47,6 +47,11 @@ Revision History:
 #define PREDABST_PRE_SIMPLIFY
 #define PREDABST_NO_SIMPLIFY
 #define PREDABST_SOLVER_LOGIC "QF_UFLIA"
+#define PREDABST_PRUNE_BSEARCH
+#define PREDABST_BSEARCH_MID_NUMERATOR 15
+#define PREDABST_BSEARCH_MID_DENOMINATOR 16
+#define PREDABST_UNSAT_CORE_INITIAL_SIZE 4
+#define PREDABST_UNSAT_CORE_GROWTH_FACTOR 4
 
 namespace datalog {
 
@@ -2083,15 +2088,27 @@ namespace datalog {
             return expr_ref(m.mk_or(m.mk_not(cs), m.mk_and(bound, decrease)), m);
         }
 
+        unsigned reduce_unsat(smt::kernel& solver, expr* const* assumptions, unsigned lo, unsigned hi, obj_map<expr, unsigned> const& assumption_to_index) const {
+            unsigned n;
+#ifdef PREDABST_PRUNE_BSEARCH
+            n = 0;
+            unsigned unsat_core_size = solver.get_unsat_core_size();
+            for (unsigned i = 0; i < unsat_core_size; ++i) {
+                n = std::max(n, assumption_to_index.find(solver.get_unsat_core_expr(i)) + 1);
+            }
+#else
+            n = hi;
+#endif
+            CASSERT("predabst", n > lo);
+            CASSERT("predabst", n <= hi);
+            CASSERT("predabst", solver.check(n, assumptions) != l_true);
+            return n;
+        }
+
         // Returns the smallest n such that the conjunction of the first n
         // assumptions is unsatisfiable, if any; otherwise returns the
         // number of assumptions.
-        // >>> not currently used
-        unsigned find_unsat_prefix(smt::kernel& solver, expr_ref_vector const& assumptions) const {
-            return find_unsat_prefix(solver, assumptions.c_ptr(), 0, assumptions.size());
-        }
-
-        unsigned find_unsat_prefix(smt::kernel& solver, expr* const* assumptions, unsigned lo, unsigned hi) const {
+        unsigned find_unsat_prefix(smt::kernel& solver, expr* const* assumptions, unsigned lo, unsigned hi, obj_map<expr, unsigned> const& assumption_to_index) const {
             // pre-conditions:
             // -  conjunction of first lo terms (sequence e_0 .. e_{lo-1}) is sat
             // -  conjunction of first hi terms (sequence e_0 .. e_{hi-1}) is either unsat, or else hi = #terms
@@ -2099,14 +2116,15 @@ namespace datalog {
             if ((lo == hi) || (lo + 1 == hi)) {
                 return hi;
             }
-            unsigned mid = lo + (hi - lo) / 2;
+            unsigned mid = lo + ((hi - lo) * PREDABST_BSEARCH_MID_NUMERATOR) / PREDABST_BSEARCH_MID_DENOMINATOR;
             CASSERT("predabst", lo < mid);
             CASSERT("predabst", mid < hi);
             if (solver.check(mid, assumptions) != l_true) {
-                return find_unsat_prefix(solver, assumptions, lo, mid);
+                mid = reduce_unsat(solver, assumptions, lo, mid, assumption_to_index);
+                return find_unsat_prefix(solver, assumptions, lo, mid, assumption_to_index);
             }
             else {
-                return find_unsat_prefix(solver, assumptions, mid, hi);
+                return find_unsat_prefix(solver, assumptions, mid, hi, assumption_to_index);
             }
         }
 
@@ -2125,9 +2143,10 @@ namespace datalog {
             pre_simplify(terms);
 
             expr_ref_vector guard_vars(m);
+            obj_map<expr, unsigned> guard_var_to_index;
             unsigned lo = 0;
             unsigned hi = 0;
-            unsigned increment = 4;
+            unsigned increment = PREDABST_UNSAT_CORE_INITIAL_SIZE;
             while (hi < terms.size()) {
                 lo = hi;
                 hi += increment;
@@ -2137,19 +2156,21 @@ namespace datalog {
                 for (unsigned i = lo; i < hi; ++i) {
                     expr_ref c(m.mk_fresh_const("cv", m.mk_bool_sort()), m);
                     guard_vars.push_back(c);
+                    guard_var_to_index.insert(c, i);
                     if (!m.is_true(terms.get(i))) {
                         expr_ref e(m.mk_iff(terms.get(i), c), m);
                         m_stats.m_num_solver_assert_invocations++;
                         solver.assert_expr(e);
                     }
                 }
-                if (solver.check(guard_vars.size(), guard_vars.c_ptr()) != l_true) {
+                if (solver.check(hi, guard_vars.c_ptr()) != l_true) {
+                    hi = reduce_unsat(solver, guard_vars.c_ptr(), lo, hi, guard_var_to_index);
                     break;
                 }
-                increment *= 2;
+                increment *= PREDABST_UNSAT_CORE_GROWTH_FACTOR;
             }
             // first 'lo' are sat; first 'hi' are unsat, or else hi = #terms
-            core_info.m_count = find_unsat_prefix(solver, guard_vars.c_ptr(), lo, hi);
+            core_info.m_count = find_unsat_prefix(solver, guard_vars.c_ptr(), lo, hi, guard_var_to_index);
             CASSERT("predabst", core_info.m_count <= guard_vars.size());
 
             if ((core_info.m_count == terms.size()) &&

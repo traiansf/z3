@@ -1590,7 +1590,7 @@ namespace datalog {
                 }
                 all_nodes.push_back(pos_nodes);
                 all_cubes.push_back(pos_cubes);
-                all_combs *= all_cubes.size();
+                all_combs *= pos_cubes.size();
             }
 
             unsigned found_combs = 0;
@@ -1651,7 +1651,7 @@ namespace datalog {
                 }
                 else {
                     expr_ref_vector pos_disjs(m);
-                    for (unsigned j = 0; j < pos_cubes.size(); ++i) {
+                    for (unsigned j = 0; j < pos_cubes.size(); ++j) {
                         expr_ref_vector const& pos_cube = pos_cubes[j];
                         pos_disjs.push_back(mk_conj(pos_cube));
                     }
@@ -1671,13 +1671,13 @@ namespace datalog {
                     solver_for(ri)->get_model(modref);
                 }
 
-                // Build the sets of true nodes/cubes for each position.
-                vector<node_set> true_nodes;
-                vector<vector<expr_ref_vector>> true_cubes;
-                unsigned true_combs = 1;
+                // Build the sets of satisfiable nodes/cubes for each position.
+                vector<node_set> sat_nodes;
+                vector<vector<expr_ref_vector>> sat_cubes;
+                unsigned sat_combs = 1;
                 for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
-                    node_set true_pos_nodes;
-                    vector<expr_ref_vector> true_pos_cubes;
+                    node_set sat_pos_nodes;
+                    vector<expr_ref_vector> sat_pos_cubes;
                     node_set const& pos_nodes = all_nodes[i];
                     vector<expr_ref_vector> const& pos_cubes = all_cubes[i];
                     unsigned j = 0;
@@ -1687,37 +1687,38 @@ namespace datalog {
                         // No need to evaluate P with respect to the model when we know that the model already satisfies P.
                         // >>> This optimization is probably not worth anything if the "cubes" here were guard_vars.
                         if ((pos_cubes.size() == 1) || model_eval_true(modref, cube)) {
-                            true_pos_nodes.insert(node_id);
-                            true_pos_cubes.push_back(pos_cubes[j]);
+                            sat_pos_nodes.insert(node_id);
+                            sat_pos_cubes.push_back(pos_cubes[j]);
                         }
                     }
                     CASSERT("predabst", j == pos_cubes.size());
-                    true_nodes.push_back(true_pos_nodes);
-                    true_cubes.push_back(true_pos_cubes);
-                    true_combs *= true_cubes.size();
+                    sat_nodes.push_back(sat_pos_nodes);
+                    sat_cubes.push_back(sat_pos_cubes);
+                    sat_combs *= sat_pos_cubes.size();
                 }
 
-                STRACE("predabst", tout << "Found true node set (" << true_nodes << ") with cubes (" << true_cubes << ")\n";); // "cubes" here are not useful if they're cv's
+                STRACE("predabst", tout << "Found satisfiable node set (" << sat_nodes << ") with cubes (" << sat_cubes << ")\n";); // "cubes" here are not useful if they're cv's
 
                 // Now take the Cartesian product.
                 m_fparams.m_model = false;
-                cart_pred_abst_rule(ri, head_es, all_cubes, true_nodes, true_cubes, true);
+                cart_pred_abst_rule(ri, head_es, all_cubes, sat_nodes, sat_cubes, true);
                 m_fparams.m_model = (all_combs > 1);
 
-                CASSERT("predabst", true_combs > 0);
-                found_combs += true_combs;
+                CASSERT("predabst", sat_combs > 0);
+                found_combs += sat_combs;
                 CASSERT("predabst", found_combs <= all_combs);
                 if (found_combs == all_combs) {
+                    STRACE("predabst", tout << "All possible combinations were satisfiable\n";);
                     break;
                 }
 
                 // Add a constraint to avoid visiting this solution again.
                 expr_ref_vector conjs(m);
-                for (unsigned i = 0; i < true_cubes.size(); ++i) {
-                    vector<expr_ref_vector> const& true_pos_cubes = true_cubes[i];
+                for (unsigned i = 0; i < sat_cubes.size(); ++i) {
+                    vector<expr_ref_vector> const& sat_pos_cubes = sat_cubes[i];
                     expr_ref_vector disjs(m);
-                    for (unsigned j = 0; j < true_pos_cubes.size(); ++i) {
-                        disjs.push_back(mk_conj(true_pos_cubes[j]));
+                    for (unsigned j = 0; j < sat_pos_cubes.size(); ++j) {
+                        disjs.push_back(mk_conj(sat_pos_cubes[j]));
                     }
                     conjs.push_back(mk_disj(disjs));
                 }

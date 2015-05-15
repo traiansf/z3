@@ -38,7 +38,6 @@ Revision History:
 #include <algorithm>
 
 #undef PREDABST_USE_ALLSAT
-#define PREDABST_ORDER_CARTPROD_CHOICES
 #undef PREDABST_SOLVER_PER_RULE
 #undef PREDABST_USE_BODY_ASSUMPTIONS
 #undef PREDABST_USE_HEAD_ASSUMPTIONS
@@ -46,21 +45,8 @@ Revision History:
 #undef PREDABST_SUMMARIZE_CUBES_USING_IFF
 #define PREDABST_PRE_SIMPLIFY
 #define PREDABST_NO_SIMPLIFY
-#define PREDABST_SOLVER_LOGIC "QF_UFLIA"
-#define PREDABST_PRUNE_BSEARCH
-#define PREDABST_BSEARCH_MID_NUMERATOR 15
-#define PREDABST_BSEARCH_MID_DENOMINATOR 16
-#define PREDABST_UNSAT_CORE_INITIAL_SIZE 4
-#define PREDABST_UNSAT_CORE_GROWTH_FACTOR 4
 
 namespace datalog {
-
-    static void set_logic(smt::kernel& solver) {
-#ifdef PREDABST_SOLVER_LOGIC
-        bool result = solver.set_logic(symbol(PREDABST_SOLVER_LOGIC));
-        CASSERT("predabst", result);
-#endif
-    }
 
     struct name_app {
         unsigned        m_name;
@@ -142,6 +128,7 @@ namespace datalog {
             func_decl*      m_fdecl;
             var_ref_vector  m_vars;
             expr_ref_vector m_preds;
+            vector<std::string> m_var_names;
             unsigned        m_new_preds;
             uint_set        m_users;
             node_set        m_max_reach_nodes;
@@ -199,7 +186,7 @@ namespace datalog {
             void alloc_solver(ast_manager& m, smt_params& fparams) {
                 CASSERT("predabst", !m_rule_solver);
                 m_rule_solver = alloc(smt::kernel, m, fparams);
-                set_logic(m_rule_solver);
+                set_logic(m_rule_solver); // >>> won't compile any more
             }
             void dealloc_solver() {
                 CASSERT("predabst", m_rule_solver);
@@ -565,6 +552,16 @@ namespace datalog {
             return true;
         }
 
+        template<typename T>
+        static bool is_subset(vector<T> const& v1, vector<T> const& v2) {
+            for (unsigned i = 0; i < v1.size(); ++i) {
+                if (!v2.contains(v1.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         // Apply a substitution vector to an expression, returning the result.
         expr_ref apply_subst(expr* expr, expr_ref_vector const& subst) const {
             expr_ref expr2(m);
@@ -852,6 +849,13 @@ namespace datalog {
                 }
             }
             return mk_conj(es);
+        }
+
+        void set_logic(smt::kernel& solver) const {
+            if (m_fp_params.solver_logic().bare_str()) { // >>> does this make sense?
+                bool result = solver.set_logic(m_fp_params.solver_logic());
+                CASSERT("predabst", result);
+            }
         }
 
         static bool is_regular_predicate(func_decl const* fdecl) {
@@ -1302,8 +1306,12 @@ namespace datalog {
                 expr_ref_vector heads = app_inst_preds(fi, apply_subst(ri.get_args(this), ri.m_rule_subst));
                 invert(heads);
                 pre_simplify(heads);
-                maybe_make_true(heads, solver_for(ri));
-                maybe_make_false(heads, solver_for(ri));
+                if (m_fp_params.convert_true_head_preds()) {
+                    maybe_make_true(heads, solver_for(ri));
+                }
+                if (m_fp_params.convert_false_head_preds()) {
+                    maybe_make_false(heads, solver_for(ri));
+                }
 #ifdef PREDABST_SOLVER_PER_RULE
                 assert_guarded_exprs(heads, solver_for(ri));
 #endif
@@ -1316,8 +1324,12 @@ namespace datalog {
                 CASSERT("predabst", fi && !fi->m_has_template);
                 expr_ref_vector tails = app_inst_preds(fi, apply_subst(ri.get_args(i, this), ri.m_rule_subst));
                 pre_simplify(tails);
-                maybe_make_true(tails, solver_for(ri));
-                maybe_make_false(tails, solver_for(ri));
+                if (m_fp_params.convert_true_body_preds()) {
+                    maybe_make_true(tails, solver_for(ri));
+                }
+                if (m_fp_params.convert_false_body_preds()) {
+                    maybe_make_false(tails, solver_for(ri));
+                }
 #ifdef PREDABST_SOLVER_PER_RULE
                 assert_guarded_exprs(tails, solver_for(ri));
 #endif
@@ -1578,12 +1590,12 @@ namespace datalog {
                     CASSERT("predabst", num_preds == cube.size());
                     for (unsigned j = 0; j < num_preds; ++j) {
                         if (cube[j]) {
-                            if (m.is_false(body_preds[j])) {
+                            if (m_fp_params.skip_false_body_preds() && m.is_false(body_preds[j])) {
                                 // Skip parent nodes that are trivially inconsistent with this rule.
                                 skip = true;
                                 break;
                             }
-                            if (m.is_true(body_preds[j])) {
+                            if (m_fp_params.skip_true_body_preds() && m.is_true(body_preds[j])) {
                                 continue;
                             }
                             pos_cube.push_back(body_preds[j]);
@@ -1600,7 +1612,7 @@ namespace datalog {
             }
 
             unsigned found_combs = 0;
-            if (found_combs == all_combs) {
+            if (m_fp_params.bail_if_no_combinations() && (found_combs == all_combs)) {
                 STRACE("predabst", tout << "Candidate node set (" << all_nodes << ") has empty product\n";);
                 return;
             }
@@ -1698,7 +1710,7 @@ namespace datalog {
                         expr_ref cube(mk_conj(pos_cubes[j]), m);
                         // No need to evaluate P with respect to the model when we know that the model already satisfies P.
                         // >>> This optimization is probably not worth anything if the "cubes" here were guard_vars.
-                        if ((pos_cubes.size() == 1) || model_eval_true(modref, cube)) {
+                        if ((m_fp_params.skip_singleton_model_eval() && (pos_cubes.size() == 1)) || model_eval_true(modref, cube)) {
                             sat_pos_nodes.insert(node_id);
                             sat_pos_cubes.push_back(pos_cubes[j]);
                         }
@@ -1719,7 +1731,7 @@ namespace datalog {
                 CASSERT("predabst", sat_combs > 0);
                 found_combs += sat_combs;
                 CASSERT("predabst", found_combs <= all_combs);
-                if (found_combs == all_combs) {
+                if (m_fp_params.bail_if_all_combinations_sat() && (found_combs == all_combs)) {
                     STRACE("predabst", tout << "All possible combinations were satisfiable\n";);
                     break;
                 }
@@ -1762,9 +1774,9 @@ namespace datalog {
                 pos_counts.push_back(std::make_pair(n, i));
             }
 
-#ifdef PREDABST_ORDER_CARTPROD_CHOICES
-            std::stable_sort(pos_counts.begin(), pos_counts.end());
-#endif
+            if (m_fp_params.order_cartprod_choices()) {
+                std::stable_sort(pos_counts.begin(), pos_counts.end());
+            }
 
             vector<unsigned> positions;
             for (unsigned i = 0; i < pos_counts.size(); ++i) {
@@ -1888,10 +1900,10 @@ namespace datalog {
             cube_t cube;
             cube.resize(num_preds);
             for (unsigned i = 0; i < num_preds; ++i) {
-                if (m.is_false(es.get(i))) {
+                if (m_fp_params.skip_false_head_preds() && m.is_false(es.get(i))) {
                     cube[i] = true;
                 }
-                else if (m.is_true(es.get(i))) {
+                else if (m_fp_params.skip_true_head_preds() && m.is_true(es.get(i))) {
                     cube[i] = false;
                 }
                 else {
@@ -2041,11 +2053,54 @@ namespace datalog {
                 return 0;
             }
             else {
-                STRACE("predabst", tout << "Found new predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
-                fi->m_preds.push_back(pred);
-                fi->m_new_preds++;
-                return 1;
+                unsigned new_preds_added = 1;
+                add_pred(fi, pred);
+                if (m_fp_params.use_query_naming() && new_preds_added) {
+                    expr_ref_vector used_vars = get_all_vars(pred);
+                    vector<std::string> used_names;
+                    for (unsigned i = 0; i < used_vars.size(); ++i) {
+                        CASSERT("predabst", is_var(used_vars.get(i)));
+                        unsigned j = to_var(used_vars.get(i))->get_idx();
+                        if (j >= fi->m_var_names.size()) {
+                            STRACE("predabst", tout << "Don't have names for variable " << mk_pp(used_vars.get(i), m) << " used in predicate " << mk_pp(p, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
+                            return new_preds_added;
+                        }
+                        used_names.push_back(fi->m_var_names[j]);
+                    }
+                    for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+                        func_decl_info* fi2 = m_func_decl2info[m_func_decls.get(i)];
+                        if (fi2 == fi) {
+                            continue;
+                        }
+                        if (is_subset(used_names, fi2->m_var_names)) {
+                            var_ref_vector vars2(m);
+                            for (unsigned j = 0; j < fi->m_vars.size(); ++j) {
+                                if ((j < fi->m_var_names.size()) && fi2->m_var_names.contains(fi->m_var_names[j])) {
+                                    for (unsigned k = 0; k < fi2->m_var_names.size(); ++k) {
+                                        if (fi2->m_var_names[k] == fi->m_var_names[j]) {
+                                            vars2.push_back(fi2->m_vars.get(k));
+                                            break;
+                                        }
+                                    }
+                                }
+                                else {
+                                    vars2.push_back(m.mk_var(0, m.mk_bool_sort())); // dummy placeholder
+                                }
+                            }
+                            new_preds_added++;
+                            add_pred(fi2, apply_subst(pred, build_subst(fi->m_vars, vars2)));
+                        }
+                    }
+                }
+                return new_preds_added;
             }
+        }
+
+        void add_pred(func_decl_info* fi, expr_ref const& pred) {
+            CASSERT("predabst", !fi->m_preds.contains(pred));
+            STRACE("predabst", tout << "Found new predicate " << mk_pp(pred, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
+            fi->m_preds.push_back(pred);
+            fi->m_new_preds++;
         }
 
         void constrain_templates(node_info const& error_node, expr_ref_vector const& error_args, acr_error_kind error_kind) {
@@ -2090,15 +2145,16 @@ namespace datalog {
 
         unsigned reduce_unsat(smt::kernel& solver, expr* const* assumptions, unsigned lo, unsigned hi, obj_map<expr, unsigned> const& assumption_to_index) const {
             unsigned n;
-#ifdef PREDABST_PRUNE_BSEARCH
-            n = 0;
-            unsigned unsat_core_size = solver.get_unsat_core_size();
-            for (unsigned i = 0; i < unsat_core_size; ++i) {
-                n = std::max(n, assumption_to_index.find(solver.get_unsat_core_expr(i)) + 1);
+            if (m_fp_params.prune_bsearch()) {
+                n = 0;
+                unsigned unsat_core_size = solver.get_unsat_core_size();
+                for (unsigned i = 0; i < unsat_core_size; ++i) {
+                    n = std::max(n, assumption_to_index.find(solver.get_unsat_core_expr(i)) + 1);
+                }
             }
-#else
-            n = hi;
-#endif
+            else {
+                n = hi;
+            }
             CASSERT("predabst", n > lo);
             CASSERT("predabst", n <= hi);
             CASSERT("predabst", solver.check(n, assumptions) != l_true);
@@ -2116,7 +2172,7 @@ namespace datalog {
             if ((lo == hi) || (lo + 1 == hi)) {
                 return hi;
             }
-            unsigned mid = lo + ((hi - lo) * PREDABST_BSEARCH_MID_NUMERATOR) / PREDABST_BSEARCH_MID_DENOMINATOR;
+            unsigned mid = lo + ((hi - lo) * m_fp_params.bsearch_mid_numerator()) / m_fp_params.bsearch_mid_denominator();
             CASSERT("predabst", lo < mid);
             CASSERT("predabst", mid < hi);
             if (solver.check(mid, assumptions) != l_true) {
@@ -2146,7 +2202,7 @@ namespace datalog {
             obj_map<expr, unsigned> guard_var_to_index;
             unsigned lo = 0;
             unsigned hi = 0;
-            unsigned increment = PREDABST_UNSAT_CORE_INITIAL_SIZE;
+            unsigned increment = m_fp_params.unsat_prefix_initial_size();
             while (hi < terms.size()) {
                 lo = hi;
                 hi += increment;
@@ -2167,7 +2223,7 @@ namespace datalog {
                     hi = reduce_unsat(solver, guard_vars.c_ptr(), lo, hi, guard_var_to_index);
                     break;
                 }
-                increment *= PREDABST_UNSAT_CORE_GROWTH_FACTOR;
+                increment *= m_fp_params.unsat_prefix_growth_factor();
             }
             // first 'lo' are sat; first 'hi' are unsat, or else hi = #terms
             core_info.m_count = find_unsat_prefix(solver, guard_vars.c_ptr(), lo, hi, guard_var_to_index);
@@ -2269,7 +2325,7 @@ namespace datalog {
         }
 
         core_clauses cone_of_influence(core_clauses const& clauses, expr_ref const& critical) const {
-            if (false /*!m_fp_params.use_cone_of_influence()*/) { // >>>
+            if (!m_fp_params.use_coi()) {
                 STRACE("predabst", tout << "Skipping cone of influence\n";);
                 return clauses;
             }

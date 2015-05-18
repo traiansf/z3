@@ -23,6 +23,14 @@ Revision History:
 #include "smt_params.h"
 #include "qe_lite.h"
 
+var_ref_vector to_vars(expr_ref_vector const& exprs) {
+    var_ref_vector vars(exprs.m());
+    for (unsigned i = 0; i < exprs.size(); ++i) {
+        vars.push_back(to_var(exprs.get(i)));
+    }
+    return vars;
+}
+
 bool sort_is_bool(expr* e, ast_manager& m) {
     return get_sort(e) == m.mk_bool_sort();
 }

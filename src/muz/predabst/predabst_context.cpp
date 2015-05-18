@@ -2154,39 +2154,34 @@ namespace datalog {
                 unsigned new_preds_added = 1;
                 add_pred(fi, pred);
                 if (m_fp_params.use_query_naming() && new_preds_added) {
-                    expr_ref_vector used_vars = get_all_vars(pred);
-                    func_decl_ref_vector used_names(m);
+                    var_ref_vector used_vars = to_vars(get_all_vars(pred));
+                    func_decl_ref_vector used_var_names(m);
                     for (unsigned i = 0; i < used_vars.size(); ++i) {
                         CASSERT("predabst", is_var(used_vars.get(i)));
-                        unsigned j = to_var(used_vars.get(i))->get_idx();
+                        unsigned j = used_vars.get(i)->get_idx();
                         if (!((j < fi->m_var_names.size()) && fi->m_var_names.get(j))) {
                             STRACE("predabst", tout << "Don't have name for variable " << mk_pp(used_vars.get(i), m) << " used in predicate " << mk_pp(p, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
                             return new_preds_added;
                         }
-                        used_names.push_back(fi->m_var_names.get(j));
+                        used_var_names.push_back(fi->m_var_names.get(j));
                     }
                     for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                         func_decl_info* fi2 = m_func_decl2info[m_func_decls.get(i)];
                         if (fi2 == fi) {
                             continue;
                         }
-                        if (is_subset(used_names, fi2->m_var_names)) {
-                            var_ref_vector vars2(m);
-                            for (unsigned j = 0; j < fi->m_vars.size(); ++j) {
-                                if ((j < fi->m_var_names.size()) && fi2->m_var_names.contains(fi->m_var_names.get(j))) {
-                                    for (unsigned k = 0; k < fi2->m_var_names.size(); ++k) {
-                                        if (fi2->m_var_names.get(k) == fi->m_var_names.get(j)) {
-                                            vars2.push_back(fi2->m_vars.get(k));
-                                            break;
-                                        }
+                        if (is_subset(used_var_names, fi2->m_var_names)) {
+                            var_ref_vector used_vars2(m);
+                            for (unsigned j = 0; j < used_var_names.size(); ++j) {
+                                for (unsigned k = 0; k < fi2->m_var_names.size(); ++k) {
+                                    if (used_var_names.get(j) == fi2->m_var_names.get(k)) {
+                                        used_vars2.push_back(fi2->m_vars.get(k));
+                                        break;
                                     }
-                                }
-                                else {
-                                    vars2.push_back(m.mk_var(0, m.mk_bool_sort())); // dummy placeholder
                                 }
                             }
                             new_preds_added++;
-                            add_pred(fi2, apply_subst(pred, build_subst(fi->m_vars, vars2)));
+                            add_pred(fi2, apply_subst(pred, build_subst(used_vars, used_vars2)));
                         }
                     }
                 }

@@ -74,6 +74,8 @@ std::ostream& operator<<(std::ostream& out, ref_vector<T, TManager> const& v) {
     return out;
 }
 
+var_ref_vector to_vars(expr_ref_vector const& exprs);
+
 bool sort_is_bool(expr* e, ast_manager& m);
 bool sort_is_int(expr* e, ast_manager& m);
 

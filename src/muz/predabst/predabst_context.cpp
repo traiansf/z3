@@ -125,21 +125,22 @@ namespace datalog {
         //typedef uint_set rule_set; // rule_set has another meaning; use node_id_set/rule_id_set?
 
         struct func_decl_info {
-            func_decl*      m_fdecl;
-            var_ref_vector  m_vars;
-            expr_ref_vector m_preds;
-            vector<std::string> m_var_names;
-            unsigned        m_new_preds;
-            uint_set        m_users;
-            node_set        m_max_reach_nodes;
-            bool            m_is_wf_predicate;
-            bool            m_has_template;
-            unsigned        m_template_id;
+            func_decl*           m_fdecl;
+            var_ref_vector       m_vars;
+            expr_ref_vector      m_preds;
+            unsigned             m_new_preds;
+            func_decl_ref_vector m_var_names;
+            uint_set             m_users;
+            node_set             m_max_reach_nodes;
+            bool                 m_is_wf_predicate;
+            bool                 m_has_template;
+            unsigned             m_template_id;
             func_decl_info(func_decl* fdecl, var_ref_vector const& vars, bool is_wf_predicate) :
                 m_fdecl(fdecl),
                 m_vars(vars),
                 m_preds(vars.m()),
                 m_new_preds(0),
+                m_var_names(vars.m()),
                 m_is_wf_predicate(is_wf_predicate),
                 m_has_template(false),
                 m_template_id(0) {}
@@ -434,6 +435,7 @@ namespace datalog {
             process_special_rules(rules, is_template_extra, &imp::collect_template_extra);
             process_special_rules(rules, is_template, &imp::collect_template);
             process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
+            process_special_rules(rules, is_arg_name_list, &imp::collect_arg_name_list);
 
             CASSERT("predabst", m_rules.empty());
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
@@ -543,17 +545,8 @@ namespace datalog {
     private:
 
         // Returns true if v1 is a (possibly non-strict) subset of v2.
-        static bool is_subset(expr_ref_vector const& v1, expr_ref_vector const& v2) {
-            for (unsigned i = 0; i < v1.size(); ++i) {
-                if (!v2.contains(v1.get(i))) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         template<typename T>
-        static bool is_subset(vector<T> const& v1, vector<T> const& v2) {
+        static bool is_subset(T const& v1, T const& v2) {
             for (unsigned i = 0; i < v1.size(); ++i) {
                 if (!v2.contains(v1.get(i))) {
                     return false;
@@ -859,7 +852,7 @@ namespace datalog {
         }
 
         static bool is_regular_predicate(func_decl const* fdecl) {
-            return !is_template_extra(fdecl) && !is_template(fdecl) && !is_predicate_list(fdecl);
+            return !is_template_extra(fdecl) && !is_template(fdecl) && !is_predicate_list(fdecl) && !is_arg_name_list(fdecl) && !is_arg_name(fdecl);
         }
 
         void find_all_func_decls(rule_set const& rules) {
@@ -880,9 +873,21 @@ namespace datalog {
                             STRACE("predabst", tout << "Error: found predicate list " << fdecl->get_name() << " in non-head position\n";);
                             throw default_exception("found predicate list " + fdecl->get_name().str() + " in non-head position");
                         }
+                        if (is_arg_name_list(fdecl)) {
+                            STRACE("predabst", tout << "Error: found argument name list " << fdecl->get_name() << " in non-head position\n";);
+                            throw default_exception("found argument name list " + fdecl->get_name().str() + " in non-head position");
+                        }
+                        if (is_arg_name(fdecl)) {
+                            STRACE("predabst", tout << "Error: found argument name " << fdecl->get_name() << " in body of regular rule\n";);
+                            throw default_exception("found argument name " + fdecl->get_name().str() + " in body of regular rule");
+                        }
                         process_func_decl(rules, fdecl);
                     }
                     process_func_decl(rules, r->get_decl());
+                }
+                else if (is_arg_name(r->get_decl())) {
+                    STRACE("predabst", tout << "Error: found argument name " << r->get_decl()->get_name() << " in head position\n";);
+                    throw default_exception("found argument name " + r->get_decl()->get_name().str() + " in head position");
                 }
             }
         }
@@ -1114,6 +1119,98 @@ namespace datalog {
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
                 maybe_add_pred(fi, pred);
             }
+        }
+
+        static bool is_arg_name_list(func_decl const* fdecl) {
+            return fdecl->get_name().str().substr(0, 9) == "__names__";
+        }
+
+        static bool is_arg_name(func_decl const* fdecl) {
+            return fdecl->get_name().str().substr(0, 8) == "__name__";
+        }
+
+        bool is_valid_arg_name(func_decl const* fdecl) const {
+            return is_arg_name(fdecl) && (fdecl->get_arity() == 1) && (fdecl->get_range() == m.mk_bool_sort());
+        }
+
+        void collect_arg_name_list(rule const* r) {
+            CASSERT("predabst", is_arg_name_list(r->get_decl()));
+            // r is a rule of the form:
+            //   __name_a1(x1) AND ... AND __name_aN(xN) => __names__SUFFIX(x1, ..., xN)
+            // Treat a1..aN as the names of the arguments for SUFFIX.
+            func_decl* head_decl = r->get_decl();
+            symbol suffix(head_decl->get_name().str().substr(9).c_str());
+            STRACE("predabst", tout << "Found argument name list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
+
+            func_decl_ref suffix_decl(m.mk_func_decl(
+                suffix,
+                head_decl->get_arity(),
+                head_decl->get_domain(),
+                head_decl->get_range()), m);
+            if (!m_func_decl2info.contains(suffix_decl)) {
+                STRACE("predabst", tout << "Error: found argument name list for non-existent predicate symbol\n";);
+                throw default_exception("found argument name list for non-existent predicate symbol " + suffix.str());
+            }
+
+            func_decl_info* fi = m_func_decl2info[suffix_decl];
+            if (fi->m_has_template) {
+                STRACE("predabst", tout << "Error: found argument name list for templated predicate symbol\n";);
+                throw default_exception("found argument name list for templated predicate symbol " + suffix.str());
+            }
+
+            if (fi->m_var_names.size() > 0) {
+                STRACE("predabst", tout << "Error: found duplicate argument name list\n";);
+                throw default_exception("found duplicate argument name list for predicate symbol " + suffix.str());
+            }
+
+            var_ref_vector args(m);
+            if (!args_are_distinct_vars(r->get_head(), args)) {
+                STRACE("predabst", tout << "Error: argument name list has invalid argument list\n";);
+                throw default_exception("argument name list for " + suffix.str() + " has invalid argument list");
+            }
+
+            if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
+                STRACE("predabst", tout << "Error: argument name list has an interpreted tail\n";);
+                throw default_exception("argument name list for " + suffix.str() + " has an interpreted tail");
+            }
+
+            func_decl_ref_vector var_names(m);
+            var_names.reserve(args.size());
+            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+                app_ref tail(r->get_tail(i), m);
+                if (!is_arg_name(tail->get_decl())) {
+                    STRACE("predabst", tout << "Error: argument name list has unexpected predicate in uninterpreted body\n";);
+                    throw default_exception("argument name list for " + suffix.str() + " has unexpected predicate in uninterpreted body");
+                }
+                if (!is_valid_arg_name(tail->get_decl())) {
+                    STRACE("predabst", tout << "Error: incorrect type of __name__X predicate\n";);
+                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate of incorrect type");
+                }
+                if (!is_var(tail->get_arg(0))) {
+                    STRACE("predabst", tout << "Error: non-variable argument to __name__X predicate\n";);
+                    throw default_exception("predicate list for " + suffix.str() + " has __name__X predicate with non-variable argument");
+                }
+                var_ref v(to_var(tail->get_arg(0)), m);
+                if (!args.contains(v)) {
+                    STRACE("predabst", tout << "Error: argument to __name__X predicate does not appear in the head\n";);
+                    throw default_exception("predicate list for " + suffix.str() + " has __name__X predicate with argument that does not appear in the head");
+                }
+                unsigned j;
+                for (j = 0; j < args.size(); ++j) {
+                    if (v == args.get(j)) {
+                        break;
+                    }
+                }
+                if (var_names.get(j)) {
+                    STRACE("predabst", tout << "Error: duplicate name for argument " << j << "\n";);
+                    throw default_exception("predicate list for " + suffix.str() + " has duplicate name for argument");
+                }
+                std::string name = tail->get_decl()->get_name().str().substr(8);
+                STRACE("predabst", tout << "Found name " << name << " for argument " << j << "\n";);
+                var_names[j] = m.mk_const_decl(symbol(name.c_str()), args.get(j)->get_sort());
+            }
+
+            fi->m_var_names.swap(var_names);
         }
 
 #define RETURN_CHECK_CANCELLED(result) return m_cancel ? l_undef : result;
@@ -2057,15 +2154,15 @@ namespace datalog {
                 add_pred(fi, pred);
                 if (m_fp_params.use_query_naming() && new_preds_added) {
                     expr_ref_vector used_vars = get_all_vars(pred);
-                    vector<std::string> used_names;
+                    func_decl_ref_vector used_names(m);
                     for (unsigned i = 0; i < used_vars.size(); ++i) {
                         CASSERT("predabst", is_var(used_vars.get(i)));
                         unsigned j = to_var(used_vars.get(i))->get_idx();
-                        if (j >= fi->m_var_names.size()) {
-                            STRACE("predabst", tout << "Don't have names for variable " << mk_pp(used_vars.get(i), m) << " used in predicate " << mk_pp(p, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
+                        if (!((j < fi->m_var_names.size()) && fi->m_var_names.get(j))) {
+                            STRACE("predabst", tout << "Don't have name for variable " << mk_pp(used_vars.get(i), m) << " used in predicate " << mk_pp(p, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
                             return new_preds_added;
                         }
-                        used_names.push_back(fi->m_var_names[j]);
+                        used_names.push_back(fi->m_var_names.get(j));
                     }
                     for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                         func_decl_info* fi2 = m_func_decl2info[m_func_decls.get(i)];
@@ -2075,9 +2172,9 @@ namespace datalog {
                         if (is_subset(used_names, fi2->m_var_names)) {
                             var_ref_vector vars2(m);
                             for (unsigned j = 0; j < fi->m_vars.size(); ++j) {
-                                if ((j < fi->m_var_names.size()) && fi2->m_var_names.contains(fi->m_var_names[j])) {
+                                if ((j < fi->m_var_names.size()) && fi2->m_var_names.contains(fi->m_var_names.get(j))) {
                                     for (unsigned k = 0; k < fi2->m_var_names.size(); ++k) {
-                                        if (fi2->m_var_names[k] == fi->m_var_names[j]) {
+                                        if (fi2->m_var_names.get(k) == fi->m_var_names.get(j)) {
                                             vars2.push_back(fi2->m_vars.get(k));
                                             break;
                                         }

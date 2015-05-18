@@ -201,6 +201,131 @@ inpval_tests = [
 (assert (forall ((x Int)) (p x)))
 (assert (forall ((x Int) (y Int)) (=> (= x y) (__pred__p x))))""",
      "predicate for p has free variables"),
+
+    ("names-no-query",
+     """
+(declare-fun __names__p (Int) Bool)
+(assert (forall ((x Int)) (__names__p x)))""",
+     "found argument name list for non-existent predicate symbol p"),
+# XXX What about a similar case where a predicate with the same name but different arity/types exists?
+
+    ("names-templ",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (__names__p x)))
+(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
+     "found argument name list for templated predicate symbol p"),
+
+    ("names-multiple",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (__names__p x)))
+(assert (forall ((x Int)) (__names__p x)))""",
+     "found multiple argument name lists for p"),
+
+    ("names-in-body",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (__names__p x) false)))""",
+     "found argument name list __names__p in non-head position"),
+
+    ("names-interp-tail",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (= x 0) (__names__p x))))""",
+     "argument name list for p has an interpreted tail"),
+
+    ("names-non-var-args",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int)) (__names__p x 0)))""",
+     "argument name list for p has invalid argument list"),
+
+    ("names-non-unique-args",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int)) (__names__p x x)))""",
+     "argument name list for p has invalid argument list"),
+
+    ("names-tail-not-name",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (p x) (__names__p x))))""",
+     "argument name list for p has unexpected predicate in uninterpreted tail"),
+
+    ("names-tail-bad-name-arity",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(declare-fun __name__foo () Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> __name__foo (__names__p x))))""",
+     "argument name list for p has __name__X predicate of incorrect arity"),
+
+    ("names-tail-not-var-arg",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(declare-fun __name__foo (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (__name__foo 0) (__names__p x))))""",
+     "argument name list for p has __name__X predicate with non-variable argument"),
+
+    ("names-tail-not-head-var-arg",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(declare-fun __name__foo (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int) (y Int)) (=> (__name__foo y) (__names__p x))))""",
+     "argument name list for p has __name__X predicate with argument that does not appear in the head"),
+
+    ("names-duplicate-name",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(declare-fun __name__foo (Int) Bool)
+(declare-fun __name__bar (Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int) (y Int)) (=> (and (__name__foo x) (__name__bar x)) (__names__p x y))))""",
+     "argument name list for p has duplicate name for argument"),
+
+    ("names-non-unique-name",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(declare-fun __name__foo (Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int) (y Int)) (=> (and (__name__foo x) (__name__foo y)) (__names__p x y))))""",
+     "argument name list for p has non-unique argument names"),
+
+    ("name-in-head",
+     """
+(declare-fun __name__foo (Int) Bool)
+(assert (forall ((x Int)) (__name__foo x)))""",
+     "found argument name __name__foo in head position"),
+
+    ("name-in-regular-body",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __name__foo (Int) Bool)
+(assert (forall ((x Int)) (=> (__name__foo x) (p x))))""",
+     "found argument name __name__foo in body of regular rule"),
 ]
 
 norefine_sat_tests = [
@@ -612,6 +737,22 @@ refine_sat_tests = [
 (assert (not (p 1)))""",
      """
 (define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
+
+    ("simple-query-naming",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun q (Int) Bool)
+(declare-fun __names__p (Int) Bool)
+(declare-fun __names__q (Int) Bool)
+(declare-fun __name__a (Int) Bool)
+(assert (forall ((x Int)) (=> (<= x 0) (p x))))
+(assert (forall ((x Int)) (=> (> x 0) (not (p x)))))
+(assert (forall ((x Int)) (=> (<= x 0) (q x))))
+(assert (forall ((x Int)) (=> (__name__a x) (__names__p x))))
+(assert (forall ((x Int)) (=> (__name__a x) (__names__q x))))""",
+     """
+(define-fun p ((x!1 Int)) Bool (<= x!1 0))
+(define-fun q ((x!1 Int)) Bool (<= x!1 0))"""),
 
 # XXX The following two test cases are incomplete.
 #    ("templ-xxx",

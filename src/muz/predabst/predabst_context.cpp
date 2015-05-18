@@ -1129,10 +1129,6 @@ namespace datalog {
             return fdecl->get_name().str().substr(0, 8) == "__name__";
         }
 
-        bool is_valid_arg_name(func_decl const* fdecl) const {
-            return is_arg_name(fdecl) && (fdecl->get_arity() == 1) && (fdecl->get_range() == m.mk_bool_sort());
-        }
-
         void collect_arg_name_list(rule const* r) {
             CASSERT("predabst", is_arg_name_list(r->get_decl()));
             // r is a rule of the form:
@@ -1159,8 +1155,8 @@ namespace datalog {
             }
 
             if (fi->m_var_names.size() > 0) {
-                STRACE("predabst", tout << "Error: found duplicate argument name list\n";);
-                throw default_exception("found duplicate argument name list for predicate symbol " + suffix.str());
+                STRACE("predabst", tout << "Error: found multiple argument name lists for " << suffix.str() << "\n";);
+                throw default_exception("found multiple argument name lists for " + suffix.str());
             }
 
             var_ref_vector args(m);
@@ -1179,21 +1175,22 @@ namespace datalog {
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 app_ref tail(r->get_tail(i), m);
                 if (!is_arg_name(tail->get_decl())) {
-                    STRACE("predabst", tout << "Error: argument name list has unexpected predicate in uninterpreted body\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has unexpected predicate in uninterpreted body");
+                    STRACE("predabst", tout << "Error: argument name list has unexpected predicate in uninterpreted tail\n";);
+                    throw default_exception("argument name list for " + suffix.str() + " has unexpected predicate in uninterpreted tail");
                 }
-                if (!is_valid_arg_name(tail->get_decl())) {
-                    STRACE("predabst", tout << "Error: incorrect type of __name__X predicate\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate of incorrect type");
+                CASSERT("predabst", tail->get_decl()->get_range() == m.mk_bool_sort());
+                if (tail->get_decl()->get_arity() != 1) {
+                    STRACE("predabst", tout << "Error: incorrect arity of __name__X predicate\n";);
+                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate of incorrect arity");
                 }
                 if (!is_var(tail->get_arg(0))) {
                     STRACE("predabst", tout << "Error: non-variable argument to __name__X predicate\n";);
-                    throw default_exception("predicate list for " + suffix.str() + " has __name__X predicate with non-variable argument");
+                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate with non-variable argument");
                 }
                 var_ref v(to_var(tail->get_arg(0)), m);
                 if (!args.contains(v)) {
                     STRACE("predabst", tout << "Error: argument to __name__X predicate does not appear in the head\n";);
-                    throw default_exception("predicate list for " + suffix.str() + " has __name__X predicate with argument that does not appear in the head");
+                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate with argument that does not appear in the head");
                 }
                 unsigned j;
                 for (j = 0; j < args.size(); ++j) {
@@ -1203,11 +1200,15 @@ namespace datalog {
                 }
                 if (var_names.get(j)) {
                     STRACE("predabst", tout << "Error: duplicate name for argument " << j << "\n";);
-                    throw default_exception("predicate list for " + suffix.str() + " has duplicate name for argument");
+                    throw default_exception("argument name list for " + suffix.str() + " has duplicate name for argument");
                 }
-                std::string name = tail->get_decl()->get_name().str().substr(8);
-                STRACE("predabst", tout << "Found name " << name << " for argument " << j << "\n";);
-                var_names[j] = m.mk_const_decl(symbol(name.c_str()), args.get(j)->get_sort());
+                func_decl_ref name(m.mk_const_decl(symbol(tail->get_decl()->get_name().str().substr(8).c_str()), args.get(j)->get_sort()), m);
+                if (var_names.contains(name)) {
+                    STRACE("predabst", tout << "Error: non-unique name for argument " << j << "\n";);
+                    throw default_exception("argument name list for " + suffix.str() + " has non-unique argument names");
+                }
+                STRACE("predabst", tout << "Found name " << name->get_name() << " for argument " << j << "\n";);
+                var_names[j] = name;
             }
 
             fi->m_var_names.swap(var_names);

@@ -2292,6 +2292,20 @@ namespace datalog {
                 }
             }
             m_fparams.m_model = old_model;
+#ifdef Z3DEBUG
+            // Check that these explicit values are uniquely determined.
+            scoped_push _push(*solver_for(ri));
+            expr_ref_vector es(m);
+            for (unsigned i = 0; i < info.m_head_explicit_args.size(); ++i) {
+                if (!info.m_head_known_args.get(i)) {
+                    es.push_back(m.mk_eq(info.m_head_explicit_args.get(i), values.get(i)));
+                }
+            }
+            expr_ref to_assert(m.mk_not(mk_conj(es)), m);
+            solver_for(ri)->assert_expr(to_assert);
+            lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
+            CASSERT("predabst", result != l_true);
+#endif
             return values;
         }
 

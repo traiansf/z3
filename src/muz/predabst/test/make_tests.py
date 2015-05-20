@@ -686,6 +686,39 @@ norefine_sat_tests = [
 (declare-fun p (Int Int) Bool)
 (declare-fun __expls__p (Int Int) Bool)
 (declare-fun __expl__ (Int) Bool)
+(assert (forall ((x Int) (y Int)) (=> (= x 0) (p x y))))
+(assert (forall ((x Int) (y Int)) (=> (= x 1) (not (p x y)))))
+(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+     """
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (= x!1 0))"""),
+
+    ("infer-exp-eval-literal-head",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __expls__p (Int Int) Bool)
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((y Int)) (p 0 y)))
+(assert (forall ((x Int) (y Int)) (=> (and (= x 0) (p x y)) (p 1 y))))
+(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+     """
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (or (= x!1 0) (= x!1 1)))"""),
+
+    ("infer-exp-eval-literal-body",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __expls__p (Int Int) Bool)
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((x Int) (y Int)) (=> (= x 0) (p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (= x 1) (p 0 y)) (p x y))))
+(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+     """
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (or (= x!1 0) (= x!1 1)))"""),
+
+    ("infer-exp-eval-iterate",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __expls__p (Int Int) Bool)
+(declare-fun __expl__ (Int) Bool)
 (assert (forall ((y Int)) (p 0 y)))
 (assert (forall ((x Int) (y Int)) (=> (and (< x 2) (p x y)) (p (+ x 1) y))))
 (assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",

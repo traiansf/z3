@@ -210,6 +210,11 @@ namespace datalog {
                 for (unsigned i = 0; i < info.get_tail_size(); ++i) {
                     out << "      body preds " << i << " (" << info.get_decl(i, _this) << "): " << m_body_preds[i] << "\n";
                 }
+                out << "      head explicit args (" << info.get_decl(_this) << "): " << m_head_explicit_args << "\n";
+                CASSERT("predabst", info.get_tail_size() == m_body_explicit_args.size());
+                for (unsigned i = 0; i < info.get_tail_size(); ++i) {
+                    out << "      body explicit args " << i << " (" << info.get_decl(i, _this) << "): " << m_body_explicit_args[i] << "\n";
+                }
                 out << "      body: " << m_body << "\n";
             }
         };
@@ -1555,11 +1560,11 @@ namespace datalog {
                     }
                 }
                 pre_simplify(head_args);
-                info.m_head_explicit_args.swap(head_args);
                 vector<bool> known_args;
                 for (unsigned i = 0; i < head_args.size(); ++i) {
                     known_args.push_back(get_all_vars(expr_ref(head_args.get(i), m)).empty());
                 }
+                info.m_head_explicit_args.swap(head_args);
                 info.m_head_known_args.swap(known_args);
             }
 
@@ -1581,11 +1586,11 @@ namespace datalog {
                     }
                 }
                 pre_simplify(body_args);
-                info.m_body_explicit_args.push_back(body_args);
                 vector<bool> known_args;
                 for (unsigned j = 0; j < body_args.size(); ++j) {
                     known_args.push_back(get_all_vars(expr_ref(body_args.get(j), m)).empty());
                 }
+                info.m_body_explicit_args.push_back(body_args);
                 info.m_body_known_args.push_back(known_args);
             }
 
@@ -2263,7 +2268,7 @@ namespace datalog {
             bool old_model = m_fparams.m_model;
             m_fparams.m_model = true;
             model_ref modref;
-            if (info.m_head_explicit_args.size() > info.m_num_head_unknown_args) {
+            if (info.m_num_head_unknown_args > 0) {
                 lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr()); // >>> share this check with the one in the caller (if not using allsat, though in that case we should do this much earlier still)
                 CASSERT("predabst", result == l_true);
                 solver_for(ri)->get_model(modref);

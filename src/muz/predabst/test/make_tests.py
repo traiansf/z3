@@ -680,6 +680,17 @@ norefine_sat_tests = [
 (assert (forall ((x Bool) (y Real)) (=> (and x (not x) (<= y 0.0) (>= y 1.0)) (__pred__p x y))))""",
      """
 (define-fun p ((x!1 Bool) (x!2 Real)) Bool (or (and x!1 (<= x!2 0.0)) (and (not x!1) (>= x!2 1.0))))"""),
+
+    ("infer-exp-eval",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __expls__p (Int Int) Bool)
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((y Int)) (p 0 y)))
+(assert (forall ((x Int) (y Int)) (=> (and (< x 2) (p x y)) (p (+ x 1) y))))
+(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+     """
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (or (= x!1 0) (= x!1 1) (= x!1 2)))"""),
 ]
 
 norefine_unsat_tests = [

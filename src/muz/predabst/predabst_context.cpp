@@ -184,7 +184,11 @@ namespace datalog {
 #endif
                 m_body.reset();
                 m_head_preds.reset();
+                m_head_explicit_args.reset();
+                m_head_known_args.reset();
                 m_body_preds.reset();
+                m_body_explicit_args.reset();
+                m_body_known_args.reset();
             }
 #ifdef PREDABST_SOLVER_PER_RULE
             void cancel() {
@@ -1926,12 +1930,12 @@ namespace datalog {
                         vector<bool> const& known_args = info.m_body_known_args[i];
                         CASSERT("predabst", values.size() == body_args.size());
                         for (unsigned j = 0; j < values.size(); ++j) {
-                            if (/* >>> m_fp_params.skip_incorrect_body_values() && */ known_args.get(j) && (body_args.get(j) != values.get(j))) {
+                            if (m_fp_params.skip_incorrect_body_values() && known_args.get(j) && (body_args.get(j) != values.get(j))) {
                                 // Skip parent nodes that are trivially inconsistent with this application.
                                 skip = true;
                                 break;
                             }
-                            if (/* >>> m_fp_params.skip_correct_body_values() && */ (body_args.get(j) == values.get(j))) {
+                            if (m_fp_params.skip_correct_body_values() && (body_args.get(j) == values.get(j))) {
                                 continue;
                             }
                             pos_cube.push_back(m.mk_eq(body_args.get(j), values.get(j)));
@@ -2274,7 +2278,7 @@ namespace datalog {
                 solver_for(ri)->get_model(modref);
             }
             for (unsigned i = 0; i < info.m_head_explicit_args.size(); ++i) {
-                if (/* >>> m_fp_params.skip_known_head_values() && */ info.m_head_known_args.get(i)) {
+                if (m_fp_params.skip_known_head_values() && info.m_head_known_args.get(i)) {
                     values.push_back(info.m_head_explicit_args.get(i));
                 }
                 else {

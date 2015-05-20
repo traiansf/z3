@@ -22,6 +22,19 @@ Revision History:
 #include "ast.h"
 
 template<typename T, typename TManager>
+inline bool vector_equals(ref_vector<T, TManager> const& v1, ref_vector<T, TManager> const& v2) {
+    if (v1.size() != v2.size()) {
+        return false;
+    }
+    for (unsigned i = 0; i < v1.size(); ++i) {
+        if (v1.get(i) != v2.get(i)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+template<typename T, typename TManager>
 inline ref_vector<T, TManager> vector_concat(ref_vector<T, TManager> const& v1, ref_vector<T, TManager> const& v2) {
     ref_vector<T, TManager> v(v1);
     v.append(v2);
@@ -44,6 +57,17 @@ inline unsigned vector_find(ref_vector<T, TManager> const& v, T const* elem) {
     }
     UNREACHABLE();
     return UINT_MAX;
+}
+
+template<typename T, typename TManager>
+inline ref_vector<T, TManager> vector_intersection(ref_vector<T, TManager> const& v1, ref_vector<T, TManager> const& v2) {
+    ref_vector<T, TManager> intersection(v1.m());
+    for (unsigned i = 0; i < v1.size(); ++i) {
+        if (v2.contains(v1.get(i))) {
+            intersection.push_back(v1.get(i));
+        }
+    }
+    return intersection;
 }
 
 template<typename T>

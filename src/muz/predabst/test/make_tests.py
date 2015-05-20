@@ -145,6 +145,121 @@ inpval_tests = [
 (assert (forall ((x Int) (y Int)) (=> (= x y) (__temp__p x))))""",
      "template for p has free variables"),
 
+    ("expls-no-query",
+     """
+(declare-fun __expls__p (Int) Bool)
+(assert (forall ((x Int)) (__expls__p x)))""",
+     "found explicit argument list for non-existent predicate symbol p"),
+# XXX What about a similar case where a predicate with the same name but different arity/types exists?
+
+    ("expls-templ",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(declare-fun __temp__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (__expls__p x)))
+(assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
+     "found explicit argument list for templated predicate symbol p"),
+
+    ("expls-multiple",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (__expls__p x)))
+(assert (forall ((x Int)) (__expls__p x)))""",
+     "found multiple explicit argument lists for p"),
+
+    ("expls-in-body",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (__expls__p x) false)))""",
+     "found explicit argument list __expls__p in non-head position"),
+
+    ("expls-interp-tail",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (= x 0) (__expls__p x))))""",
+     "explicit argument list for p has an interpreted tail"),
+
+    ("expls-non-var-args",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __expls__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int)) (__expls__p x 0)))""",
+     "explicit argument list for p has invalid argument list"),
+
+    ("expls-non-unique-args",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __expls__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int)) (__expls__p x x)))""",
+     "explicit argument list for p has invalid argument list"),
+
+    ("expls-tail-not-expl",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (p x) (__expls__p x))))""",
+     "explicit argument list for p has unexpected predicate in uninterpreted tail"),
+
+    ("expls-tail-bad-expl-arity",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(declare-fun __expl__ () Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> __expl__ (__expls__p x))))""",
+     "explicit argument list for p has __expl__ predicate of incorrect arity"),
+
+    ("expls-tail-not-var-arg",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int)) (=> (__expl__ 0) (__expls__p x))))""",
+     "explicit argument list for p has __expl__ predicate with non-variable argument"),
+
+    ("expls-tail-not-head-var-arg",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expls__p (Int) Bool)
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((x Int)) (p x)))
+(assert (forall ((x Int) (y Int)) (=> (__expl__ y) (__expls__p x))))""",
+     "explicit argument list for p has __expl__ predicate with argument that does not appear in the head"),
+
+    ("expls-duplicate-expl",
+     """
+(declare-fun p (Int Int) Bool)
+(declare-fun __expls__p (Int Int) Bool)
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((x Int) (y Int)) (p x y)))
+(assert (forall ((x Int) (y Int)) (=> (and (__expl__ x) (__expl__ x)) (__expls__p x y))))""",
+     "explicit argument list for p has duplicate __expl__ declaration for argument"),
+
+    ("expl-in-head",
+     """
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((x Int)) (__expl__ x)))""",
+     "found explicit argument __expl__ in head position"),
+
+    ("expl-in-regular-body",
+     """
+(declare-fun p (Int) Bool)
+(declare-fun __expl__ (Int) Bool)
+(assert (forall ((x Int)) (=> (__expl__ x) (p x))))""",
+     "found explicit argument __expl__ in body of regular rule"),
+
     ("plist-no-query",
      """
 (declare-fun __pred__p (Int) Bool)
@@ -303,7 +418,7 @@ inpval_tests = [
 (declare-fun __name__bar (Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
 (assert (forall ((x Int) (y Int)) (=> (and (__name__foo x) (__name__bar x)) (__names__p x y))))""",
-     "argument name list for p has duplicate name for argument"),
+     "argument name list for p has duplicate name for argument"), # >>> what about the case where (__name__foo x) is given twice?
 
     ("names-non-unique-name",
      """

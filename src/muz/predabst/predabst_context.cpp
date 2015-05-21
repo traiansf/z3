@@ -2293,7 +2293,9 @@ namespace datalog {
             }
             m_fparams.m_model = old_model;
 #ifdef Z3DEBUG
-            // Check that these explicit values are uniquely determined.
+            // Check that these explicit values are uniquely determined.  This
+            // check may fail if some arguments were incorrectly marked as
+            // explicit.
             scoped_push _push(*solver_for(ri));
             expr_ref_vector es(m);
             for (unsigned i = 0; i < info.m_head_explicit_args.size(); ++i) {
@@ -2304,7 +2306,10 @@ namespace datalog {
             expr_ref to_assert(m.mk_not(mk_conj(es)), m);
             solver_for(ri)->assert_expr(to_assert);
             lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
-            CASSERT("predabst", result != l_true);
+            if (result == l_true) {
+                STRACE("predabst", tout << "Error: explicit values were not uniquely determined\n";);
+                throw default_exception("explicit values were not uniquely determined");
+            }
 #endif
             return values;
         }

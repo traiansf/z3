@@ -146,7 +146,10 @@ namespace datalog {
                 m_explicit_vars(vars.m()),
                 m_is_wf_predicate(is_wf_predicate),
                 m_has_template(false),
-                m_template_id(0) {}
+                m_template_id(0) {
+                m_var_names.reserve(vars.size());
+                m_explicit_args.reserve(vars.size());
+            }
             friend std::ostream& operator<<(std::ostream& out, func_decl_info const* fi) {
                 if (fi) {
                     out << fi->m_fdecl->get_name();
@@ -485,9 +488,6 @@ namespace datalog {
             for (unsigned i = 0; i < m_func_decls.size(); ++i) {
                 func_decl_info* fi = m_func_decl2info[m_func_decls.get(i)];
                 for (unsigned j = 0; j < fi->m_vars.size(); ++j) {
-                    if (j >= fi->m_explicit_args.size()) {
-                        break;
-                    }
                     if (fi->m_explicit_args.get(j)) {
                         fi->m_explicit_vars.push_back(fi->m_vars.get(j));
                     }
@@ -1176,11 +1176,6 @@ namespace datalog {
                 throw default_exception("found explicit argument list for templated predicate symbol " + suffix.str());
             }
 
-            if (!fi->m_explicit_args.empty()) {
-                STRACE("predabst", tout << "Error: found multiple explicit argument lists for " << suffix.str() << "\n";);
-                throw default_exception("found multiple explicit argument lists for " + suffix.str());
-            }
-
             var_ref_vector args(m);
             if (!args_are_distinct_vars(r->get_head(), args)) {
                 STRACE("predabst", tout << "Error: explicit argument list has invalid argument list\n";);
@@ -1192,8 +1187,6 @@ namespace datalog {
                 throw default_exception("explicit argument list for " + suffix.str() + " has an interpreted tail");
             }
 
-            vector<bool> explicit_args;
-            explicit_args.reserve(args.size());
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 app_ref tail(r->get_tail(i), m);
                 if (!is_explicit_arg(tail->get_decl())) {
@@ -1214,21 +1207,19 @@ namespace datalog {
                     STRACE("predabst", tout << "Error: argument to __expl__ predicate does not appear in the head\n";);
                     throw default_exception("explicit argument list for " + suffix.str() + " has __expl__ predicate with argument that does not appear in the head");
                 }
-                unsigned j;
-                for (j = 0; j < args.size(); ++j) {
-                    if (v == args.get(j)) {
-                        break;
-                    }
-                }
-                if (explicit_args.get(j)) {
+                unsigned j = vector_find(args, v.get());
+                if (fi->m_explicit_args.get(j)) {
                     STRACE("predabst", tout << "Error: duplicate __expl__ declaration for argument " << j << "\n";);
                     throw default_exception("explicit argument list for " + suffix.str() + " has duplicate __expl__ declaration for argument");
                 }
-                STRACE("predabst", tout << "Found explicit argument declaration for argument " << j << "\n";);
-                explicit_args[j] = true;
+                if (m_fp_params.use_exp_eval()) {
+                    STRACE("predabst", tout << "Found explicit argument declaration for argument " << j << "\n";);
+                    fi->m_explicit_args[j] = true;
+                }
+                else {
+                    STRACE("predabst", tout << "Ignoring explicit argument declaration for argument " << j << "\n";);
+                }
             }
-
-            fi->m_explicit_args.swap(explicit_args);
         }
 
         static bool is_predicate_list(func_decl const* fdecl) {
@@ -1268,7 +1259,7 @@ namespace datalog {
 
             var_ref_vector non_explicit_args(m);
             for (unsigned i = 0; i < args.size(); ++i) {
-                if (!((i < fi->m_explicit_args.size()) && fi->m_explicit_args.get(i))) {
+                if (!fi->m_explicit_args.get(i)) {
                     non_explicit_args.push_back(args.get(i));
                 }
             }
@@ -1329,11 +1320,6 @@ namespace datalog {
                 throw default_exception("found argument name list for templated predicate symbol " + suffix.str());
             }
 
-            if (!fi->m_var_names.empty()) {
-                STRACE("predabst", tout << "Error: found multiple argument name lists for " << suffix.str() << "\n";);
-                throw default_exception("found multiple argument name lists for " + suffix.str());
-            }
-
             var_ref_vector args(m);
             if (!args_are_distinct_vars(r->get_head(), args)) {
                 STRACE("predabst", tout << "Error: argument name list has invalid argument list\n";);
@@ -1345,8 +1331,6 @@ namespace datalog {
                 throw default_exception("argument name list for " + suffix.str() + " has an interpreted tail");
             }
 
-            func_decl_ref_vector var_names(m);
-            var_names.reserve(args.size());
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 app_ref tail(r->get_tail(i), m);
                 if (!is_arg_name(tail->get_decl())) {
@@ -1367,30 +1351,24 @@ namespace datalog {
                     STRACE("predabst", tout << "Error: argument to __name__X predicate does not appear in the head\n";);
                     throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate with argument that does not appear in the head");
                 }
-                unsigned j;
-                for (j = 0; j < args.size(); ++j) {
-                    if (v == args.get(j)) {
-                        break;
-                    }
-                }
-                if ((fi->m_explicit_args.size() > j) && fi->m_explicit_args.get(j)) {
-                    STRACE("predabst", tout << "Error: name for explicit argument " << j << "\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has name for explicit argument");
-                }
-                if (var_names.get(j)) {
+                unsigned j = vector_find(args, v.get());
+                if (fi->m_var_names.get(j)) {
                     STRACE("predabst", tout << "Error: duplicate name for argument " << j << "\n";);
                     throw default_exception("argument name list for " + suffix.str() + " has duplicate name for argument");
                 }
                 func_decl_ref name(m.mk_const_decl(symbol(tail->get_decl()->get_name().str().substr(8).c_str()), args.get(j)->get_sort()), m);
-                if (var_names.contains(name)) {
+                if (fi->m_var_names.contains(name)) {
                     STRACE("predabst", tout << "Error: non-unique name for argument " << j << "\n";);
                     throw default_exception("argument name list for " + suffix.str() + " has non-unique argument names");
                 }
-                STRACE("predabst", tout << "Found name " << name->get_name() << " for argument " << j << "\n";);
-                var_names[j] = name;
+                if (fi->m_explicit_args.get(j)) {
+                    STRACE("predabst", tout << "Ignoring name for explicit argument " << j << "\n";);
+                }
+                else {
+                    STRACE("predabst", tout << "Found name " << name->get_name() << " for argument " << j << "\n";);
+                    fi->m_var_names[j] = name;
+                }
             }
-
-            fi->m_var_names.swap(var_names);
         }
 
 #define RETURN_CHECK_CANCELLED(result) return m_cancel ? l_undef : result;
@@ -2455,7 +2433,7 @@ namespace datalog {
                     for (unsigned i = 0; i < used_vars.size(); ++i) {
                         CASSERT("predabst", is_var(used_vars.get(i)));
                         unsigned j = used_vars.get(i)->get_idx();
-                        if (!((j < fi->m_var_names.size()) && fi->m_var_names.get(j))) {
+                        if (!fi->m_var_names.get(j)) {
                             STRACE("predabst", tout << "Don't have name for variable " << mk_pp(used_vars.get(i), m) << " used in predicate " << mk_pp(p, m) << " for " << fi << "(" << fi->m_vars << ")\n";);
                             return new_preds_added;
                         }

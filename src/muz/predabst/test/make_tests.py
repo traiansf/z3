@@ -162,15 +162,6 @@ inpval_tests = [
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      "found explicit argument list for templated predicate symbol p"),
 
-    ("expls-multiple",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (__expls__p x)))
-(assert (forall ((x Int)) (__expls__p x)))""",
-     "found multiple explicit argument lists for p"),
-
     ("expls-in-body",
      """
 (declare-fun p (Int) Bool)
@@ -334,15 +325,6 @@ inpval_tests = [
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      "found argument name list for templated predicate symbol p"),
 
-    ("names-multiple",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __names__p (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (__names__p x)))
-(assert (forall ((x Int)) (__names__p x)))""",
-     "found multiple argument name lists for p"),
-
     ("names-in-body",
      """
 (declare-fun p (Int) Bool)
@@ -409,18 +391,6 @@ inpval_tests = [
 (assert (forall ((x Int)) (p x)))
 (assert (forall ((x Int) (y Int)) (=> (__name__foo y) (__names__p x))))""",
      "argument name list for p has __name__X predicate with argument that does not appear in the head"),
-
-    ("names-tail-explicit-arg",
-     """
-(declare-fun p (Int) Bool)
-(declare-fun __names__p (Int) Bool)
-(declare-fun __name__foo (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
-(declare-fun __expl__ (Int) Bool)
-(assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (__expl__ x) (__expls__p x))))
-(assert (forall ((x Int)) (=> (__name__foo x) (__names__p x))))""",
-     "argument name list for p has name for explicit argument"),
 
     ("names-duplicate-name",
      """

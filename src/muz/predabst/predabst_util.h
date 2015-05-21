@@ -21,8 +21,8 @@ Revision History:
 
 #include "ast.h"
 
-template<typename T, typename TManager>
-inline bool vector_equals(ref_vector<T, TManager> const& v1, ref_vector<T, TManager> const& v2) {
+template<typename V>
+inline bool vector_equals(V const& v1, V const& v2) {
     if (v1.size() != v2.size()) {
         return false;
     }
@@ -34,22 +34,22 @@ inline bool vector_equals(ref_vector<T, TManager> const& v1, ref_vector<T, TMana
     return true;
 }
 
-template<typename T, typename TManager>
-inline ref_vector<T, TManager> vector_concat(ref_vector<T, TManager> const& v1, ref_vector<T, TManager> const& v2) {
-    ref_vector<T, TManager> v(v1);
+template<typename V>
+inline V vector_concat(V const& v1, V const& v2) {
+    V v(v1);
     v.append(v2);
     return v;
 }
 
-template<typename T, typename TManager>
-inline ref_vector<T, TManager> vector_concat(unsigned n1, T* const* p1, ref_vector<T, TManager> const& v2) {
-    ref_vector<T, TManager> v(v2.m(), n1, p1);
+template<typename V, typename T>
+inline V vector_concat(unsigned n1, T* const* p1, V const& v2) {
+    V v(v2.m(), n1, p1);
     v.append(v2);
     return v;
 }
 
-template<typename T, typename TManager>
-inline unsigned vector_find(ref_vector<T, TManager> const& v, T const* elem) {
+template<typename V, typename T>
+inline unsigned vector_find(V const& v, T const* elem) {
     for (unsigned i = 0; i < v.size(); ++i) {
         if (v.get(i) == elem) {
             return i;
@@ -59,9 +59,9 @@ inline unsigned vector_find(ref_vector<T, TManager> const& v, T const* elem) {
     return UINT_MAX;
 }
 
-template<typename T, typename TManager>
-inline ref_vector<T, TManager> vector_intersection(ref_vector<T, TManager> const& v1, ref_vector<T, TManager> const& v2) {
-    ref_vector<T, TManager> intersection(v1.m());
+template<typename V>
+inline V vector_intersection(V const& v1, V const& v2) {
+    V intersection(v1.m());
     for (unsigned i = 0; i < v1.size(); ++i) {
         if (v2.contains(v1.get(i))) {
             intersection.push_back(v1.get(i));

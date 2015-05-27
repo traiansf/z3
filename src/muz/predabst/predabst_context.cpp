@@ -1144,20 +1144,20 @@ namespace datalog {
         }
 
         static bool is_explicit_arg_list(func_decl const* fdecl) {
-            return fdecl->get_name().str().substr(0, 9) == "__expls__";
+            return fdecl->get_name().str().substr(0, 11) == "__expargs__";
         }
 
         static bool is_explicit_arg(func_decl const* fdecl) {
-            return fdecl->get_name().str() == "__expl__";
+            return fdecl->get_name().str() == "__exparg__";
         }
 
         void collect_explicit_arg_list(rule const* r) {
             CASSERT("predabst", is_explicit_arg_list(r->get_decl()));
             // r is a rule of the form:
-            //   __expl__(xi) AND ... AND __expl__(xj) => __expls__SUFFIX(x1, ..., xN)
+            //   __exparg__(xi) AND ... AND __exparg__(xj) => __expargs__SUFFIX(x1, ..., xN)
             // Treat xi,...,xj as explicit arguments for SUFFIX.
             func_decl* head_decl = r->get_decl();
-            symbol suffix(head_decl->get_name().str().substr(9).c_str());
+            symbol suffix(head_decl->get_name().str().substr(11).c_str());
             STRACE("predabst", tout << "Found explicit argument list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
 
             func_decl_ref suffix_decl(m.mk_func_decl(
@@ -1195,22 +1195,22 @@ namespace datalog {
                 }
                 CASSERT("predabst", tail->get_decl()->get_range() == m.mk_bool_sort());
                 if (tail->get_decl()->get_arity() != 1) {
-                    STRACE("predabst", tout << "Error: incorrect arity of __expl__ predicate\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has __expl__ predicate of incorrect arity");
+                    STRACE("predabst", tout << "Error: incorrect arity of __exparg__ predicate\n";);
+                    throw default_exception("explicit argument list for " + suffix.str() + " has __exparg__ predicate of incorrect arity");
                 }
                 if (!is_var(tail->get_arg(0))) {
-                    STRACE("predabst", tout << "Error: non-variable argument to __expl__ predicate\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has __expl__ predicate with non-variable argument");
+                    STRACE("predabst", tout << "Error: non-variable argument to __exparg__ predicate\n";);
+                    throw default_exception("explicit argument list for " + suffix.str() + " has __exparg__ predicate with non-variable argument");
                 }
                 var_ref v(to_var(tail->get_arg(0)), m);
                 if (!args.contains(v)) {
-                    STRACE("predabst", tout << "Error: argument to __expl__ predicate does not appear in the head\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has __expl__ predicate with argument that does not appear in the head");
+                    STRACE("predabst", tout << "Error: argument to __exparg__ predicate does not appear in the head\n";);
+                    throw default_exception("explicit argument list for " + suffix.str() + " has __exparg__ predicate with argument that does not appear in the head");
                 }
                 unsigned j = vector_find(args, v.get());
                 if (fi->m_explicit_args.get(j)) {
-                    STRACE("predabst", tout << "Error: duplicate __expl__ declaration for argument " << j << "\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has duplicate __expl__ declaration for argument");
+                    STRACE("predabst", tout << "Error: duplicate __exparg__ declaration for argument " << j << "\n";);
+                    throw default_exception("explicit argument list for " + suffix.str() + " has duplicate __exparg__ declaration for argument");
                 }
                 if (m_fp_params.use_exp_eval()) {
                     STRACE("predabst", tout << "Found explicit argument declaration for argument " << j << "\n";);

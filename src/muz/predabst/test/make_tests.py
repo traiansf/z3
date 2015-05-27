@@ -147,109 +147,109 @@ inpval_tests = [
 
     ("expls-no-query",
      """
-(declare-fun __expls__p (Int) Bool)
-(assert (forall ((x Int)) (__expls__p x)))""",
+(declare-fun __expargs__p (Int) Bool)
+(assert (forall ((x Int)) (__expargs__p x)))""",
      "found explicit argument list for non-existent predicate symbol p"),
 # XXX What about a similar case where a predicate with the same name but different arity/types exists?
 
     ("expls-templ",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
+(declare-fun __expargs__p (Int) Bool)
 (declare-fun __temp__p (Int) Bool)
 (assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (__expls__p x)))
+(assert (forall ((x Int)) (__expargs__p x)))
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      "found explicit argument list for templated predicate symbol p"),
 
     ("expls-in-body",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
+(declare-fun __expargs__p (Int) Bool)
 (assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (__expls__p x) false)))""",
-     "found explicit argument list __expls__p in non-head position"),
+(assert (forall ((x Int)) (=> (__expargs__p x) false)))""",
+     "found explicit argument list __expargs__p in non-head position"),
 
     ("expls-interp-tail",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
+(declare-fun __expargs__p (Int) Bool)
 (assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (= x 0) (__expls__p x))))""",
+(assert (forall ((x Int)) (=> (= x 0) (__expargs__p x))))""",
      "explicit argument list for p has an interpreted tail"),
 
     ("expls-non-var-args",
      """
 (declare-fun p (Int Int) Bool)
-(declare-fun __expls__p (Int Int) Bool)
+(declare-fun __expargs__p (Int Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
-(assert (forall ((x Int)) (__expls__p x 0)))""",
+(assert (forall ((x Int)) (__expargs__p x 0)))""",
      "explicit argument list for p has invalid argument list"),
 
     ("expls-non-unique-args",
      """
 (declare-fun p (Int Int) Bool)
-(declare-fun __expls__p (Int Int) Bool)
+(declare-fun __expargs__p (Int Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
-(assert (forall ((x Int)) (__expls__p x x)))""",
+(assert (forall ((x Int)) (__expargs__p x x)))""",
      "explicit argument list for p has invalid argument list"),
 
     ("expls-tail-not-expl",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
+(declare-fun __expargs__p (Int) Bool)
 (assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (p x) (__expls__p x))))""",
+(assert (forall ((x Int)) (=> (p x) (__expargs__p x))))""",
      "explicit argument list for p has unexpected predicate in uninterpreted tail"),
 
     ("expls-tail-bad-expl-arity",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
-(declare-fun __expl__ () Bool)
+(declare-fun __expargs__p (Int) Bool)
+(declare-fun __exparg__ () Bool)
 (assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> __expl__ (__expls__p x))))""",
-     "explicit argument list for p has __expl__ predicate of incorrect arity"),
+(assert (forall ((x Int)) (=> __exparg__ (__expargs__p x))))""",
+     "explicit argument list for p has __exparg__ predicate of incorrect arity"),
 
     ("expls-tail-not-var-arg",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
-(declare-fun __expl__ (Int) Bool)
+(declare-fun __expargs__p (Int) Bool)
+(declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int)) (=> (__expl__ 0) (__expls__p x))))""",
-     "explicit argument list for p has __expl__ predicate with non-variable argument"),
+(assert (forall ((x Int)) (=> (__exparg__ 0) (__expargs__p x))))""",
+     "explicit argument list for p has __exparg__ predicate with non-variable argument"),
 
     ("expls-tail-not-head-var-arg",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expls__p (Int) Bool)
-(declare-fun __expl__ (Int) Bool)
+(declare-fun __expargs__p (Int) Bool)
+(declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int)) (p x)))
-(assert (forall ((x Int) (y Int)) (=> (__expl__ y) (__expls__p x))))""",
-     "explicit argument list for p has __expl__ predicate with argument that does not appear in the head"),
+(assert (forall ((x Int) (y Int)) (=> (__exparg__ y) (__expargs__p x))))""",
+     "explicit argument list for p has __exparg__ predicate with argument that does not appear in the head"),
 
     ("expls-duplicate-expl",
      """
 (declare-fun p (Int Int) Bool)
-(declare-fun __expls__p (Int Int) Bool)
-(declare-fun __expl__ (Int) Bool)
+(declare-fun __expargs__p (Int Int) Bool)
+(declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
-(assert (forall ((x Int) (y Int)) (=> (and (__expl__ x) (__expl__ x)) (__expls__p x y))))""",
-     "explicit argument list for p has duplicate __expl__ declaration for argument"),
+(assert (forall ((x Int) (y Int)) (=> (and (__exparg__ x) (__exparg__ x)) (__expargs__p x y))))""",
+     "explicit argument list for p has duplicate __exparg__ declaration for argument"),
 
     ("expl-in-head",
      """
-(declare-fun __expl__ (Int) Bool)
-(assert (forall ((x Int)) (__expl__ x)))""",
-     "found explicit argument __expl__ in head position"),
+(declare-fun __exparg__ (Int) Bool)
+(assert (forall ((x Int)) (__exparg__ x)))""",
+     "found explicit argument __exparg__ in head position"),
 
     ("expl-in-regular-body",
      """
 (declare-fun p (Int) Bool)
-(declare-fun __expl__ (Int) Bool)
-(assert (forall ((x Int)) (=> (__expl__ x) (p x))))""",
-     "found explicit argument __expl__ in body of regular rule"),
+(declare-fun __exparg__ (Int) Bool)
+(assert (forall ((x Int)) (=> (__exparg__ x) (p x))))""",
+     "found explicit argument __exparg__ in body of regular rule"),
 
     ("plist-no-query",
      """
@@ -666,44 +666,44 @@ norefine_sat_tests = [
     ("infer-exp-eval",
      """
 (declare-fun p (Int Int) Bool)
-(declare-fun __expls__p (Int Int) Bool)
-(declare-fun __expl__ (Int) Bool)
+(declare-fun __expargs__p (Int Int) Bool)
+(declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (= x 0) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (= x 1) (not (p x y)))))
-(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+(assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs__p x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (= x!1 0))"""),
 
     ("infer-exp-eval-literal-head",
      """
 (declare-fun p (Int Int) Bool)
-(declare-fun __expls__p (Int Int) Bool)
-(declare-fun __expl__ (Int) Bool)
+(declare-fun __expargs__p (Int Int) Bool)
+(declare-fun __exparg__ (Int) Bool)
 (assert (forall ((y Int)) (p 0 y)))
 (assert (forall ((x Int) (y Int)) (=> (and (= x 0) (p x y)) (p 1 y))))
-(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+(assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs__p x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (or (= x!1 0) (= x!1 1)))"""),
 
     ("infer-exp-eval-literal-body",
      """
 (declare-fun p (Int Int) Bool)
-(declare-fun __expls__p (Int Int) Bool)
-(declare-fun __expl__ (Int) Bool)
+(declare-fun __expargs__p (Int Int) Bool)
+(declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (= x 0) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (and (= x 1) (p 0 y)) (p x y))))
-(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+(assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs__p x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (or (= x!1 0) (= x!1 1)))"""),
 
     ("infer-exp-eval-iterate",
      """
 (declare-fun p (Int Int) Bool)
-(declare-fun __expls__p (Int Int) Bool)
-(declare-fun __expl__ (Int) Bool)
+(declare-fun __expargs__p (Int Int) Bool)
+(declare-fun __exparg__ (Int) Bool)
 (assert (forall ((y Int)) (p 0 y)))
 (assert (forall ((x Int) (y Int)) (=> (and (< x 2) (p x y)) (p (+ x 1) y))))
-(assert (forall ((x Int) (y Int)) (=> (__expl__ x) (__expls__p x y))))""",
+(assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs__p x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (or (= x!1 0) (= x!1 1) (= x!1 2)))"""),
 ]

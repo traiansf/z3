@@ -1867,13 +1867,12 @@ namespace datalog {
                 }
             });
 
-            // Build the sets of nodes/cubes for each position.
+            // Build the sets of nodes for each position.
             vector<node_set> all_nodes;
-            vector<vector<expr_ref_vector>> all_cubes; // >>> I'm not sure vector<vector<...>> works correctly, since vector's copy-constructor copies its members using memcpy.
             unsigned all_combs = 1;
             for (unsigned i = 0; i < ri.get_tail_size(); ++i) {
                 node_set pos_nodes;
-                vector<expr_ref_vector> pos_cubes;
+                unsigned pos_nodes_size = 0;
                 node_set const& nodes = (i == fixed_pos) ? singleton_set(fixed_node_id) : ri.get_decl(i, this)->m_max_reach_nodes;
                 for (node_set::iterator it = nodes.begin(); it != nodes.end(); ++it) {
                     unsigned node_id = *it;
@@ -1885,7 +1884,6 @@ namespace datalog {
                     }
 
                     bool skip = false;
-                    expr_ref_vector pos_cube(m);
                     cube_t const& cube = m_nodes[node_id].m_cube;
                     expr_ref_vector const& body_preds = info.m_body_preds[i];
                     unsigned num_preds = body_preds.size();
@@ -1897,10 +1895,6 @@ namespace datalog {
                                 skip = true;
                                 break;
                             }
-                            if (m_fp_params.skip_true_body_preds() && m.is_true(body_preds[j])) {
-                                continue;
-                            }
-                            pos_cube.push_back(body_preds[j]);
                         }
                     }
                     if (!skip) {
@@ -1914,26 +1908,58 @@ namespace datalog {
                                 skip = true;
                                 break;
                             }
-                            if (m_fp_params.skip_correct_body_values() && (body_args.get(j) == values.get(j))) {
-                                continue;
-                            }
-                            pos_cube.push_back(m.mk_eq(body_args.get(j), values.get(j)));
                         }
                     }
                     if (!skip) {
                         pos_nodes.insert(node_id);
-                        pos_cubes.push_back(pos_cube);
+                        ++pos_nodes_size;
                     }
                 }
                 all_nodes.push_back(pos_nodes);
-                all_cubes.push_back(pos_cubes);
-                all_combs *= pos_cubes.size();
+                all_combs *= pos_nodes_size;
             }
 
             unsigned found_combs = 0;
             if (m_fp_params.bail_if_no_combinations() && (found_combs == all_combs)) {
                 STRACE("predabst", tout << "Candidate node set (" << all_nodes << ") has empty product\n";);
                 return;
+            }
+
+            // Build the sets of cubes for each position.
+            vector<vector<expr_ref_vector>> all_cubes; // >>> I'm not sure vector<vector<...>> works correctly, since vector's copy-constructor copies its members using memcpy.
+            for (unsigned i = 0; i < all_nodes.size(); ++i) {
+                node_set pos_nodes = all_nodes.get(i);
+                vector<expr_ref_vector> pos_cubes;
+                for (node_set::iterator it = pos_nodes.begin(); it != pos_nodes.end(); ++it) {
+                    unsigned node_id = *it;
+                    expr_ref_vector pos_cube(m);
+                    cube_t const& cube = m_nodes[node_id].m_cube;
+                    expr_ref_vector const& body_preds = info.m_body_preds[i];
+                    unsigned num_preds = body_preds.size();
+                    CASSERT("predabst", num_preds == cube.size());
+                    for (unsigned j = 0; j < num_preds; ++j) {
+                        if (cube[j]) {
+                            CASSERT("predabst", !(m_fp_params.skip_false_body_preds() && m.is_false(body_preds[j])));
+                            if (m_fp_params.skip_true_body_preds() && m.is_true(body_preds[j])) {
+                                continue;
+                            }
+                            pos_cube.push_back(body_preds[j]);
+                        }
+                    }
+                    expr_ref_vector const& values = m_nodes[node_id].m_explicit_values;
+                    expr_ref_vector const& body_args = info.m_body_explicit_args[i];
+                    vector<bool> const& known_args = info.m_body_known_args[i];
+                    CASSERT("predabst", values.size() == body_args.size());
+                    for (unsigned j = 0; j < values.size(); ++j) {
+                        CASSERT("predabst", !(m_fp_params.skip_incorrect_body_values() && known_args.get(j) && (body_args.get(j) != values.get(j))));
+                        if (m_fp_params.skip_correct_body_values() && (body_args.get(j) == values.get(j))) {
+                            continue;
+                        }
+                        pos_cube.push_back(m.mk_eq(body_args.get(j), values.get(j)));
+                    }
+                    pos_cubes.push_back(pos_cube);
+                }
+                all_cubes.push_back(pos_cubes);
             }
 
             STRACE("predabst", tout << "Using candidate node set (" << all_nodes << ") with cubes (" << all_cubes << ")\n";); // "cubes" here are not useful if they're cv's

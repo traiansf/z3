@@ -28,6 +28,7 @@ Revision History:
 #include "substitution.h"
 #include "smt_kernel.h"
 #include "smt_solver.h"
+#include "model_evaluator.h"
 #include "scoped_proof.h"
 #include "dl_transforms.h"
 #include "fixedpoint_params.hpp"
@@ -2247,29 +2248,40 @@ namespace datalog {
         expr_ref_vector cart_pred_abst_values(rule_info const& ri, expr_ref_vector const& assumptions) {
             rule_instance_info const& info = ri.m_instance_info;
             expr_ref_vector values(m);
-            bool old_model = m_fparams.m_model;
-            m_fparams.m_model = true;
-            model_ref modref;
-            if (info.m_num_head_unknown_args > 0) {
-                lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr()); // >>> share this check with the one in the caller (if not using allsat, though in that case we should do this much earlier still)
+            if (info.m_head_explicit_args.size() == 0) {
+                // nothing to do
+            }
+            else if (m_fp_params.skip_known_head_values() && (info.m_num_head_unknown_args == 0)) {
+                values.append(info.m_head_explicit_args);
+            }
+            else {
+                bool old_model = m_fparams.m_model;
+                m_fparams.m_model = true;
+                lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
                 CASSERT("predabst", result == l_true);
+                m_fparams.m_model = old_model;
+                model_ref modref;
                 solver_for(ri)->get_model(modref);
-            }
-            for (unsigned i = 0; i < info.m_head_explicit_args.size(); ++i) {
-                if (m_fp_params.skip_known_head_values() && info.m_head_known_args.get(i)) {
-                    values.push_back(info.m_head_explicit_args.get(i));
-                }
-                else {
-                    expr_ref val(m);
-                    bool result = modref->eval(info.m_head_explicit_args.get(i), val);
-                    if (!result) {
-                        STRACE("predabst", tout << "Failed to evaluate!\n";); // >>>
-                        throw default_exception("failed to evaluate");
+                CASSERT("predabst", modref);
+                model_evaluator ev(*modref);
+                for (unsigned i = 0; i < info.m_head_explicit_args.size(); ++i) {
+                    if (m_fp_params.skip_known_head_values() && info.m_head_known_args.get(i)) {
+                        values.push_back(info.m_head_explicit_args.get(i));
                     }
-                    values.push_back(val);
+                    else {
+                        expr_ref val(m);
+                        try {
+                            ev(info.m_head_explicit_args.get(i), val);
+                        }
+                        catch (model_evaluator_exception& ex) {
+                            (void)ex;
+                            STRACE("predabst", tout << "Failed to evaluate: " << ex.msg() << "\n";); // >>>
+                            throw default_exception("failed to evaluate");
+                        }
+                        values.push_back(val);
+                    }
                 }
             }
-            m_fparams.m_model = old_model;
 #ifdef Z3DEBUG
             // Check that these explicit values are uniquely determined.  This
             // check may fail if some arguments were incorrectly marked as

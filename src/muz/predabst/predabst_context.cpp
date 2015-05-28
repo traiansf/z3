@@ -94,23 +94,48 @@ namespace datalog {
         struct stats {
             stats() { reset(); }
             void reset() { memset(this, 0, sizeof(*this)); }
-            /*
-            unsigned m_num_unfold;
-            unsigned m_num_no_unfold;
-            unsigned m_num_subsumed;
-            */
+            // Statistics about the input.
+            unsigned m_num_predicate_symbols;
+            unsigned m_num_predicate_symbol_arguments;
+            unsigned m_num_explicit_arguments;
+            unsigned m_num_named_arguments;
+            unsigned m_num_template_params;
+            unsigned m_num_templates;
+            unsigned m_num_initial_predicates;
+            unsigned m_num_rules;
+
+            // Overall statistics.
             unsigned m_num_refinement_iterations;
-            unsigned m_num_predabst_iterations;
-            unsigned m_num_solver_assert_invocations;
-            unsigned m_num_solver_check_interp_invocations;
-            unsigned m_num_solver_check_body_invocations;
-            unsigned m_num_solver_check_head_invocations;
+            unsigned m_num_template_instantiations;
+
+            // Statistics about rule pre-processing.  Note that these are
+            // cumulative over all template refinement iterations.
+            unsigned m_num_head_predicates;
+            unsigned m_num_body_predicates;
+            unsigned m_num_true_predicates;
+            unsigned m_num_false_predicates;
+            unsigned m_num_known_explicit_arguments;
             unsigned m_num_rules_unsatisfiable;
-            unsigned m_num_rules_succeeded;
-            unsigned m_num_rules_failed;
-            unsigned m_num_nodes_created;
-            unsigned m_num_nodes_suppressed;
-            unsigned m_num_nodes_subsumed;
+
+            // Statistics about find_solution.  Note that these are cumulative
+            // over all refinement iterations.
+            unsigned m_num_nodes_discovered;
+            unsigned m_num_nodes_suppressed; // discovered but not enqueued, because it implies an existing node
+            unsigned m_num_nodes_enqueued;
+            unsigned m_num_nodes_discarded; // enqueued but not dequeued, because it implies a subsequent node
+            unsigned m_num_nodes_dequeued;
+            unsigned m_num_frontier_nodes_added;
+            unsigned m_num_frontier_nodes_removed;
+            unsigned m_num_body_checks_sat;
+            unsigned m_num_body_checks_unsat;
+            unsigned m_num_head_checks_sat;
+            unsigned m_num_head_checks_unsat;
+            unsigned m_num_head_evals;
+            unsigned m_num_well_founded_nodes;
+
+            // Statistics about refinement.
+            unsigned m_num_predicates_added;
+            unsigned m_num_predicates_added_query_naming;
         };
 
         class scoped_push {
@@ -495,6 +520,8 @@ namespace datalog {
                 }
             }
 
+            m_stats.m_num_rules = m_rules.size();
+
             return abstract_check_refine();
         }
 
@@ -527,18 +554,37 @@ namespace datalog {
 
         void collect_statistics(statistics& st) const {
 #define UPDATE_STAT(NAME) st.update(#NAME, m_stats.m_ ## NAME)
+            UPDATE_STAT(num_predicate_symbols);
+            UPDATE_STAT(num_predicate_symbol_arguments);
+            UPDATE_STAT(num_explicit_arguments);
+            UPDATE_STAT(num_named_arguments);
+            UPDATE_STAT(num_template_params);
+            UPDATE_STAT(num_templates);
+            UPDATE_STAT(num_initial_predicates);
+            UPDATE_STAT(num_rules);
             UPDATE_STAT(num_refinement_iterations);
-            UPDATE_STAT(num_predabst_iterations);
-            UPDATE_STAT(num_solver_assert_invocations);
-            UPDATE_STAT(num_solver_check_interp_invocations);
-            UPDATE_STAT(num_solver_check_head_invocations);
-            UPDATE_STAT(num_solver_check_body_invocations);
+            UPDATE_STAT(num_template_instantiations);
+            UPDATE_STAT(num_head_predicates);
+            UPDATE_STAT(num_body_predicates);
+            UPDATE_STAT(num_true_predicates);
+            UPDATE_STAT(num_false_predicates);
+            UPDATE_STAT(num_known_explicit_arguments);
             UPDATE_STAT(num_rules_unsatisfiable);
-            UPDATE_STAT(num_rules_succeeded);
-            UPDATE_STAT(num_rules_failed);
-            UPDATE_STAT(num_nodes_created);
+            UPDATE_STAT(num_nodes_discovered);
             UPDATE_STAT(num_nodes_suppressed);
-            UPDATE_STAT(num_nodes_subsumed);
+            UPDATE_STAT(num_nodes_enqueued);
+            UPDATE_STAT(num_nodes_discarded);
+            UPDATE_STAT(num_nodes_dequeued);
+            UPDATE_STAT(num_frontier_nodes_added);
+            UPDATE_STAT(num_frontier_nodes_removed);
+            UPDATE_STAT(num_body_checks_sat);
+            UPDATE_STAT(num_body_checks_unsat);
+            UPDATE_STAT(num_head_checks_sat);
+            UPDATE_STAT(num_head_checks_unsat);
+            UPDATE_STAT(num_head_evals);
+            UPDATE_STAT(num_well_founded_nodes);
+            UPDATE_STAT(num_predicates_added);
+            UPDATE_STAT(num_predicates_added_query_naming);
         }
 
         void display_certificate(std::ostream& out) const {
@@ -1000,6 +1046,8 @@ namespace datalog {
                 m_func_decls.push_back(fdecl);
                 var_ref_vector vars = get_arg_vars(fdecl);
                 m_func_decl2info.insert(fdecl, alloc(func_decl_info, fdecl, vars, is_wf));
+                m_stats.m_num_predicate_symbols++;
+                m_stats.m_num_predicate_symbol_arguments += fdecl->get_arity();
             }
         }
 
@@ -1066,6 +1114,7 @@ namespace datalog {
             m_template_params.swap(extra_params);
             CASSERT("predabst", !m_template_extras);
             m_template_extras = extras;
+            m_stats.m_num_template_params = m_template_params.size();
         }
 
         static bool is_template(func_decl const* fdecl) {
@@ -1142,6 +1191,7 @@ namespace datalog {
             }
             STRACE("predabst", tout << "  " << suffix_decl->get_name() << "(" << vars << ") := " << body << "\n";);
             m_templates.push_back(template_info(vars, body));
+            m_stats.m_num_templates++;
         }
 
         static bool is_explicit_arg_list(func_decl const* fdecl) {
@@ -1213,6 +1263,7 @@ namespace datalog {
                     STRACE("predabst", tout << "Error: duplicate __exparg__ declaration for argument " << j << "\n";);
                     throw default_exception("explicit argument list for " + suffix.str() + " has duplicate __exparg__ declaration for argument");
                 }
+                m_stats.m_num_explicit_arguments++;
                 if (m_fp_params.use_exp_eval()) {
                     STRACE("predabst", tout << "Found explicit argument declaration for argument " << j << "\n";);
                     fi->m_explicit_args[j] = true;
@@ -1284,6 +1335,7 @@ namespace datalog {
 
                 expr_ref pred = apply_subst(to_expr(r->get_tail(i)), subst);
                 STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
+                m_stats.m_num_initial_predicates++;
                 maybe_add_pred(fi, pred);
             }
         }
@@ -1362,6 +1414,7 @@ namespace datalog {
                     STRACE("predabst", tout << "Error: non-unique name for argument " << j << "\n";);
                     throw default_exception("argument name list for " + suffix.str() + " has non-unique argument names");
                 }
+                m_stats.m_num_named_arguments++;
                 if (fi->m_explicit_args.get(j)) {
                     STRACE("predabst", tout << "Ignoring name for explicit argument " << j << "\n";);
                 }
@@ -1505,6 +1558,7 @@ namespace datalog {
                 solver->assert_expr(exprs.get(i));
                 if (solver->check() == l_false) {
                     exprs[i] = m.mk_false();
+                    m_stats.m_num_false_predicates++;
                 }
             }
         }
@@ -1517,6 +1571,7 @@ namespace datalog {
                 solver->assert_expr(e);
                 if (solver->check() == l_false) {
                     exprs[i] = m.mk_true();
+                    m_stats.m_num_true_predicates++;
                 }
             }
         }
@@ -1545,7 +1600,11 @@ namespace datalog {
                 pre_simplify(head_args);
                 vector<bool> known_args;
                 for (unsigned i = 0; i < head_args.size(); ++i) {
-                    known_args.push_back(get_all_vars(expr_ref(head_args.get(i), m)).empty());
+                    bool known = get_all_vars(expr_ref(head_args.get(i), m)).empty();
+                    known_args.push_back(known);
+                    if (known) {
+                        m_stats.m_num_known_explicit_arguments++;
+                    }
                 }
                 info.m_head_explicit_args.swap(head_args);
                 info.m_head_known_args.swap(known_args);
@@ -1571,7 +1630,11 @@ namespace datalog {
                 pre_simplify(body_args);
                 vector<bool> known_args;
                 for (unsigned j = 0; j < body_args.size(); ++j) {
-                    known_args.push_back(get_all_vars(expr_ref(body_args.get(j), m)).empty());
+                    bool known = get_all_vars(expr_ref(body_args.get(j), m)).empty();
+                    known_args.push_back(known);
+                    if (known) {
+                        m_stats.m_num_known_explicit_arguments++;
+                    }
                 }
                 info.m_body_explicit_args.push_back(body_args);
                 info.m_body_known_args.push_back(known_args);
@@ -1584,7 +1647,6 @@ namespace datalog {
 
 #ifdef PREDABST_SOLVER_PER_RULE
             for (unsigned i = 0; i < info.m_body.size(); ++i) {
-                m_stats.m_num_solver_assert_invocations++;
                 solver_for(ri)->assert_expr(info.m_body.get(i));
             }
 #endif
@@ -1618,6 +1680,7 @@ namespace datalog {
                 assert_guarded_exprs(heads, solver_for(ri));
 #endif
                 info.m_head_preds.append(heads);
+                m_stats.m_num_head_predicates += heads.size();
             }
 
             // create instantiations for non-templated body applications
@@ -1636,6 +1699,7 @@ namespace datalog {
                 assert_guarded_exprs(tails, solver_for(ri));
 #endif
                 info.m_body_preds.get(i).append(tails);
+                m_stats.m_num_body_predicates += tails.size();
             }
         }
 
@@ -1654,7 +1718,6 @@ namespace datalog {
                     expr_ref g(m.mk_fresh_const("g", m.mk_bool_sort()), m);
                     expr_ref e(m.mk_iff(exprs.get(i), g), m);
                     STRACE("predabst", tout << "Asserting " << mk_pp(e, m) << "\n";);
-                    m_stats.m_num_solver_assert_invocations++;
                     solver->assert_expr(e);
                     exprs[i] = g;
                 }
@@ -1667,12 +1730,10 @@ namespace datalog {
 #ifndef PREDABST_SOLVER_PER_RULE
             scoped_push _push1(m_solver);
             for (unsigned i = 0; i < info.m_body.size(); ++i) {
-                m_stats.m_num_solver_assert_invocations++;
                 m_solver.assert_expr(info.m_body[i]);
             }
 #endif
 
-            m_stats.m_num_solver_check_interp_invocations++;
             lbool result = solver_for(ri)->check();
             if (result == l_false) {
                 // unsat body
@@ -1762,7 +1823,7 @@ namespace datalog {
                 // process worklist
                 unsigned infer_count = 0;
                 while (!m_cancel && !m_node_worklist.empty()) {
-                    m_stats.m_num_predabst_iterations++;
+                    m_stats.m_num_nodes_dequeued++;
 
                     STRACE("predabst", print_inference_state(tout, refine_count, infer_count););
                     unsigned current_id = *m_node_worklist.begin();
@@ -1771,7 +1832,7 @@ namespace datalog {
                     infer_count++;
 
                     if ((m_fp_params.max_predabst_iterations() > 0) &&
-                        (m_stats.m_num_predabst_iterations >= m_fp_params.max_predabst_iterations())) {
+                        (m_stats.m_num_nodes_dequeued >= m_fp_params.max_predabst_iterations())) {
                         m_cancel = true;
                     }
                 }
@@ -1970,7 +2031,6 @@ namespace datalog {
 
 #ifndef PREDABST_SOLVER_PER_RULE
             for (unsigned i = 0; i < info.m_body.size(); ++i) {
-                m_stats.m_num_solver_assert_invocations++;
                 m_solver.assert_expr(info.m_body[i]);
             }
 #endif
@@ -2033,8 +2093,6 @@ namespace datalog {
             m_fparams.m_model = (all_combs > 1);
 
             while (solver_for(ri)->check() == l_true) {
-                m_stats.m_num_solver_check_body_invocations++; // >>> inc stats on fail?
-
                 model_ref modref;
                 if (all_combs > 1) {
                     solver_for(ri)->get_model(modref);
@@ -2195,22 +2253,25 @@ namespace datalog {
 #else
                         scoped_push _push1(*solver_for(ri));
                         for (unsigned k = 0; k < pos_cube.size(); ++k) {
-                            m_stats.m_num_solver_assert_invocations++;
                             solver_for(ri)->assert_expr(pos_cube.get(k));
                         }
 #endif
                        
                         bool sat = true;
                         if (!assume_sat) {
-                            m_stats.m_num_solver_check_body_invocations++;
                             lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
+                            if (result == l_false) {
+                                m_stats.m_num_body_checks_unsat++;
+                            }
+                            else {
+                                m_stats.m_num_body_checks_sat++;
+                            }
                             sat = (result != l_false);
                         }
 
                         if (!sat) {
                             // unsat body
                             STRACE("predabst", tout << "Applying rule " << ri << " to nodes ("; reorder_output_nodes(tout, chosen_nodes, positions); tout << ") failed\n";);
-                            m_stats.m_num_rules_failed++;
                         }
                         else {
                             cart_pred_abst_rule(ri, head_es, all_cubes, nodes, cubes, positions, chosen_nodes, assumptions, assume_sat);
@@ -2230,7 +2291,6 @@ namespace datalog {
                 cube_t cube = cart_pred_abst_cube(ri, head_es, assumptions);
                 expr_ref_vector values = cart_pred_abst_values(ri, assumptions);
                 STRACE("predabst", tout << "Applying rule " << ri << " to nodes ("; reorder_output_nodes(tout, chosen_nodes, positions); tout << ") gives cube [" << cube << "] and values (" << values << ")\n";);
-                m_stats.m_num_rules_succeeded++;
 
                 // add and check the node
                 node_info const* node = add_node(ri, cube, values, reorder_nodes(chosen_nodes, positions));
@@ -2257,15 +2317,19 @@ namespace datalog {
                     assumptions.push_back(es.get(i));
 #else
                     scoped_push _push2(*solver_for(ri));
-                    m_stats.m_num_solver_assert_invocations++;
                     solver_for(ri)->assert_expr(es.get(i));
 #endif
-                    m_stats.m_num_solver_check_head_invocations++;
                     lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
 #ifdef PREDABST_USE_HEAD_ASSUMPTIONS
                     assumptions.pop_back();
 #endif
                     cube[i] = (result == l_false);
+                    if (result == l_false) {
+                        m_stats.m_num_head_checks_unsat++;
+                    }
+                    else {
+                        m_stats.m_num_head_checks_sat++;
+                    }
                 }
             }
             return cube;
@@ -2305,6 +2369,7 @@ namespace datalog {
                             throw default_exception("failed to evaluate");
                         }
                         values.push_back(val);
+                        m_stats.m_num_head_evals++;
                     }
                 }
             }
@@ -2341,6 +2406,7 @@ namespace datalog {
                     STRACE("predabst", tout << "Formula is not well-founded\n";);
                     throw acr_error(node.m_id, not_wf);
                 }
+                m_stats.m_num_well_founded_nodes++;
             }
         }
 
@@ -2358,6 +2424,7 @@ namespace datalog {
         node_info const* add_node(rule_info const& ri, cube_t const& cube, expr_ref_vector const& values, node_vector const& nodes = node_vector()) {
             CASSERT("predabst", cube.size() == ri.m_instance_info.m_head_preds.size());
             CASSERT("predabst", values.size() == ri.m_instance_info.m_head_explicit_args.size());
+            m_stats.m_num_nodes_discovered++;
             func_decl_info* fi = ri.get_decl(this);
             if (fi) {
                 // first fixpoint check combined with maximality maintainance
@@ -2383,19 +2450,23 @@ namespace datalog {
                 // (no???) fixpoint reached since didn't return
                 // remove subsumed maximal nodes
                 for (node_vector::iterator it = old_lt_nodes.begin(); it != old_lt_nodes.end(); ++it) {
-                    m_stats.m_num_nodes_subsumed++;
                     fi->m_max_reach_nodes.remove(*it);
-                    m_node_worklist.remove(*it); // removing non-existent element is ok
+                    m_stats.m_num_frontier_nodes_removed++;
+                    if (m_node_worklist.contains(*it)) {
+                        m_node_worklist.remove(*it); // removing non-existent element is ok
+                        m_stats.m_num_nodes_discarded++;
+                    }
                 }
             }
             // no fixpoint reached hence create new node
-            m_stats.m_num_nodes_created++;
             m_nodes.push_back(node_info(m_nodes.size(), fi, cube, values, ri.m_id, nodes));
             node_info const& node = m_nodes.back();
             if (fi) {
                 fi->m_max_reach_nodes.insert(node.m_id);
+                m_stats.m_num_frontier_nodes_added++;
             }
             m_node_worklist.insert(node.m_id);
+            m_stats.m_num_nodes_enqueued++;
             STRACE("predabst", tout << "Added node " << node << " for " << fi << "\n";);
             return &node;
         }
@@ -2465,6 +2536,7 @@ namespace datalog {
             else {
                 unsigned new_preds_added = 1;
                 add_pred(fi, pred);
+                m_stats.m_num_predicates_added++;
                 if (m_fp_params.use_query_naming() && new_preds_added) {
                     var_ref_vector used_vars = to_vars(get_all_vars(pred));
                     func_decl_ref_vector used_var_names(m);
@@ -2490,6 +2562,7 @@ namespace datalog {
                             }
                             new_preds_added++;
                             add_pred(fi2, apply_subst(pred, build_subst(used_vars, used_vars2)));
+                            m_stats.m_num_predicates_added_query_naming++;
                         }
                     }
                 }
@@ -2617,7 +2690,6 @@ namespace datalog {
                     guard_var_to_index.insert(c, i);
                     if (!m.is_true(terms.get(i))) {
                         expr_ref e(m.mk_iff(terms.get(i), c), m);
-                        m_stats.m_num_solver_assert_invocations++;
                         solver.assert_expr(e);
                     }
                 }
@@ -3087,6 +3159,7 @@ namespace datalog {
                 m_template_param_values.push_back(param_value);
             }
 
+            m_stats.m_num_template_instantiations++;
             return true;
         }
 

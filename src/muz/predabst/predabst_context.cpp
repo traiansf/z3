@@ -526,19 +526,19 @@ namespace datalog {
         }
 
         void collect_statistics(statistics& st) const {
-#define UPDATE_STAT(NAME) st.update(#NAME, m_stats.NAME)
-            UPDATE_STAT(m_num_refinement_iterations);
-            UPDATE_STAT(m_num_predabst_iterations);
-            UPDATE_STAT(m_num_solver_assert_invocations);
-            UPDATE_STAT(m_num_solver_check_interp_invocations);
-            UPDATE_STAT(m_num_solver_check_head_invocations);
-            UPDATE_STAT(m_num_solver_check_body_invocations);
-            UPDATE_STAT(m_num_rules_unsatisfiable);
-            UPDATE_STAT(m_num_rules_succeeded);
-            UPDATE_STAT(m_num_rules_failed);
-            UPDATE_STAT(m_num_nodes_created);
-            UPDATE_STAT(m_num_nodes_suppressed);
-            UPDATE_STAT(m_num_nodes_subsumed);
+#define UPDATE_STAT(NAME) st.update(#NAME, m_stats.m_ ## NAME)
+            UPDATE_STAT(num_refinement_iterations);
+            UPDATE_STAT(num_predabst_iterations);
+            UPDATE_STAT(num_solver_assert_invocations);
+            UPDATE_STAT(num_solver_check_interp_invocations);
+            UPDATE_STAT(num_solver_check_head_invocations);
+            UPDATE_STAT(num_solver_check_body_invocations);
+            UPDATE_STAT(num_rules_unsatisfiable);
+            UPDATE_STAT(num_rules_succeeded);
+            UPDATE_STAT(num_rules_failed);
+            UPDATE_STAT(num_nodes_created);
+            UPDATE_STAT(num_nodes_suppressed);
+            UPDATE_STAT(num_nodes_subsumed);
         }
 
         void display_certificate(std::ostream& out) const {
@@ -2184,12 +2184,12 @@ namespace datalog {
                 for (node_set::iterator it = pos_nodes.begin(); it != pos_nodes.end(); ++it, ++j) {
                     unsigned chosen_node_id = *it;
                     chosen_nodes.push_back(chosen_node_id);
-                    if (assume_sat && (all_cubes[i].size() == 1)) {
+                    expr_ref_vector const& pos_cube = pos_cubes[j];
+                    if ((assume_sat && (all_cubes[i].size() == 1)) || (pos_cube.size() == 0)) {
                         // No need to assert P again when we have already done so.
                         cart_pred_abst_rule(ri, head_es, all_cubes, nodes, cubes, positions, chosen_nodes, assumptions, assume_sat);
                     }
                     else {
-                        expr_ref_vector const& pos_cube = pos_cubes[j];
 #ifdef PREDABST_USE_BODY_ASSUMPTIONS
                         assumptions.append(pos_cube);
 #else

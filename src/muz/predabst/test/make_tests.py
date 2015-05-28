@@ -1103,6 +1103,7 @@ def write_test_smt2(testname, code, postsat_code):
         f.write(code + "\n\n")
         f.write("(check-sat)\n")
         f.write(postsat_code + "\n")
+#        f.write("(get-info :all-statistics)\n")
 
 def write_sat_test_smt2(testname, code):
     write_test_smt2(testname, code, "(get-model)")

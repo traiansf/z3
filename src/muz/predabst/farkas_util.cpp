@@ -654,6 +654,7 @@ bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<int64>
     CASSERT("predabst", lresult == l_true);
     model_ref modref;
     solver.get_model(modref);
+    CASSERT("predabst", modref);
     vector<lambda_info> lambdas = f_imp.get_lambdas();
     CASSERT("predabst", lambdas.size() == assertions.size());
     for (unsigned i = 0; i < lambdas.size(); ++i) {

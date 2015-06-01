@@ -674,46 +674,13 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     CASSERT("predabst", sort_is_bool(lhs, m));
     CASSERT("predabst", (sol_bound && sol_decrease) || (!sol_bound && !sol_decrease));
 
-    if (!(m.is_and(lhs) && to_app(lhs)->get_num_args() >= 2)) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it is not a conjunction of at least 2 terms\n";);
-        // XXX very dubious claim...
-        return false;
-    }
-
-    expr_ref_vector lhs_vars = get_all_vars(lhs);
-
-    // Note that the following two optimizations are valid only if the formula
-    // is satisfiable, but we're assuming that is the case.
-    bool hasv = false;
-    for (unsigned i = 0; i < (vsws.size() / 2); i++) {
-        if (lhs_vars.contains(vsws.get(i))) {
-            hasv = true;
-            break;
-        }
-    }
-    if (!hasv) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it contains no variable from vs\n";);
-        return false;
-    }
-
-    bool hasw = false;
-    for (unsigned i = (vsws.size() / 2); i < vsws.size(); ++i) {
-        if (lhs_vars.contains(vsws.get(i))) {
-            hasw = true;
-            break;
-        }
-    }
-    if (!hasw) {
-        STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not well-founded: it contains no variable from ws\n";);
-        return false;
-    }
-
     expr_ref bound(m);
     expr_ref decrease(m);
     well_founded_bound_and_decrease(vsws, bound, decrease);
     expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
     expr_ref_vector all_vars(vsws);
+    expr_ref_vector lhs_vars = get_all_vars(lhs);
     for (unsigned j = 0; j < lhs_vars.size(); j++) {
         if (!vsws.contains(lhs_vars.get(j))) {
             all_vars.push_back(lhs_vars.get(j));

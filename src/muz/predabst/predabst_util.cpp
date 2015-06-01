@@ -262,8 +262,7 @@ void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
     ql(q_vars, fml);
     STRACE("predabst", tout << "... produces " << mk_pp(fml, m) << "\n";);
     if (!q_vars.empty()) {
-        STRACE("predabst", tout << "Warning: failed to eliminate " << q_vars << "\n";);
-        CASSERT("predabst", false);
+        STRACE("predabst", tout << "Note: failed to eliminate " << q_vars << "\n";);
     }
 }
 

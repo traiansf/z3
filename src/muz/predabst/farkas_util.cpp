@@ -727,9 +727,6 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     }
 
     expr_ref_vector lhs_vars = get_all_vars(lhs);
-    for (unsigned j = 0; j < lhs_vars.size(); j++) {
-        CASSERT("predabst", vsws.contains(lhs_vars.get(j)));
-    }
 
     // Note that the following two optimizations are valid only if the formula
     // is satisfiable, but we're assuming that is the case.
@@ -762,10 +759,17 @@ bool well_founded(expr_ref_vector const& vsws, expr_ref const& lhs, expr_ref* so
     well_founded_bound_and_decrease(vsws, bound, decrease);
     expr_ref to_solve(m.mk_or(m.mk_not(lhs), m.mk_and(bound, decrease)), m);
 
+    expr_ref_vector all_vars(vsws);
+    for (unsigned j = 0; j < lhs_vars.size(); j++) {
+        if (!vsws.contains(lhs_vars.get(j))) {
+            all_vars.push_back(lhs_vars.get(j));
+        }
+    }
+
     // XXX Does passing true for eliminate_unsat_disjuncts help in the refinement case?
     expr_ref_vector constraints(m);
     vector<lambda_info> lambdas;
-    bool result = mk_exists_forall_farkas(to_solve, vsws, constraints, lambdas);
+    bool result = mk_exists_forall_farkas(to_solve, all_vars, constraints, lambdas);
     if (!result) {
         STRACE("predabst", tout << "Formula " << mk_pp(lhs, m) << " is not (provably) well-founded: it does not comprise only linear integer (in)equalities\n";);
         // XXX We need to distinguish between this case and where we have proven that the formula is not well-founded, or else we can end up returning UNSAT incorrectly

@@ -24,8 +24,6 @@ Revision History:
 #include "ast_pp.h"
 #include "smt_kernel.h"
 #include "smt_params.h"
-#include "scoped_proof.h"
-#include "iz3mgr.h"
 
 std::ostream& operator<<(std::ostream& out, rel_op op) {
     switch (op) {
@@ -594,46 +592,7 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
     return true;
 }
 
-bool get_farkas_coeffs(proof_ref const& pr, vector<int64>& coeffs) {
-    CASSERT("predabst", coeffs.empty());
-    ast_manager& m = pr.m();
-    iz3mgr i(m);
-    iz3mgr::ast p(&m, pr.get());
-    iz3mgr::pfrule dk = i.pr(p);
-    if (dk == PR_TH_LEMMA &&
-        i.get_theory_lemma_theory(p) == iz3mgr::ArithTheory &&
-        i.get_theory_lemma_kind(p) == iz3mgr::FarkasKind) {
-        std::vector<rational> rat_coeffs;
-        i.get_farkas_coeffs(p, rat_coeffs);
-        for (unsigned i = 0; i < rat_coeffs.size(); ++i) {
-            coeffs.push_back(rat_coeffs[i].get_int64());
-        }
-        STRACE("predabst", tout << "Proof kind is Farkas\n";);
-        return true;
-    }
-    else {
-        STRACE("predabst", tout << "Proof kind is not Farkas\n";);
-        return false;
-    }
-}
-
-bool get_farkas_coeffs_directly(expr_ref_vector const& assertions, vector<int64>& coeffs) {
-    CASSERT("predabst", coeffs.empty());
-    ast_manager& m = assertions.m();
-    scoped_proof sp(m);
-    smt_params new_param;
-    new_param.m_model = false;
-    smt::kernel solver(m, new_param);
-    for (unsigned i = 0; i < assertions.size(); ++i) {
-        solver.assert_expr(assertions.get(i));
-    }
-    lbool result = solver.check();
-    CASSERT("predabst", result == l_false);
-    proof_ref pr(solver.get_proof(), m);
-    return get_farkas_coeffs(pr, coeffs);
-}
-
-bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<int64>& coeffs) {
+bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<int64>& coeffs) {
     CASSERT("predabst", coeffs.empty());
     ast_manager& m = assertions.m();
     arith_util arith(m);
@@ -669,11 +628,6 @@ bool get_farkas_coeffs_via_dual(expr_ref_vector const& assertions, vector<int64>
         coeffs.push_back(coeff.get_int64());
     }
     return true;
-}
-
-bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<int64>& coeffs) {
-    return /* get_farkas_coeffs_directly(assertions, coeffs) || >>> */
-        get_farkas_coeffs_via_dual(assertions, coeffs);
 }
 
 void well_founded_bound_and_decrease(expr_ref_vector const& vsws, expr_ref& bound, expr_ref& decrease) {

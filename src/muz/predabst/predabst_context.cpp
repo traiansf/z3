@@ -544,8 +544,8 @@ namespace datalog {
                     unsigned n = fi->m_explicit_args.size() / 2;
                     for (unsigned j = 0; j < n; ++j) {
                         if (fi->m_explicit_args[j] != fi->m_explicit_args[j + n]) {
-                            STRACE("predabst", tout << "Error: well-founded predicate symbol has non-pairwise explicit arguments\n";);
-                            throw default_exception("well-founded predicate symbol has non-pairwise explicit arguments");
+                            STRACE("predabst", tout << "Error: WF predicate symbol has non-pairwise explicit arguments\n";);
+                            throw default_exception("WF predicate symbol " + fi->m_fdecl->get_name().str() + " has non-pairwise explicit arguments");
                         }
                     }
                 }
@@ -1245,6 +1245,11 @@ namespace datalog {
             // Treat ??? as a template for predicate symbol SUFFIX.
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
+            if (suffix.str().empty()) {
+                STRACE("predabst", tout << "Error: found template for predicate symbol with zero-length name\n";);
+                throw default_exception("found template for predicate symbol with zero-length name");
+            }
+
             STRACE("predabst", tout << "Found template for predicate symbol " << suffix << "\n";);
 
             unsigned num_extras = m_template_params.size();
@@ -1326,6 +1331,11 @@ namespace datalog {
             // Treat xi,...,xj as explicit arguments for SUFFIX.
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(11).c_str());
+            if (suffix.str().empty()) {
+                STRACE("predabst", tout << "Error: found explicit argument list for predicate symbol with zero-length name\n";);
+                throw default_exception("found explicit argument list for predicate symbol with zero-length name");
+            }
+
             STRACE("predabst", tout << "Found explicit argument list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
 
             func_decl_ref suffix_decl(m.mk_func_decl(
@@ -1402,6 +1412,11 @@ namespace datalog {
             // Treat p1...pN as initial predicates for predicate symbol SUFFIX.
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
+            if (suffix.str().empty()) {
+                STRACE("predabst", tout << "Error: found predicate list for predicate symbol with zero-length name\n";);
+                throw default_exception("found predicate list for predicate symbol with zero-length name");
+            }
+
             STRACE("predabst", tout << "Found predicate list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
 
             func_decl_ref suffix_decl(m.mk_func_decl(
@@ -1472,6 +1487,11 @@ namespace datalog {
             // Treat a1..aN as the names of the arguments for SUFFIX.
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(9).c_str());
+            if (suffix.str().empty()) {
+                STRACE("predabst", tout << "Error: found argument name list for predicate symbol with zero-length name\n";);
+                throw default_exception("found argument name list for predicate symbol with zero-length name");
+            }
+
             STRACE("predabst", tout << "Found argument name list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
 
             func_decl_ref suffix_decl(m.mk_func_decl(
@@ -1526,8 +1546,17 @@ namespace datalog {
                     STRACE("predabst", tout << "Error: duplicate name for argument " << j << "\n";);
                     throw default_exception("argument name list for " + suffix.str() + " has duplicate name for argument");
                 }
-                func_decl_ref name(m.mk_const_decl(symbol(tail->get_decl()->get_name().str().substr(8).c_str()), args.get(j)->get_sort()), m);
-                if (fi->m_var_names.contains(name)) {
+                symbol name(tail->get_decl()->get_name().str().substr(8).c_str());
+                if (name.str().empty()) {
+                    STRACE("predabst", tout << "Error: zero-length name for argument " << j << "\n";);
+                    throw default_exception("argument name list for " + suffix.str() + " has zero-length argument names");
+                }
+                func_decl_ref name_decl(m.mk_const_decl(name, args.get(j)->get_sort()), m);
+                if (fi->m_var_names.contains(name_decl)) {
+                    STRACE("predabst", tout << "Error: non-unique name for argument " << j << "\n";);
+                    throw default_exception("argument name list for " + suffix.str() + " has non-unique argument names");
+                }
+                if (fi->m_var_names.contains(name_decl)) {
                     STRACE("predabst", tout << "Error: non-unique name for argument " << j << "\n";);
                     throw default_exception("argument name list for " + suffix.str() + " has non-unique argument names");
                 }
@@ -1536,8 +1565,8 @@ namespace datalog {
                     STRACE("predabst", tout << "Ignoring name for explicit argument " << j << "\n";);
                 }
                 else {
-                    STRACE("predabst", tout << "Found name " << name->get_name() << " for argument " << j << "\n";);
-                    fi->m_var_names[j] = name;
+                    STRACE("predabst", tout << "Found name " << name << " for argument " << j << "\n";);
+                    fi->m_var_names[j] = name_decl;
                 }
             }
         }
@@ -2503,8 +2532,8 @@ namespace datalog {
             solver_for(ri)->assert_expr(to_assert);
             lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
             if (result == l_true) {
-                STRACE("predabst", tout << "Error: explicit values were not uniquely determined\n";);
-                throw default_exception("explicit values were not uniquely determined");
+                STRACE("predabst", tout << "Error: values of explicit arguments were not uniquely determined\n";);
+                throw default_exception("values of explicit arguments for " + ri.get_decl(this)->m_fdecl->get_name().str() + " were not uniquely determined");
             }
 #endif
             return values;
@@ -3033,121 +3062,7 @@ namespace datalog {
             return cone_of_influence(clauses2, mk_not(extra));
         }
 
-        expr_ref clauses_to_iz3_interp_problem(core_clauses const& clauses) const {
-            expr_ref_vector name2node(m);
-            for (unsigned i = 0; i < clauses.size(); ++i) {
-                unsigned j = clauses.size() - 1 - i;
-                core_clause const& clause = clauses[j];
-                expr_ref_vector conjs(m);
-                conjs.append(clause.m_interp_body);
-                for (unsigned k = 0; k < clause.m_uninterp_body.size(); ++k) {
-                    conjs.push_back(name2node.get(clause.m_uninterp_body[k].m_name));
-                }
-                name2node.reserve(clause.m_head.m_name + 1);
-                name2node[clause.m_head.m_name] = expr_ref(m.mk_interp(mk_conj(conjs)), m);
-            }
-            return expr_ref(name2node.get(0), m);
-        }
-
-        core_clause_solutions solve_core_clauses_iz3_2(core_clauses const& clauses) const {
-            scoped_proof sp(m);
-            expr_ref tree = clauses_to_iz3_interp_problem(clauses);
-            STRACE("predabst", tout << "Interpolation problem: " << mk_pp(tree, m) << "\n";);
-
-            proof_ref_vector proofs(m);
-            ptr_vector<ast> cnsts;
-            for (unsigned i = 0; i < clauses.size(); ++i) {
-                core_clause const& clause = clauses[i];
-                for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
-                    proofs.push_back(m.mk_asserted(clause.m_interp_body.get(j)));
-                    cnsts.push_back(clause.m_interp_body.get(j));
-                }
-            }
-            arith_util arith(m);
-            expr_ref false_ineq(arith.mk_lt(arith.mk_numeral(rational::one(), true), arith.mk_numeral(rational::zero(), true)), m);
-            proof_ref prf(m.mk_th_lemma(arith.get_family_id(), false_ineq, proofs.size(), proofs.c_ptr()), m);
-
-            ptr_vector<ast> interps;
-            interpolation_options_struct opts;
-            //>>>opts.set("weak", "1");
-            iz3interpolate(m,
-                prf,
-                cnsts,
-                tree,
-                interps,
-                &opts);
-
-            STRACE("predabst", {
-                tout << "Interpolants:\n";
-                for (unsigned i = 0; i < interps.size(); ++i) {
-                    tout << "  " << i << ": " << mk_pp(interps.get(i), m) << "\n";
-                }
-            });
-
-            core_clause_solutions solutions;
-            for (unsigned i = clauses.size() - 1; i > 0; --i) { // skip clause 0
-                core_clause const& clause = clauses[i];
-                if (i < interps.size()) {
-                    expr_ref body(to_expr(interps.get(clauses.size() - 1 - i)), m);
-                    core_clause_solution solution(clause.m_head, body);
-                    STRACE("predabst", tout << "Solution for clause " << i << ": " << solution << "\n";);
-                    solutions.push_back(solution);
-                }
-            }
-
-            for (unsigned i = 0; i < interps.size(); ++i) {
-                m.dec_ref(interps[i]);
-            }
-            return solutions;
-        }
-
-        core_clause_solutions solve_core_clauses_iz3(core_clauses const& clauses) const {
-            scoped_proof sp(m);
-            params_ref params;
-            solver* s = mk_smt_solver(m, params, symbol::null); // or "QF_LIA"?
-            expr_ref tree = clauses_to_iz3_interp_problem(clauses);
-            STRACE("predabst", tout << "Interpolation problem: " << mk_pp(tree, m) << "\n";);
-            ptr_vector<ast> cnsts;
-            ptr_vector<ast> interps;
-            interpolation_options_struct opts;
-            //>>>opts.set("weak", "1");
-            lbool result = iz3interpolate(m,
-                *s,
-                tree,
-                cnsts,
-                interps,
-                model_ref(),
-                &opts);
-            dealloc(s);
-
-            STRACE("predabst", {
-                tout << "Interpolants:\n";
-                for (unsigned i = 0; i < interps.size(); ++i) {
-                    tout << "  " << i << ": " << mk_pp(interps.get(i), m) << "\n";
-                }
-            });
-
-            core_clause_solutions solutions;
-            for (unsigned i = clauses.size() - 1; i > 0; --i) { // skip clause 0
-                core_clause const& clause = clauses[i];
-                if (i < interps.size()) {
-                    expr_ref body(to_expr(interps.get(clauses.size() - 1 - i)), m);
-                    core_clause_solution solution(clause.m_head, body);
-                    STRACE("predabst", tout << "Solution for clause " << i << ": " << solution << "\n";);
-                    solutions.push_back(solution);
-                }
-            }
-
-            for (unsigned i = 0; i < cnsts.size(); ++i) {
-                m.dec_ref(cnsts[i]);
-            }
-            for (unsigned i = 0; i < interps.size(); ++i) {
-                m.dec_ref(interps[i]);
-            }
-            return solutions;
-        }
-
-        core_clause_solutions solve_core_clauses_non_iz3(core_clauses const& clauses) const {
+        core_clause_solutions solve_core_clauses(core_clauses const& clauses) const {
             expr_ref_vector assertions(m);
             vector<unsigned> assertion_start_index;
             for (unsigned i = 0; i < clauses.size(); ++i) {
@@ -3192,15 +3107,6 @@ namespace datalog {
                 name2solution[clause.m_head.m_name] = body;
             }
             return solutions;
-        }
-
-        core_clause_solutions solve_core_clauses(core_clauses const& clauses) const {
-            if (false /* && m_fp_params.use_iz3_interpolation() */) {
-                return solve_core_clauses_iz3(clauses);
-            }
-            else {
-                return solve_core_clauses_non_iz3(clauses);
-            }
         }
 
         expr_ref mk_leaves(node_info const& root_node, expr_ref_vector const& root_args, bool substitute_template_params = true) const {
@@ -3311,21 +3217,6 @@ namespace datalog {
             }
         }
 
-        void print_proof_prolog(std::ostream& out, unsigned id) const {
-            node_set todo_nodes;
-            todo_nodes.insert(id);
-            while (!todo_nodes.empty()) {
-                unsigned curr_id = *todo_nodes.begin();
-                todo_nodes.remove(curr_id);
-                node_info const& node = m_nodes[curr_id];
-                out << "hyper_resolve([" << node.m_parent_nodes << "], "
-                    << node.m_parent_rule << ", " << curr_id << ")." << std::endl;
-                for (unsigned i = 0; i < node.m_parent_nodes.size(); ++i) {
-                    todo_nodes.insert(node.m_parent_nodes[i]);
-                }
-            }
-        }
-
         void print_initial_state(std::ostream& out) const {
             out << "=====================================\n";
             out << "Initial state:\n";
@@ -3413,12 +3304,6 @@ namespace datalog {
             }
             out << "  Worklist: " << m_node_worklist << std::endl;
             out << "=====================================\n";
-        }
-
-        void print_statistics(std::ostream& out) const {
-            statistics st;
-            collect_statistics(st);
-            st.display(out);
         }
     };
 

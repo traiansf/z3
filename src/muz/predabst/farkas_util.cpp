@@ -115,7 +115,7 @@ expr_ref make_linear_combination(vector<int64> const& coeffs, expr_ref_vector co
         expr_ref new_e(m);
         rel_op new_op;
         bool result = leftify_inequality(expr_ref(inequalities[i], m), new_e, new_op);
-        CASSERT("predasbst", result); // >>> why?
+        CASSERT("predabst", result); // >>> why?
         terms.push_back(arith.mk_mul(arith.mk_numeral(rational(coeffs[i], rational::i64()), true), new_e));
         CASSERT("predabst", (new_op == op_eq) || (new_op == op_le));
         if (new_op == op_le) {
@@ -311,8 +311,8 @@ public:
             rhs_terms.push_back(m_const);
         }
         else if (val.is_neg()) {
-            if ((m_op == op_le) && val.is_minus_one() && !lhs_terms.empty()) {
-                // Prefer X < Y to X + 1 <= Y, but prefer X <= 1 to X < 0.
+            if ((m_op == op_le) && val.is_minus_one()) {
+                // Prefer X < Y to X + 1 <= Y.
                 strict = true;
             }
             else {
@@ -593,10 +593,18 @@ bool mk_exists_forall_farkas(expr_ref const& fml, expr_ref_vector const& vars, e
 }
 
 bool get_farkas_coeffs(expr_ref_vector const& assertions, vector<int64>& coeffs) {
-    CASSERT("predabst", coeffs.empty());
-    ast_manager& m = assertions.m();
+	CASSERT("predabst", coeffs.empty());
+	ast_manager& m = assertions.m();
     arith_util arith(m);
-    farkas_imp f_imp(get_all_vars(mk_conj(assertions)));
+	expr_ref_vector vars = get_all_vars(mk_conj(assertions));
+	for (unsigned i = 0; i < vars.size(); ++i) {
+		CASSERT("predabst", is_uninterp_const(vars.get(i)));
+		if (!sort_is_int(vars.get(i), m)) {
+			STRACE("predabst", tout << "Cannot get Farkas coefficients: variable " << i << " is of non-integer type\n";);
+			return false;
+		}
+	}
+    farkas_imp f_imp(vars);
     expr_ref false_ineq(arith.mk_le(arith.mk_numeral(rational::one(), true), arith.mk_numeral(rational::zero(), true)), m);
     bool result = f_imp.set(assertions, false_ineq);
     if (!result) {

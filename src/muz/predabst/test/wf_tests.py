@@ -36,7 +36,7 @@ sat_tests = [
 (assert (forall ((x Int) (y Int) (x_ Int) (y_ Int)) (=> (and (__exparg__ y) (__exparg__ y_)) (__expargs____wf__p x y x_ y_))))
 (assert (forall ((x Int) (y Int) (x_ Int) (y_ Int)) (=> (and (>= x 0) (< x_ x)) (__pred____wf__p x y x_ y_))))""",
      """
-(define-fun __wf__p ((x!1 Int) (x!2 Int) (x!3 Int) (x!4 Int)) Bool (and (< x!3 x!1) (>= x!1 0) (= x!2 0) (= x!4 0)))"""),
+(define-fun __wf__p ((x!1 Int) (x!2 Int) (x!3 Int) (x!4 Int)) Bool (and (= x!2 0) (= x!4 0) (< x!3 x!1) (>= x!1 0)))"""),
 
     # The explicit arguments are essential for proving well-foundedness.
     ("simple-exp-args-essential",
@@ -45,11 +45,11 @@ sat_tests = [
 (declare-fun __expargs____wf__p (Int Int Int Int) Bool)
 (declare-fun __pred____wf__p (Int Int Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (> x_ x)) (__wf__p x 0 x_ 1))))
+(assert (forall ((x Int) (x_ Int)) (=> (and (>= x 0) (< x x_)) (__wf__p x 0 x_ 1))))
 (assert (forall ((x Int) (y Int) (x_ Int) (y_ Int)) (=> (and (__exparg__ y) (__exparg__ y_)) (__expargs____wf__p x y x_ y_))))
 (assert (forall ((x Int) (y Int) (x_ Int) (y_ Int)) (=> (and (>= x 0) (> x_ x)) (__pred____wf__p x y x_ y_))))""",
      """
-(define-fun __wf__p ((x!1 Int) (x!2 Int) (x!3 Int) (x!4 Int)) Bool (and (> x!3 x!1) (>= x!1 0) (= x!2 0) (= x!4 1)))"""),
+(define-fun __wf__p ((x!1 Int) (x!2 Int) (x!3 Int) (x!4 Int)) Bool (and (= x!2 0) (= x!4 1) (< x!1 x!3) (>= x!1 0)))"""),
 
     ("refine",
      """
@@ -61,7 +61,7 @@ sat_tests = [
     ("refine-evars",
      """
 (declare-fun __wf__p (Int Int) Bool)
-     (assert (forall ((x Int) (x_ Int) (y Int)) (=> (and (>= x 0) (< x_ y) (< y x)) (__wf__p x x_))))""",
+     (assert (forall ((x Int) (x_ Int) (y Int)) (=> (and (>= x 0) (< x_ y) (<= y x)) (__wf__p x x_))))""",
      """
 (define-fun __wf__p ((x!1 Int) (x!2 Int)) Bool (and (>= x!1 0) (< x!2 x!1)))"""),
 ]

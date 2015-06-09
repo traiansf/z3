@@ -62,17 +62,17 @@ sat_tests = [
     # both arguments) should be copied.
     ("two-args-same-names",
      """
-(declare-fun p (Int) Bool)
-(declare-fun q (Int) Bool)
-(declare-fun __names__p (Int) Bool)
-(declare-fun __names__q (Int) Bool)
+(declare-fun p (Int Int) Bool)
+(declare-fun q (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(declare-fun __names__q (Int Int) Bool)
 (declare-fun __name__a (Int) Bool)
 (declare-fun __name__b (Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (<= x y) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (> x y) (not (p x y)))))
 (assert (forall ((x Int) (y Int)) (=> (<= x y) (q x y))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__p x))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__q x))))""",
+(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__q x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (<= x!1 x!2))
 (define-fun q ((x!1 Int) (x!2 Int)) Bool (<= x!1 x!2))"""),
@@ -81,18 +81,18 @@ sat_tests = [
     # predicate (which uses both arguments) should not be copied.
     ("two-args-one-name-different",
      """
-(declare-fun p (Int) Bool)
-(declare-fun q (Int) Bool)
-(declare-fun __names__p (Int) Bool)
-(declare-fun __names__q (Int) Bool)
+(declare-fun p (Int Int) Bool)
+(declare-fun q (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(declare-fun __names__q (Int Int) Bool)
 (declare-fun __name__a (Int) Bool)
 (declare-fun __name__b (Int) Bool)
 (declare-fun __name__c (Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (<= x y) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (> x y) (not (p x y)))))
 (assert (forall ((x Int) (y Int)) (=> (<= x y) (q x y))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__p x))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__c y)) (__names__q x))))""",
+(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__c y)) (__names__q x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (<= x!1 x!2))
 (define-fun q ((x!1 Int) (x!2 Int)) Bool true)"""),
@@ -101,17 +101,17 @@ sat_tests = [
     # (which uses both arguments) should be translated.
     ("two-args-swapped-names",
      """
-(declare-fun p (Int) Bool)
-(declare-fun q (Int) Bool)
-(declare-fun __names__p (Int) Bool)
-(declare-fun __names__q (Int) Bool)
+(declare-fun p (Int Int) Bool)
+(declare-fun q (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(declare-fun __names__q (Int Int) Bool)
 (declare-fun __name__a (Int) Bool)
 (declare-fun __name__b (Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (<= x y) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (> x y) (not (p x y)))))
 (assert (forall ((x Int) (y Int)) (=> (<= y x) (q x y))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__p x))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__b x) (__name__a y)) (__names__q x))))""",
+(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (__name__b x) (__name__a y)) (__names__q x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (<= x!1 x!2))
 (define-fun q ((x!1 Int) (x!2 Int)) Bool (<= x!2 x!1))"""),
@@ -120,17 +120,17 @@ sat_tests = [
     # predicate (which uses both arguments) should not be copied.
     ("pred-uses-unnamed-arg",
      """
-(declare-fun p (Int) Bool)
-(declare-fun q (Int) Bool)
-(declare-fun __names__p (Int) Bool)
-(declare-fun __names__q (Int) Bool)
+(declare-fun p (Int Int) Bool)
+(declare-fun q (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(declare-fun __names__q (Int Int) Bool)
 (declare-fun __name__a (Int) Bool)
 (declare-fun __name__b (Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (<= x y) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (> x y) (not (p x y)))))
 (assert (forall ((x Int) (y Int)) (=> (<= x y) (q x y))))
-(assert (forall ((x Int) (y Int)) (=> (__name__a x) (__names__p x))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__q x))))""",
+(assert (forall ((x Int) (y Int)) (=> (__name__a x) (__names__p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__q x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (<= x!1 x!2))
 (define-fun q ((x!1 Int) (x!2 Int)) Bool true)"""),
@@ -139,17 +139,17 @@ sat_tests = [
     # predicate (which uses only the named argument) should be copied.
     ("pred-uses-only-named-arg",
      """
-(declare-fun p (Int) Bool)
-(declare-fun q (Int) Bool)
-(declare-fun __names__p (Int) Bool)
-(declare-fun __names__q (Int) Bool)
+(declare-fun p (Int Int) Bool)
+(declare-fun q (Int Int) Bool)
+(declare-fun __names__p (Int Int) Bool)
+(declare-fun __names__q (Int Int) Bool)
 (declare-fun __name__a (Int) Bool)
 (declare-fun __name__b (Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (<= x 0) (p x y))))
 (assert (forall ((x Int) (y Int)) (=> (> x 0) (not (p x y)))))
 (assert (forall ((x Int) (y Int)) (=> (<= x 0) (q x y))))
-(assert (forall ((x Int) (y Int)) (=> (__name__a x) (__names__p x))))
-(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__q x))))""",
+(assert (forall ((x Int) (y Int)) (=> (__name__a x) (__names__p x y))))
+(assert (forall ((x Int) (y Int)) (=> (and (__name__a x) (__name__b y)) (__names__q x y))))""",
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (<= x!1 0))
 (define-fun q ((x!1 Int) (x!2 Int)) Bool (<= x!1 0))"""),
@@ -166,15 +166,16 @@ sat_tests = [
 (declare-fun __name__b (Int) Bool)
 (declare-fun __name__c (Int) Bool)
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (<= x y) (<= y z)) (p x y z))))
-(assert (forall ((x Int) (y Int) (z Int)) (=> (or (> x y) (> y z)) (not (p x y z)))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (> x y) (not (p x y z)))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (> y z) (not (p x y z)))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (<= x y) (<= y z)) (q x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (__names__p x y z)))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (__name__a x) (__names__p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__name__b y) (__name__c z)) (__names__p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__name__a x) (__name__b y) (__name__c z)) (__names__q x y z))))""",
      """
-(define-fun p ((x!1 Int) (x!2 Int) (x!3 Int)) (and (<= x!1 x!2) (<= x!2 x!3)) true)
-(define-fun q ((x!1 Int) (x!2 Int) (x!3 Int)) (and (<= x!1 x!2) (<= x!2 x!3)) true)"""),
+(define-fun p ((x!1 Int) (x!2 Int) (x!3 Int)) Bool (and (<= x!2 x!3) (<= x!1 x!2)))
+(define-fun q ((x!1 Int) (x!2 Int) (x!3 Int)) Bool (and (<= x!2 x!3) (<= x!1 x!2)))"""),
 
     # Names of arguments of one type come from a different namespace to names of
     # arguments of different types.
@@ -184,17 +185,21 @@ sat_tests = [
 (declare-fun q (Int Real Bool) Bool)
 (declare-fun __names__p (Int Real Bool) Bool)
 (declare-fun __names__q (Int Real Bool) Bool)
+(declare-fun __pred__p (Int Real Bool) Bool)
 (declare-fun __name__a (Int) Bool)
 (declare-fun __name__a (Real) Bool)
 (declare-fun __name__a (Bool) Bool)
 (assert (forall ((x Int) (y Real) (z Bool)) (=> (and (<= x 0) (<= y 0.0) z) (p x y z))))
-(assert (forall ((x Int) (y Real) (z Bool)) (=> (or (> x 0) (> y 0.0) (not z)) (not (p x y z)))))
+(assert (forall ((x Int) (y Real) (z Bool)) (=> (> x 0) (not (p x y z)))))
+(assert (forall ((x Int) (y Real) (z Bool)) (=> (> y 0.0) (not (p x y z)))))
+(assert (forall ((x Int) (y Real) (z Bool)) (=> (not z) (not (p x y z)))))
 (assert (forall ((x Int) (y Real) (z Bool)) (=> (and (<= x 0) (<= y 0.0) z) (q x y z))))
 (assert (forall ((x Int) (y Real) (z Bool)) (=> (and (__name__a x) (__name__a y) (__name__a z)) (__names__p x y z))))
-(assert (forall ((x Int) (y Real) (z Bool)) (=> (and (__name__a x) (__name__a y) (__name__a z)) (__names__q x y z))))""",
+(assert (forall ((x Int) (y Real) (z Bool)) (=> (and (__name__a x) (__name__a y) (__name__a z)) (__names__q x y z))))
+(assert (forall ((x Int) (y Real) (z Bool)) (=> (and (<= y 0.0) z) (__pred__p x y z))))""",
      """
-(define-fun p ((x!1 Int) (x!2 Real) (x!3 Bool)) (and (<= x!1 0) (<= x!2 0.0) x!3) true)
-(define-fun p ((x!1 Int) (x!2 Real) (x!3 Bool)) (and (<= x!1 0) (<= x!2 0.0) x!3) true)"""),
+(define-fun p ((x!1 Int) (x!2 Real) (x!3 Bool)) Bool (and x!3 (<= x!2 0.0) (<= x!1 0)))
+(define-fun q ((x!1 Int) (x!2 Real) (x!3 Bool)) Bool (and x!3 (<= x!2 0.0) (<= x!1 0)))"""),
 
     # p and q have a single argument with the same name, but q's argument is
     # explicit; the argument name should be ignored so the predicate should not
@@ -210,7 +215,7 @@ sat_tests = [
 (declare-fun __name__a (Int) Bool)
 (assert (forall ((x Int)) (=> (<= x 0) (p x))))
 (assert (forall ((x Int)) (=> (> x 0) (not (p x)))))
-(assert (forall ((x Int)) (=> (<= x 0) (q x))))
+(assert (forall ((x Int)) (=> (= x 0) (q x))))
 (assert (forall ((x Int)) (=> (__exparg__ x) (__expargs__q x))))
 (assert (forall ((x Int)) (=> (__name__a x) (__names__p x))))
 (assert (forall ((x Int)) (=> (__name__a x) (__names__q x))))""",
@@ -233,11 +238,11 @@ sat_tests = [
 (declare-fun __name__a (Int) Bool)
 (declare-fun __name__b (Real) Bool)
 (declare-fun __name__c (Int) Bool)
-(assert p)
+(assert (as p (Bool)))
 (assert (forall ((x Int)) (p x)))
 (assert (forall ((x Real)) (p x)))
 (assert (forall ((x Int) (y Int)) (p x y)))
-(assert __names__p)
+(assert (as __names__p (Bool)))
 (assert (forall ((x Int)) (=> (__name__a x) (__names__p x))))
 (assert (forall ((x Real)) (=> (__name__b x) (__names__p x))))
 (assert (forall ((x Int) (y Int)) (=> (__name__c x) (__names__p x y))))""",

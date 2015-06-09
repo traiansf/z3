@@ -52,7 +52,7 @@ with open(OUTFILE, "w") as outfile:
     with open(TRCFILE, "w") as trcfile:
         for inFilename in glob.glob("*.smt2"):
             testname = os.path.splitext(inFilename)[0]
-            if filter and testname not in filter:
+            if filter and not any(testname.startswith(f) for f in filter):
                 continue
             outFilename = testname + ".out"
             if os.path.exists(outFilename):

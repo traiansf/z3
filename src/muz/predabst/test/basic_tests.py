@@ -22,17 +22,17 @@ def make_pred_refine_test(name, arity, pred, modelPred, argType="Int"):
     args = " ".join([arg(i) for i in range(arity)])
 
     def modelName(i):
-        return ("x!%d" % i)
+        return ("x!%d" % (i + 1))
     modelBinders = " ".join(["(%s %s)" % (modelName(i), argType) for i in range(arity)])
 
     code = """
 (declare-fun p (%s) Bool)
-(assert (forall (%s) (=> (%s) (p %s))))
-(assert (forall (%s) (=> (not (%s)) (not (p %s)))))""" % (types, binders, pred, args, binders, pred, args)
+(assert (forall (%s) (=> %s (p %s))))
+(assert (forall (%s) (=> (not %s) (not (p %s)))))""" % (types, binders, pred, args, binders, pred, args)
 
     if modelPred:
         model = """
-(define-fun p (%s) Bool (%s))""" % (modelBinders, modelPred)
+(define-fun p (%s) Bool %s)""" % (modelBinders, modelPred)
         return ("refine-pred-%s" % name, code, model)
     else:
         return ("refine-pred-%s" % name, code, "incomplete")
@@ -360,16 +360,16 @@ sat_tests = [
 (define-fun p ((x!1 Int)) Bool (or (= x!1 0) (= x!1 2) (= x!1 4)))"""),
 
     # A recursive predicate symbol, with an infinite set of true values
-    # summarized by a >= predicate.
+    # summarized by a > predicate.
     ("infer-infinite",
      """
 (declare-fun p (Int) Bool)
 (declare-fun __pred__p (Int) Bool)
 (assert (p 0))
 (assert (forall ((x Int)) (=> (p x) (p (+ x 1)))))
-(assert (forall ((x Int)) (=> (and (= x 0) (>= x 1)) (__pred__p x))))""",
+(assert (forall ((x Int)) (=> (and (= x 0) (> x 0)) (__pred__p x))))""",
      """
-(define-fun p ((x!1 Int)) Bool (or (= x!1 0) (>= x!1 1)))"""),
+(define-fun p ((x!1 Int)) Bool (or (= x!1 0) (> x!1 0)))"""),
 
     # A rule with multiple uninterpreted body predicates (actually just a single
     # predicate, but appearing multiple times), with multiple possible parent
@@ -393,7 +393,7 @@ sat_tests = [
 (declare-fun p2 () Bool)
 (declare-fun p3 () Bool)
 (declare-fun p4 () Bool)
-(declare-fun p () Bool)
+(declare-fun p (Int) Bool)
 (declare-fun __pred__p (Int) Bool)
 (assert p1)
 (assert (=> p1 p2))
@@ -418,7 +418,7 @@ sat_tests = [
 (declare-fun p2 () Bool)
 (declare-fun p3 () Bool)
 (declare-fun p4 () Bool)
-(declare-fun p () Bool)
+(declare-fun p (Int) Bool)
 (declare-fun __pred__p (Int) Bool)
 (assert p1)
 (assert (=> p1 p2))
@@ -496,6 +496,7 @@ sat_tests = [
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (or (= x!1 0) (= x!1 1) (= x!1 2)))"""),
 
     # Inference performed on predicates with non-integer explicit arguments.
+    # >>> why is only one of them explicit?
     ("infer-exp-eval-non-integers",
      """
 (declare-fun p (Bool Real) Bool)
@@ -507,7 +508,7 @@ sat_tests = [
 (assert (forall ((x Bool) (y Real)) (=> (__exparg__ y) (__expargs__p x y))))
 (assert (forall ((x Bool) (y Real)) (=> (and x (not x)) (__pred__p x y))))""",
      """
-(define-fun p ((x!1 Bool) (x!2 Real)) Bool (or (and x!1 (= x!2 0.0)) (and (not x!1) (= x!2 1.0))))"""),
+(define-fun p ((x!1 Bool) (x!2 Real)) Bool (or (and (= x!2 0.0) x!1) (and (= x!2 1.0) (not x!1))))"""),
 
     # One round of predicate refinement is necessary to generate the predicate
     # (x <= 0).
@@ -577,11 +578,11 @@ sat_tests = [
 (declare-fun p () Bool)
 (declare-fun q (Int) Bool)
 (assert p)
-(assert (forall ((x Int)) (=> (>= x 1) (q x))))
+(assert (forall ((x Int)) (=> (> x 0) (q x))))
 (assert (forall ((x Int)) (=> (and (<= x 0) p) (not (q x)))))""",
      """
 (define-fun p () Bool true)
-(define-fun q ((x!1 Int)) Bool (>= x!1 1))"""),
+(define-fun q ((x!1 Int)) Bool (> x!1 0))"""),
 
     # Predicate refinement generates a predicate that is a non-trivial linear
     # combination of the inequalities in the input.
@@ -621,27 +622,27 @@ sat_tests = [
      """
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (or (and (= x!1 0) (>= x!2 0)) (and (= x!1 1) (<= x!2 0))))"""),
 
-    make_pred_refine_test("ge", 1, ">= x 0", ">= x!1 0"),
-    make_pred_refine_test("le", 1, "<= x 0", "<= x!1 0"),
-    make_pred_refine_test("gt", 1, "> x 0", "> x!1 0"),
-    make_pred_refine_test("lt", 1, "< x 0", "< x!1 0"),
-    make_pred_refine_test("eq", 1, "= x 0", "= x!1 0"),
-    make_pred_refine_test("eq3", 3, "= x y z", "and (= x!1 x!2) (= x!1 x!3)"),
+    make_pred_refine_test("ge", 1, "(>= x 0)", "(>= x!1 0)"),
+    make_pred_refine_test("le", 1, "(<= x 0)", "(<= x!1 0)"),
+    make_pred_refine_test("gt", 1, "(> x 0)", "(> x!1 0)"),
+    make_pred_refine_test("lt", 1, "(< x 0)", "(< x!1 0)"),
+    make_pred_refine_test("eq", 1, "(= x 0)", "(= x!1 0)"),
+    make_pred_refine_test("eq3", 3, "(= x y z)", "(and (= x!1 x!2) (= x!1 x!3))"),
 
-    make_pred_refine_test("not-ge", 1, "not (>= x 0)", "< x!1 0"),
-    make_pred_refine_test("not-le", 1, "not (<= x 0)", "> x!1 0"),
-    make_pred_refine_test("not-gt", 1, "not (> x 0)", "<= x!1 0"),
-    make_pred_refine_test("not-lt", 1, "not (< x 0)", ">= x!1 0"),
-    make_pred_refine_test("not-eq", 1, "not (= x 0)", "or (> x!1 0) (< x!1 0)"),
-    make_pred_refine_test("not-eq3", 3, "not (= x y z)", "or (> x!1 x!2) (< x!1 x!2) (> x!1 x!3) (< x!1 x!3)"),
+    make_pred_refine_test("not-ge", 1, "(not (>= x 0))", "(< x!1 0)"),
+    make_pred_refine_test("not-le", 1, "(not (<= x 0))", "(> x!1 0)"),
+    make_pred_refine_test("not-gt", 1, "(not (> x 0))", "(<= x!1 0)"),
+    make_pred_refine_test("not-lt", 1, "(not (< x 0))", "(>= x!1 0)"),
+    make_pred_refine_test("not-eq", 1, "(not (= x 0))", "(or (> x!1 0) (< x!1 0))"),
+    make_pred_refine_test("not-eq3", 3, "(not (= x y z))", "(or (> x!1 x!2) (< x!1 x!2) (> x!1 x!3) (< x!1 x!3))"),
 
-    make_pred_refine_test("not-not-eq", 1, "not (not (= x 0))", "= x!1 0"),
+    make_pred_refine_test("not-not", 1, "(not (not (<= x 0)))", "(<= x!1 0)"),
 
-    make_pred_refine_test("add1", 1, "= (+ x) 0", "= x!1 0"),
-    make_pred_refine_test("add2", 2, "= (+ x y) 0", "= (+ x!1 x!2) 0"),
-    make_pred_refine_test("add3", 3, "= (+ x y z) 0", "= (+ x!1 x!2 x!3) 0"),
-    make_pred_refine_test("sub", 2, "= (- x y) 0", "= x!1 x!2"),
-    make_pred_refine_test("neg", 1, "= (- x) 0", "= x!1 0"),
+    make_pred_refine_test("add1", 1, "(<= (+ x) 0)", "(<= x!1 0)"),
+    make_pred_refine_test("add2", 2, "(<= (+ x y) 0)", "(<= (+ x!1 x!2) 0)"),
+    make_pred_refine_test("add3", 3, "(<= (+ x y z) 0)", "(<= (+ x!1 x!2 x!3) 0)"),
+    make_pred_refine_test("sub", 2, "(<= (- x y) 0)", "(<= x!1 x!2)"),
+    make_pred_refine_test("neg", 1, "(<= (- x) 0)", "(>= x!1 0)"),
 
     # Multiple predicates with the same name but different arity and/or argument
     # types should be allowed.
@@ -660,23 +661,23 @@ sat_tests = [
 (declare-fun __pred__p (Real) Bool)
 (declare-fun __pred__p (Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert p)
+(assert (as p (Bool)))
 (assert (forall ((x Int)) (=> (= x 0) (p x))))
 (assert (forall ((x Real)) (=> (= x 1.0) (p x))))
-(assert (forall ((x Int) (y Int)) (=> (= x 2) (p x y))))
-(assert __expargs__p)
+(assert (forall ((x Int) (y Int)) (=> (= x 2) (= y 3) (p x y))))
+(assert (as __expargs__p (Bool)))
 (assert (forall ((x Int)) (__expargs__p x)))
 (assert (forall ((x Real)) (__expargs__p x)))
-(assert (forall ((x Int) (y Int)) (=> (__exparg__ y) (__expargs__p x y))))
-(assert __pred__p)
+(assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs__p x y))))
+(assert (as __pred__p (Bool)))
 (assert (forall ((x Int)) (=> (= x 0) (__pred__p x))))
 (assert (forall ((x Real)) (=> (= x 1.0) (__pred__p x))))
-(assert (forall ((x Int) (y Int)) (=> (and (= x 2) (= y 3)) (__pred__p x y))))""",
+(assert (forall ((x Int) (y Int)) (=> (and (= y 3)) (__pred__p x y))))""",
      """
 (define-fun p () Bool true)
 (define-fun p ((x!1 Int)) Bool (= x!1 0))
 (define-fun p ((x!1 Real)) Bool (= x!1 1.0))
-(define-fun p ((x!1 Int) (x!2 Int)) Bool (and (= x!1 2) (= x!2 3))"""),
+(define-fun p ((x!1 Int) (x!2 Int)) Bool (and (= x!1 2) (= x!2 3)))"""),
 ]
 
 unsat_tests = [
@@ -839,19 +840,19 @@ unknown_tests = [
      "incomplete"),
 
     # Predicate refinement (>>> or determination of reachability without abstraction?) fails due to a non-linear expression.
-    make_pred_refine_test("mul", 2, "= (* x y) 2", None),
-    make_pred_refine_test("div", 2, "= (div x y) 2", None),
-    make_pred_refine_test("mod", 1, "= (mod x 2) 0", None),
-    make_pred_refine_test("distinct", 1, "distinct x 0", None),
-    make_pred_refine_test("and", 2, "and (= x 0) (= y 1)", None),
-    make_pred_refine_test("or", 2, "or (= x 0) (= y 1)", None),
-    make_pred_refine_test("xor", 2, "xor (= x 0) (= y 1)", None),
-    make_pred_refine_test("implies", 2, "=> (= x 0) (= y 1)", None),
-    make_pred_refine_test("iff", 2, "iff (= x 0) (= y 1)", None),
-    make_pred_refine_test("ite", 2, "ite (= x 0) (= y 1) (= y 2)", None),
+    make_pred_refine_test("mul", 2, "(<= (* x y) 2)", None),
+    make_pred_refine_test("div", 2, "(<= (div x y) 2)", None),
+    make_pred_refine_test("mod", 1, "(<= (mod x 2) 0)", None),
+    make_pred_refine_test("distinct", 1, "(distinct x 0)", None),
+    make_pred_refine_test("and", 2, "(and (<= x 0) (<= y 1))", None),
+    make_pred_refine_test("or", 2, "(or (<= x 0) (<= y 1))", None),
+    make_pred_refine_test("xor", 2, "(xor (<= x 0) (<= y 1))", None),
+    make_pred_refine_test("implies", 2, "(=> (<= x 0) (<= y 1))", None),
+    make_pred_refine_test("iff", 2, "(= (<= x 0) (<= y 1))", None),
+    make_pred_refine_test("ite", 2, "(ite (<= x 0) (<= y 1) (<= y 2))", None),
 
     # Predicate refinement fails due to a non-integer expression.
-    make_pred_refine_test("real", 1, ">= x 0", None, argType="Real"),
+    make_pred_refine_test("real", 1, "(>= x 0)", None, argType="Real"),
     make_pred_refine_test("bool", 1, "x", None, argType="Bool"),
 ]
 

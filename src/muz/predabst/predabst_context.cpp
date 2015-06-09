@@ -518,12 +518,15 @@ namespace datalog {
             // from the rule set.  Note that we must process the extra template
             // constraints before the templates, in order that we know how many
             // extra arguments each template has; we must process the templates
-            // before the explicit argument/predicate/argument name lists, in
-            // order to reject such lists for templated predicate symbols; and
-            // we must process the explicit argument lists before the
-            // predicate/argument name lists, in order to reject both
+            // before the explicit argument/argument name/predicate lists, in
+            // order to reject such lists for templated predicate symbols; we
+            // must process the explicit argument lists before the
+            // argument name/predicate lists, in order to reject both
             // predicates that involve explicit arguments and names for
-            // explicit arguments.
+            // explicit arguments; and we must process the argument name lists
+			// before the predicate lists, so that we can use the argument
+			// names to translate predicates from one predicate symbol to
+			// another.
             process_special_rules(rules, is_template_extra, &imp::collect_template_extra);
             process_special_rules(rules, is_template, &imp::collect_template);
             process_special_rules(rules, is_explicit_arg_list, &imp::collect_explicit_arg_list);
@@ -551,8 +554,8 @@ namespace datalog {
                 }
             }
 
-            process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
             process_special_rules(rules, is_arg_name_list, &imp::collect_arg_name_list);
+			process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
 
             CASSERT("predabst", m_rules.empty());
             for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
@@ -1049,19 +1052,19 @@ namespace datalog {
 
         expr_ref node_to_formula(node_info const& node) const {
             expr_ref_vector es(m);
-            cube_t const& cube = node.m_cube;
+			expr_ref_vector const& values = node.m_explicit_values;
+			var_ref_vector const& args = node.m_fdecl_info->m_explicit_vars;
+			CASSERT("predabst", values.size() == args.size());
+			for (unsigned i = 0; i < values.size(); ++i) {
+				es.push_back(m.mk_eq(args.get(i), values.get(i)));
+			}
+			cube_t const& cube = node.m_cube;
             expr_ref_vector const& preds = node.m_fdecl_info->m_preds;
             CASSERT("predabst", cube.size() == preds.size());
             for (unsigned i = 0; i < cube.size(); ++i) {
                 if (cube[i]) {
                     es.push_back(preds[i]);
                 }
-            }
-            expr_ref_vector const& values = node.m_explicit_values;
-            var_ref_vector const& args = node.m_fdecl_info->m_explicit_vars;
-            CASSERT("predabst", values.size() == args.size());
-            for (unsigned i = 0; i < values.size(); ++i) {
-                es.push_back(m.mk_eq(args.get(i), values.get(i)));
             }
             return mk_conj(es);
         }
@@ -1401,77 +1404,6 @@ namespace datalog {
             }
         }
 
-        static bool is_predicate_list(func_decl const* fdecl) {
-            return fdecl->get_name().str().substr(0, 8) == "__pred__";
-        }
-
-        void collect_predicate_list(rule const* r) {
-            CASSERT("predabst", is_predicate_list(r->get_decl()));
-            // r is a rule of the form:
-            //   p1 AND ... AND pN => __pred__SUFFIX
-            // Treat p1...pN as initial predicates for predicate symbol SUFFIX.
-            func_decl* head_decl = r->get_decl();
-            symbol suffix(head_decl->get_name().str().substr(8).c_str());
-            if (suffix.str().empty()) {
-                STRACE("predabst", tout << "Error: found predicate list for predicate symbol with zero-length name\n";);
-                throw default_exception("found predicate list for predicate symbol with zero-length name");
-            }
-
-            STRACE("predabst", tout << "Found predicate list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
-
-            func_decl_ref suffix_decl(m.mk_func_decl(
-                suffix,
-                head_decl->get_arity(),
-                head_decl->get_domain(),
-                head_decl->get_range()), m);
-            if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found predicate list for non-existent predicate symbol\n";);
-                throw default_exception("found predicate list for non-existent predicate symbol " + suffix.str());
-            }
-
-            func_decl_info* fi = m_func_decl2info[suffix_decl];
-            if (fi->m_has_template) {
-                STRACE("predabst", tout << "Error: found predicate list for templated predicate symbol\n";);
-                throw default_exception("found predicate list for templated predicate symbol " + suffix.str());
-            }
-
-            var_ref_vector args(m);
-            if (!args_are_distinct_vars(r->get_head(), args)) {
-                STRACE("predabst", tout << "Error: predicate list has invalid argument list\n";);
-                throw default_exception("predicate list for " + suffix.str() + " has invalid argument list");
-            }
-
-            var_ref_vector non_explicit_args(m);
-            for (unsigned i = 0; i < args.size(); ++i) {
-                if (!fi->m_explicit_args.get(i)) {
-                    non_explicit_args.push_back(args.get(i));
-                }
-            }
-
-            if (r->get_uninterpreted_tail_size() != 0) {
-                STRACE("predabst", tout << "Error: predicate list has an uninterpreted tail\n";);
-                throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
-            }
-
-            // Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
-            expr_ref_vector subst = build_subst(args, fi->m_vars); // >>> this ought to be neater
-            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                if (has_free_vars(r->get_tail(i), args)) {
-                    STRACE("predabst", tout << "Error: predicate has free variables\n";);
-                    throw default_exception("predicate for " + suffix.str() + " has free variables");
-                }
-                if (has_free_vars(r->get_tail(i), non_explicit_args)) {
-                    STRACE("predabst", tout << "Error: predicate uses explicit arguments\n";);
-                    throw default_exception("predicate for " + suffix.str() + " uses explicit arguments");
-                }
-
-                expr_ref pred = apply_subst(to_expr(r->get_tail(i)), subst);
-                STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
-                m_stats.m_num_initial_predicates++;
-                maybe_add_pred(fi, pred);
-            }
-        }
-
         static bool is_arg_name_list(func_decl const* fdecl) {
             return fdecl->get_name().str().substr(0, 9) == "__names__";
         }
@@ -1549,7 +1481,7 @@ namespace datalog {
                 symbol name(tail->get_decl()->get_name().str().substr(8).c_str());
                 if (name.str().empty()) {
                     STRACE("predabst", tout << "Error: zero-length name for argument " << j << "\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has zero-length argument names");
+                    throw default_exception("argument name list for " + suffix.str() + " has zero-length name for argument");
                 }
                 func_decl_ref name_decl(m.mk_const_decl(name, args.get(j)->get_sort()), m);
                 if (fi->m_var_names.contains(name_decl)) {
@@ -1570,6 +1502,77 @@ namespace datalog {
                 }
             }
         }
+
+		static bool is_predicate_list(func_decl const* fdecl) {
+			return fdecl->get_name().str().substr(0, 8) == "__pred__";
+		}
+
+		void collect_predicate_list(rule const* r) {
+			CASSERT("predabst", is_predicate_list(r->get_decl()));
+			// r is a rule of the form:
+			//   p1 AND ... AND pN => __pred__SUFFIX
+			// Treat p1...pN as initial predicates for predicate symbol SUFFIX.
+			func_decl* head_decl = r->get_decl();
+			symbol suffix(head_decl->get_name().str().substr(8).c_str());
+			if (suffix.str().empty()) {
+				STRACE("predabst", tout << "Error: found predicate list for predicate symbol with zero-length name\n";);
+				throw default_exception("found predicate list for predicate symbol with zero-length name");
+			}
+
+			STRACE("predabst", tout << "Found predicate list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
+
+			func_decl_ref suffix_decl(m.mk_func_decl(
+				suffix,
+				head_decl->get_arity(),
+				head_decl->get_domain(),
+				head_decl->get_range()), m);
+			if (!m_func_decl2info.contains(suffix_decl)) {
+				STRACE("predabst", tout << "Error: found predicate list for non-existent predicate symbol\n";);
+				throw default_exception("found predicate list for non-existent predicate symbol " + suffix.str());
+			}
+
+			func_decl_info* fi = m_func_decl2info[suffix_decl];
+			if (fi->m_has_template) {
+				STRACE("predabst", tout << "Error: found predicate list for templated predicate symbol\n";);
+				throw default_exception("found predicate list for templated predicate symbol " + suffix.str());
+			}
+
+			var_ref_vector args(m);
+			if (!args_are_distinct_vars(r->get_head(), args)) {
+				STRACE("predabst", tout << "Error: predicate list has invalid argument list\n";);
+				throw default_exception("predicate list for " + suffix.str() + " has invalid argument list");
+			}
+
+			var_ref_vector non_explicit_args(m);
+			for (unsigned i = 0; i < args.size(); ++i) {
+				if (!fi->m_explicit_args.get(i)) {
+					non_explicit_args.push_back(args.get(i));
+				}
+			}
+
+			if (r->get_uninterpreted_tail_size() != 0) {
+				STRACE("predabst", tout << "Error: predicate list has an uninterpreted tail\n";);
+				throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
+			}
+
+			// Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
+			expr_ref_vector subst = build_subst(args, fi->m_vars); // >>> this ought to be neater
+			for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+				if (has_free_vars(r->get_tail(i), args)) {
+					STRACE("predabst", tout << "Error: predicate has free variables\n";);
+					throw default_exception("predicate for " + suffix.str() + " has free variables");
+				}
+				if (has_free_vars(r->get_tail(i), non_explicit_args)) {
+					STRACE("predabst", tout << "Error: predicate uses explicit arguments\n";);
+					throw default_exception("predicate for " + suffix.str() + " uses explicit arguments");
+				}
+
+				expr_ref pred = apply_subst(to_expr(r->get_tail(i)), subst);
+				STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
+				m_stats.m_num_initial_predicates++;
+				maybe_add_pred(fi, pred);
+			}
+		}
 
 #define RETURN_CHECK_CANCELLED(result) return m_cancel ? l_undef : result;
 
@@ -2498,6 +2501,7 @@ namespace datalog {
                 solver_for(ri)->get_model(modref);
                 CASSERT("predabst", modref);
                 model_evaluator ev(*modref);
+				ev.set_model_completion(true);
                 for (unsigned i = 0; i < info.m_head_explicit_args.size(); ++i) {
                     if (m_fp_params.skip_known_head_values() && info.m_head_known_args.get(i)) {
                         values.push_back(info.m_head_explicit_args.get(i));
@@ -3069,7 +3073,7 @@ namespace datalog {
                 assertion_start_index.push_back(assertions.size());
                 core_clause const& clause = clauses[i];
                 for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
-                    assertions.push_back(to_nnf(expr_ref(clause.m_interp_body[j], m))); // >>> to_nnf is a bit of a hack here
+                    assertions.push_back(to_nnf(expr_ref(clause.m_interp_body[j], m))); // >>> to_nnf is a bit of a hack here (why?)
                 }
             }
 
@@ -3090,7 +3094,7 @@ namespace datalog {
                 expr_ref_vector inequalities(m);
                 for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
                     coeffs.push_back(assertion_coeffs[assertion_start_index[i] + j]);
-                    inequalities.push_back(clause.m_interp_body[j]);
+                    inequalities.push_back(to_nnf(expr_ref(clause.m_interp_body[j], m)));
                 }
                 for (unsigned j = 0; j < clause.m_uninterp_body.size(); ++j) {
                     coeffs.push_back(1);

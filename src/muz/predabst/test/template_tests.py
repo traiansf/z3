@@ -82,11 +82,11 @@ sat_tests = [
 (declare-fun p (Int) Bool)
 (declare-fun q (Int) Bool)
 (declare-fun __temp__p (Int) Bool)
-(assert (forall ((x Int)) (=> (>= x 1) (q x))))
+(assert (forall ((x Int)) (=> (> x 0) (q x))))
 (assert (forall ((x Int)) (=> (and (p x) (q x)) false)))
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      """
-(define-fun q ((x!1 Int)) Bool (>= x!1 1))
+(define-fun q ((x!1 Int)) Bool (> x!1 0))
 (define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
 
     ("refine-head",
@@ -112,18 +112,18 @@ sat_tests = [
 (declare-fun __temp__p (Int) Bool)
 (declare-fun __temp__p (Real) Bool)
 (declare-fun __temp__p (Int Int) Bool)
-(assert (=> (= true false) p))
+(assert (=> (= true false) (as p (Bool))))
 (assert (forall ((x Int)) (=> (= true false) (p x))))
 (assert (forall ((x Real)) (=> (= true false) (p x))))
 (assert (forall ((x Int) (y Int)) (=> (= true false) (p x y))))
-(assert __temp__p)
+(assert (as __temp__p (Bool)))
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))
-(assert (forall ((x Real)) (=> (= x 1) (__temp__p x))))
-(assert (forall ((x Int) (y Int)) (=> (= x 2)(__temp__p x y))))""",
+(assert (forall ((x Real)) (=> (= x 1.0) (__temp__p x))))
+(assert (forall ((x Int) (y Int)) (=> (= x 2) (__temp__p x y))))""",
      """
 (define-fun p () Bool true)
 (define-fun p ((x!1 Int)) Bool (= x!1 0))
-(define-fun p ((x!1 Real)) Bool (= x!1 1))
+(define-fun p ((x!1 Real)) Bool (= x!1 1.0))
 (define-fun p ((x!1 Int) (x!2 Int)) Bool (= x!1 2))"""),
 ]
 

@@ -50,10 +50,10 @@ def write_test_out(testname, result, postsat_code):
         f.write(postsat_code + "\n")
 
 def write_sat_test_out(testname, model):
-    write_test_out(testname, "sat", "(model " + model + "\n)" if model else "")
+    write_test_out(testname, "sat", "(model " + model + "\n)" if model is not None else "")
 
 def write_unsat_test_out(testname, proof):
-    write_test_out(testname, "unsat", "(proof " + proof + "\n)" "" if proof else "")
+    write_test_out(testname, "unsat", "(proof " + proof + "\n)" "" if proof is not None else "")
 
 def write_unknown_test_out(testname, errmsg):
     write_test_out(testname, "unknown", "(:reason-unknown " + errmsg + ")")

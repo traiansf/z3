@@ -9,18 +9,30 @@ import difflib
 OUTFILE = "test.log"
 Z3TRCFILE = ".z3-trace"
 TRCFILE = "test.trc"
-testpydir = os.path.dirname(__file__)
-Z3CMD = [os.path.join(testpydir, r"..\..\..\..\build\z3"),
-         "-smt2",
-         "fixedpoint.engine=predabst",
-         "fixedpoint.print_answer=true",
-         "fixedpoint.print_certificate=true",
-         "fixedpoint.print_statistics=true",
-         "timeout=60000", # 10 seconds
-         "-dbg:predabst",
-         "-tr:predabst"]
+Z3OPTS = [
+    "-smt2",
+    "fixedpoint.engine=predabst",
+    "fixedpoint.print_answer=true",
+    "fixedpoint.print_certificate=true",
+    "fixedpoint.print_statistics=true",
+    "timeout=300000", # 5 minutes
+]
 
+debug = True
+use_asserts = True
+use_tracing = True # >>>
 filter = sys.argv[1:]
+
+z3root = os.path.join(os.path.dirname(__file__), r"..\..\..\..")
+
+if debug:
+    z3cmd = [os.path.join(z3root, "build", "z3")] + Z3OPTS
+    if use_asserts:
+        z3cmd.append("-dbg:predabst")
+    if use_tracing:
+        z3cmd.append("-tr:predabst")
+else:
+    z3cmd = [os.path.join(z3root, "build-release", "z3")] + Z3OPTS
 
 def writeHeader(f, filename):
     print >>f, "=" * 80
@@ -62,7 +74,7 @@ with open(OUTFILE, "w") as outfile:
             writeHeader(outfile, inFilename)
             writeHeader(trcfile, inFilename)
             try:
-                output = subprocess.check_output(Z3CMD + [inFilename], stderr=subprocess.STDOUT)
+                output = subprocess.check_output(z3cmd + [inFilename], stderr=subprocess.STDOUT)
                 if expectedOutput is not None:
                     if compareOutput(expectedOutput, output):
                         status = PASSED

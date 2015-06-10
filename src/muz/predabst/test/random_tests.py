@@ -45,14 +45,25 @@ def random_cluster(xs, n, minsize=0):
         random.choice(xss).append(x)
     return xss
 
-def random_tree(n):
-    assert n > 0
-    roots = [[] for _ in range(n)]
+def random_tree(nleaves):
+    assert nleaves > 0
+    tree = {i:[] for i in range(nleaves)}
+    roots = tree.keys()
     while len(roots) > 1:
         random.shuffle(roots)
         degree = min(1 + random_poisson(2), len(roots))
-        roots = [roots[:degree]] + roots[degree:]
-    return roots[0]
+        n = len(tree)
+        tree[n] = roots[:degree]
+        roots = [n] + roots[degree:]
+    return tree
+
+def random_dag(nnodes):
+    assert nnodes > 0
+    dag = {}
+    for i in range(nnodes):
+        degree = min(random_poisson(2), len(dag))
+        dag[i] = random.sample(dag.keys(), degree)
+    return dag
 
 def exparg_fn():
     return Function("__exparg__", IntSort(), BoolSort())
@@ -81,7 +92,7 @@ def names_fn(pred):
 #
 # There is an additional rule (P0(x1,...,xn) and (x1 + ... + xn < 0) => false),
 # where P0 is the root node.
-def make_random_sat_test(name, num_nodes, harity,
+def make_random_sat_test(name, dag,
                          unique_preds_probability=1.0,
                          use_explicit_args=False,
                          use_arg_names=False,
@@ -114,8 +125,12 @@ def make_random_sat_test(name, num_nodes, harity,
             else:
                 return 0
 
+    # Note that we ensure the arity is non-zero to prevent cutting part of
+    # the tree off from the head constraint.
+    arity = {i:(1 + random_poisson(2)) for i in dag}
+
     preds = {}
-    def pred(arity):
+    def declare_pred(arity):
         if random.random() < unique_preds_probability:
             pred = new_f(arity)
             if use_arg_names and arity:
@@ -140,35 +155,34 @@ def make_random_sat_test(name, num_nodes, harity,
             preds[arity] = (pred, n + 1)
             return functools.partial(pred, n)
 
-    def node(hnode, harity):
+    pred = {i:declare_pred(arity[i]) for i in dag}
+
+    def declare_rule(hnode_id):
         # Generate a random number of head variables (with mean 1.25 * N),
         # and group these into N disjoint sums to form the head arguments
         # (where N is the arity of the head predicate).
+        harity = arity[hnode_id]
         nhvars = (harity + random_poisson(0.5 * harity)) if harity else 0
         hvars = [new_a() for _ in range(nhvars)]
         hargs = map(sum_pos, random_cluster(hvars, harity, minsize=1))
 
         # Generate a fresh head predicate, and form the head application.
-        hpred = pred(harity)
-        happ = hpred(*hargs)
+        happ = pred[hnode_id](*hargs)
 
         # Generate a random number of body variables (with mean 1.25 * M), and
         # group these into M disjoint sums to form the body arguments (where M
         # is the sum of the (randomly-chosen) arities of the body predicates).
-        baritys = [1 + random_poisson(2) for _ in range(len(hnode))]
-        # Note that we ensure the arity is non-zero to prevent cutting part of
-        # the tree off from the head constraint.
-        nbvars = (sum(baritys) + random_poisson(0.5 * sum(baritys))) if sum(baritys) else 0
+        barity = sum(arity[bnode_id] for bnode_id in dag[hnode_id])
+        nbvars = (barity + random_poisson(0.5 * barity)) if barity else 0
         bvars = [new_a() for _ in range(nbvars)]
-        bargs = map(sum_neg, random_cluster(bvars, sum(baritys), minsize=1))
+        bargs = map(sum_neg, random_cluster(bvars, barity, minsize=1))
 
         # Recursively generate k body predicates, and form the body
         # applications.
         bapps = []
-        for bnode, barity in zip(hnode, baritys):
-            bpred = node(bnode, barity)
-            bapps.append(bpred(*bargs[:barity]))
-            bargs = bargs[barity:]
+        for bnode_id in dag[hnode_id]:
+            bapps.append(pred[bnode_id](*bargs[:arity[bnode_id]]))
+            bargs = bargs[arity[bnode_id]:]
 
         # Generate a random number of constraints, each relating a sum of (one
         # or more) head variables to a sum of (zero or more) body variables.
@@ -199,31 +213,35 @@ def make_random_sat_test(name, num_nodes, harity,
             s.add(ForAll(bvars + hvars, Implies(And(bapps + constraints), happ)))
         else:
             s.add(Implies(And(bapps + constraints), happ))
-        return hpred
 
-    root = random_tree(num_nodes)
-    vars = [new_a() for _ in range(harity)]
-    head = BoolVal(False)
-    body = And(node(root, len(vars))(*vars), Sum(vars) < 0)
-    s.add(ForAll(vars, Implies(body, head)))
+    for i in dag:
+        declare_rule(i)
+
+    root_ids = [i for i in dag if not any(i in dag[j] for j in dag)]
+    for root_id in root_ids:
+        vars = [new_a() for _ in range(arity[root_id])]
+        head = BoolVal(False)
+        body = And(pred[root_id](*vars), Sum(vars) < 0)
+        s.add(ForAll(vars, Implies(body, head)))
+
     code = s.to_smt2()
     assert '(check-sat)' in code
     code = code[:code.index('(check-sat)')]
     return (name, code, None)
 
 sat_tests = [
-    make_random_sat_test("simple", 3, 1)
+    make_random_sat_test("simple", random_tree(3))
 ] + [
-    make_random_sat_test("unique-%d" % i, 30, 3) for i in range(10)
+    make_random_sat_test("unique-%d" % i, random_dag(50)) for i in range(10)
 ] + [
-    make_random_sat_test("mixed-%d" % i, 30, 3,
+    make_random_sat_test("mixed-%d" % i, random_dag(50),
                          unique_preds_probability=0.5) for i in range(10)
 ] + [
-    make_random_sat_test("expargs-%d" % i, 30, 3,
+    make_random_sat_test("expargs-%d" % i, random_dag(50),
                          unique_preds_probability=0.0,
                          use_explicit_args=True) for i in range(10)
 ] + [
-    make_random_sat_test("names-%d" % i, 30, 3,
+    make_random_sat_test("names-%d" % i, random_dag(50),
                          use_arg_names=True) for i in range(10)
 ]
 

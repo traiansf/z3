@@ -1,6 +1,5 @@
 from z3 import *
 import itertools
-import functools
 import random
 import re
 
@@ -80,6 +79,18 @@ def name_fn(n):
 def names_fn(pred):
     return Function("__names__" + pred.name(), *([pred.domain(i) for i in range(pred.arity())] + [pred.range()]))
 
+def Partial(f, argmap):
+    def wrapper(*args):
+        args = list(args)
+        all_args = []
+        for i in range(len(argmap) + len(args)):
+            if i in argmap:
+                all_args.append(argmap[i])
+            else:
+                all_args.append(args.pop(0))
+        return f(*all_args)
+    return wrapper
+
 # The rules generate a node graph that is a tree, where each node is associated
 # with a distinct predicate symbol.
 #
@@ -119,19 +130,24 @@ def make_random_sat_test(name, dag,
             return pred
         else:
             if arity not in preds:
-                pred = new_f(arity + 1)
+                nexpargs = random.randint(1, 3)
+                positions = range(arity + nexpargs)
+                random.shuffle(positions)
+                regular_positions = positions[:arity]
+                exparg_positions = positions[arity:]
+                pred = new_f(arity + nexpargs)
                 if use_explicit_args:
-                    vars = [new_a() for _ in range(arity + 1)]
-                    s.add(ForAll(vars, Implies(exparg_fn()(vars[0]), expargs_fn(pred)(*vars))))
+                    vars = [new_a() for _ in range(arity + nexpargs)]
+                    s.add(ForAll(vars, Implies(And(*(exparg_fn()(vars[i]) for i in exparg_positions)), expargs_fn(pred)(*vars))))
                 if use_arg_names and arity:
                     names = map(str, range(arity))
                     random.shuffle(names)
-                    vars = [new_a() for _ in range(arity)]
-                    s.add(ForAll(vars, Implies(And(*(name_fn(names[i])(vars[i + 1]) for i in range(arity))), names_fn(pred)(*vars))))
-                preds[arity] = (pred, 0)
-            (pred, n) = preds[arity]
-            preds[arity] = (pred, n + 1)
-            return functools.partial(pred, n)
+                    vars = [new_a() for _ in range(arity + nexpargs)]
+                    s.add(ForAll(vars, Implies(And(*(name_fn(name)(vars[i]) for i, name in zip(regular_positions, names))), names_fn(pred)(*vars))))
+                preds[arity] = (pred, exparg_positions, 0)
+            (pred, exparg_positions, n) = preds[arity]
+            preds[arity] = (pred, exparg_positions, n + 1)
+            return Partial(pred, dict(zip(exparg_positions, [n] + [random.randint(0, 2) for _ in range(len(exparg_positions) - 1)])))
 
     def random_int():
         if use_extra_constants and (random.random() < 0.9):
@@ -182,7 +198,7 @@ def make_random_sat_test(name, dag,
         rconsts = [random_int() for _ in range(nconstraints)]
         constraints = []
         for lvars, rvars, lconst, rconst in zip(lvarss, rvarss, lconsts, rconsts):
-            assert lvars
+            assert rvars
             lhs = sum_with(lvars, lconst)
             rhs = sum_with(rvars, rconst)
             if use_equalities and lvars and (random.random() < 0.1):

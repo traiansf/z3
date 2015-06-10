@@ -11,7 +11,7 @@ from basic_tests import basic_tests
 from template_tests import template_tests
 from argnames_tests import argnames_tests
 from wf_tests import wf_tests
-#from random_tests import random_tests
+from random_tests import random_tests
 
 all_tests = [
     ('inpval', inpval_tests),
@@ -19,7 +19,7 @@ all_tests = [
     ('templ', template_tests),
     ('wf', wf_tests),
     ('argnames', argnames_tests),
-    #('random', random_tests),
+    ('random', random_tests),
 ]
 
 def write_test_smt2(testname, code, postsat_code):

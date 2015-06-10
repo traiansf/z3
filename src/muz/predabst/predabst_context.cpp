@@ -667,7 +667,7 @@ namespace datalog {
                     template_info const& temp = m_templates[fi->m_template_id];
                     expr_ref_vector temp_subst = get_temp_subst_vect(temp, fi->m_vars);
                     expr_ref body = mk_conj(apply_subst(temp.m_body, temp_subst));
-                    register_decl(md, fi->m_fdecl, body);
+                    register_decl(md, fi, body);
                 }
                 else {
                     // other predicate symbols are concretized
@@ -677,7 +677,7 @@ namespace datalog {
                         node_info const& node = m_nodes[*it];
                         disj.push_back(node_to_formula(node));
                     }
-                    register_decl(md, fi->m_fdecl, mk_disj(disj));
+                    register_decl(md, fi, mk_disj(disj));
                 }
             }
             return md;
@@ -3209,15 +3209,15 @@ namespace datalog {
             return true;
         }
 
-        void register_decl(model_ref const& md, func_decl* fdecl, expr* e) const {
-            STRACE("predabst", tout << "Model for " << fdecl->get_name() << " is " << mk_pp(e, m) << "\n";);
-            if (fdecl->get_arity() == 0) {
-                md->register_decl(fdecl, e);
+        void register_decl(model_ref const& md, func_decl_info const* fdecl, expr* e) const {
+            STRACE("predabst", tout << "Model for " << fdecl << " is " << mk_pp(e, m) << "\n";);
+            if (fdecl->m_fdecl->get_arity() == 0) {
+                md->register_decl(fdecl->m_fdecl, e);
             }
             else {
-                func_interp* fi = alloc(func_interp, m, fdecl->get_arity());
+                func_interp* fi = alloc(func_interp, m, fdecl->m_fdecl->get_arity());
                 fi->set_else(e);
-                md->register_decl(fdecl, fi);
+                md->register_decl(fdecl->m_fdecl, fi);
             }
         }
 
@@ -3302,7 +3302,7 @@ namespace datalog {
                     CASSERT("predabst", it->m_value->m_max_reach_nodes.empty());
                 }
                 else {
-                    out << "    " << it->m_key->get_name() << ": "
+                    out << "    " << it->m_value << ": "
                         << it->m_value->m_max_reach_nodes << std::endl;
                 }
             }

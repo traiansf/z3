@@ -34,6 +34,12 @@ def new_aname():
 def new_a():
     return Int(new_aname())
 
+def sum_with(xs, c):
+    if xs:
+        return Sum(xs + [c])
+    else:
+        return c
+
 def random_cluster(xs, n, minsize=0):
     xs = xs[:] # make a copy
     random.shuffle(xs)
@@ -101,34 +107,6 @@ def make_random_sat_test(name, dag,
                          use_equalities=True):
     s = SimpleSolver()
 
-    def sum_pos(xs):
-        if xs:
-            if use_extra_constants and (random.random() < 0.5):
-                return Sum(xs) + random.randint(0, 9)
-            else:
-                return Sum(xs)
-        else:
-            if use_extra_constants and (random.random() < 0.5):
-                return random.randint(0, 9)
-            else:
-                return 0
-
-    def sum_neg(xs):
-        if xs:
-            if use_extra_constants and (random.random() < 0.5):
-                return Sum(xs) - random.randint(0, 9)
-            else:
-                return Sum(xs)
-        else:
-            if use_extra_constants and (random.random() < 0.5):
-                return -random.randint(0, 9)
-            else:
-                return 0
-
-    # Note that we ensure the arity is non-zero to prevent cutting part of
-    # the tree off from the head constraint.
-    arity = {i:(1 + random_poisson(2)) for i in dag}
-
     preds = {}
     def declare_pred(arity):
         if random.random() < unique_preds_probability:
@@ -155,7 +133,11 @@ def make_random_sat_test(name, dag,
             preds[arity] = (pred, n + 1)
             return functools.partial(pred, n)
 
-    pred = {i:declare_pred(arity[i]) for i in dag}
+    def random_int():
+        if use_extra_constants and (random.random() < 0.9):
+            return random.randint(-9, 9)
+        else:
+            return 0
 
     def declare_rule(hnode_id):
         # Generate a random number of head variables (with mean 1.25 * N),
@@ -164,7 +146,8 @@ def make_random_sat_test(name, dag,
         harity = arity[hnode_id]
         nhvars = (harity + random_poisson(0.5 * harity)) if harity else 0
         hvars = [new_a() for _ in range(nhvars)]
-        hargs = map(sum_pos, random_cluster(hvars, harity, minsize=1))
+        hconsts = [random_int() for _ in range(harity)]
+        hargs = map(sum_with, random_cluster(hvars, harity, minsize=1), hconsts)
 
         # Generate a fresh head predicate, and form the head application.
         happ = pred[hnode_id](*hargs)
@@ -175,7 +158,8 @@ def make_random_sat_test(name, dag,
         barity = sum(arity[bnode_id] for bnode_id in dag[hnode_id])
         nbvars = (barity + random_poisson(0.5 * barity)) if barity else 0
         bvars = [new_a() for _ in range(nbvars)]
-        bargs = map(sum_neg, random_cluster(bvars, barity, minsize=1))
+        bconsts = [random_int() for _ in range(barity)]
+        bargs = map(sum_with, random_cluster(bvars, barity, minsize=1), bconsts)
 
         # Recursively generate k body predicates, and form the body
         # applications.
@@ -194,43 +178,77 @@ def make_random_sat_test(name, dag,
         nconstraints = random.randint(1, len(hargs))
         lvarss = random_cluster(bvars, nconstraints)
         rvarss = random_cluster(hvars, nconstraints, minsize=1)
+        lconsts = [random_int() for _ in range(nconstraints)]
+        rconsts = [random_int() for _ in range(nconstraints)]
         constraints = []
-        for lvars, rvars in zip(lvarss, rvarss):
-            if not lvars and not rvars:
-                # Omit trivial constraints that include no variables.
-                continue
-            lhs = sum_pos(lvars)
-            rhs = sum_neg(rvars)
-            if use_equalities and (lvars and rvars) and (random.random() < 0.1):
+        for lvars, rvars, lconst, rconst in zip(lvarss, rvarss, lconsts, rconsts):
+            assert lvars
+            lhs = sum_with(lvars, lconst)
+            rhs = sum_with(rvars, rconst)
+            if use_equalities and lvars and (random.random() < 0.1):
                 constraints.append(lhs == rhs)
             else:
-                if use_strict_inequalities and (random.random() < 0.5):
-                    constraints.append(lhs < rhs)
-                else:
-                    constraints.append(lhs <= rhs)
+                constraints.append(lhs <= rhs)
 
         if bvars + hvars:
             s.add(ForAll(bvars + hvars, Implies(And(bapps + constraints), happ)))
         else:
             s.add(Implies(And(bapps + constraints), happ))
 
-    for i in dag:
-        declare_rule(i)
+        return sum(bounds[bnode_id] for bnode_id in dag[hnode_id]) - sum(bconsts) + sum(lconsts) - sum(rconsts) + sum(hconsts)
+
+    arity = {}
+    pred = {}
+    bounds = {}
+    for i in sorted(dag):
+        # Note that we ensure the arity is non-zero to prevent cutting part of
+        # the tree off from the head constraint.
+        arity[i] = 1 + random_poisson(2)
+        pred[i] = declare_pred(arity[i])
+        bounds[i] = declare_rule(i)
 
     root_ids = [i for i in dag if not any(i in dag[j] for j in dag)]
     for root_id in root_ids:
         vars = [new_a() for _ in range(arity[root_id])]
         head = BoolVal(False)
-        body = And(pred[root_id](*vars), Sum(vars) < 0)
+        body = And(pred[root_id](*vars), Sum(vars) < bounds[root_id])
         s.add(ForAll(vars, Implies(body, head)))
+
+    #print name
+    #for i in sorted(dag):
+    #    print i, pred[i], arity[i], dag[i], bounds[i]
 
     code = s.to_smt2()
     assert '(check-sat)' in code
     code = code[:code.index('(check-sat)')]
-    return (name, code, None)
+
+    if (unique_preds_probability == 1.0) and not use_arg_names:
+        def sum_expr(xs):
+            assert len(xs) > 0
+            if len(xs) == 1:
+                return xs[0]
+            else:
+                return "(+ " + " ".join(xs) + ")"
+        def make_model(i):
+            xs = ["x!%d" % (j + 1) for j in range(arity[i])]
+            if bounds[i] == 0:
+                s = "(>= %s 0)" % sum_expr(xs)
+            elif bounds[i] == 1:
+                s = "(> %s 0)" % sum_expr(xs)
+            elif bounds[i] > 1:
+                s = "(>= %s %d)" % (sum_expr(xs), bounds[i])
+            else:
+                assert bounds[i] < 0
+                s = "(>= %s 0)" % sum_expr(xs + [str(-bounds[i])])
+            return "(define-fun %s (%s) Bool %s)" % (pred[i], " ".join("(x!%d Int)" % (j + 1) for j in range(arity[i])), s)
+        model = "\n" + "\n".join(make_model(i) for i in sorted(dag))
+    else:
+        model = None
+
+    return (name, code, model)
 
 sat_tests = [
-    make_random_sat_test("simple", random_tree(3))
+    make_random_sat_test("simple", random_dag(3))
 ] + [
     make_random_sat_test("unique-%d" % i, random_dag(50)) for i in range(10)
 ] + [

@@ -20,7 +20,7 @@ Z3OPTS = [
 
 debug = True
 use_asserts = True
-use_tracing = True # >>>
+use_tracing = True
 filter = sys.argv[1:]
 
 z3root = os.path.join(os.path.dirname(__file__), r"..\..\..\..")

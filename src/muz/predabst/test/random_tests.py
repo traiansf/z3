@@ -110,25 +110,16 @@ def Partial(f, argmap):
 # There is an additional rule (P0(x1,...,xn) and (x1 + ... + xn < 0) => false),
 # where P0 is the root node.
 def make_random_sat_test(name, dag,
-                         unique_preds_probability=1.0,
-                         use_explicit_args=False,
-                         use_arg_names=False,
-                         use_extra_constants=True,
-                         use_strict_inequalities=True,
-                         use_equalities=True):
+                         shared_preds_probability=0.0,
+                         explicit_args_probability=0.0,
+                         arg_names_probability=0.0,
+                         extra_constants_probability=0.9,
+                         equalities_probability=0.1):
     s = SimpleSolver()
 
     preds = {}
     def declare_pred(arity):
-        if random.random() < unique_preds_probability:
-            pred = new_f(arity)
-            if use_arg_names and arity:
-                names = map(str, range(arity))
-                random.shuffle(names)
-                vars = [new_a() for _ in range(arity)]
-                s.add(ForAll(vars, Implies(And(*(name_fn(names[i])(vars[i]) for i in range(arity))), names_fn(pred)(*vars))))
-            return pred
-        else:
+        if random.random() < shared_preds_probability:
             if arity not in preds:
                 nexpargs = random.randint(1, 3)
                 positions = range(arity + nexpargs)
@@ -136,10 +127,10 @@ def make_random_sat_test(name, dag,
                 regular_positions = positions[:arity]
                 exparg_positions = positions[arity:]
                 pred = new_f(arity + nexpargs)
-                if use_explicit_args:
+                if random.random() < explicit_args_probability:
                     vars = [new_a() for _ in range(arity + nexpargs)]
                     s.add(ForAll(vars, Implies(And(*(exparg_fn()(vars[i]) for i in exparg_positions)), expargs_fn(pred)(*vars))))
-                if use_arg_names and arity:
+                if (random.random() < arg_names_probability) and arity:
                     names = map(str, range(arity))
                     random.shuffle(names)
                     vars = [new_a() for _ in range(arity + nexpargs)]
@@ -148,9 +139,17 @@ def make_random_sat_test(name, dag,
             (pred, exparg_positions, n) = preds[arity]
             preds[arity] = (pred, exparg_positions, n + 1)
             return Partial(pred, dict(zip(exparg_positions, [n] + [random.randint(0, 2) for _ in range(len(exparg_positions) - 1)])))
+        else:
+            pred = new_f(arity)
+            if (random.random() < arg_names_probability) and arity:
+                names = map(str, range(arity))
+                random.shuffle(names)
+                vars = [new_a() for _ in range(arity)]
+                s.add(ForAll(vars, Implies(And(*(name_fn(names[i])(vars[i]) for i in range(arity))), names_fn(pred)(*vars))))
+            return pred
 
     def random_int():
-        if use_extra_constants and (random.random() < 0.9):
+        if random.random() < extra_constants_probability:
             return random.randint(-9, 9)
         else:
             return 0
@@ -201,7 +200,7 @@ def make_random_sat_test(name, dag,
             assert rvars
             lhs = sum_with(lvars, lconst)
             rhs = sum_with(rvars, rconst)
-            if use_equalities and lvars and (random.random() < 0.1):
+            if lvars and (random.random() < equalities_probability):
                 constraints.append(lhs == rhs)
             else:
                 constraints.append(lhs <= rhs)
@@ -238,7 +237,7 @@ def make_random_sat_test(name, dag,
     assert '(check-sat)' in code
     code = code[:code.index('(check-sat)')]
 
-    if (unique_preds_probability == 1.0) and not use_arg_names:
+    if (shared_preds_probability == 0.0) and (arg_names_probability == 0.0):
         def sum_expr(xs):
             assert len(xs) > 0
             if len(xs) == 1:
@@ -269,14 +268,14 @@ sat_tests = [
     make_random_sat_test("unique-%d" % i, random_dag(50)) for i in range(10)
 ] + [
     make_random_sat_test("mixed-%d" % i, random_dag(50),
-                         unique_preds_probability=0.5) for i in range(10)
+                         shared_preds_probability=0.5) for i in range(10)
 ] + [
     make_random_sat_test("expargs-%d" % i, random_dag(50),
-                         unique_preds_probability=0.0,
-                         use_explicit_args=True) for i in range(10)
+                         shared_preds_probability=1.0,
+                         explicit_args_probability=1.0) for i in range(10)
 ] + [
     make_random_sat_test("names-%d" % i, random_dag(50),
-                         use_arg_names=True) for i in range(10)
+                         arg_names_probability=1.0) for i in range(10)
 ]
 
 random_tests = (sat_tests, [], [])

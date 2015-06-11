@@ -70,6 +70,10 @@ def random_dag(nnodes):
         dag[i] = random.sample(dag.keys(), degree)
     return dag
 
+def template_fn(pred, ntemplates):
+    return Function("__temp__" + pred.name(), *([pred.domain(i) for i in range(pred.arity())] + [IntSort() for _ in range(ntemplates)] + [pred.range()]))
+def template_extra_fn(ntemplates):
+    return Function("__temp__extra__", *([IntSort() for _ in range(ntemplates)] + [BoolSort()]))
 def exparg_fn():
     return Function("__exparg__", IntSort(), BoolSort())
 def expargs_fn(pred):
@@ -111,6 +115,8 @@ def Partial(f, argmap):
 # where P0 is the root node.
 def make_random_sat_test(name, dag,
                          shared_preds_probability=0.0,
+                         templates_probability=0.0,
+                         extra_template_constraint_probability=0.0,
                          explicit_args_probability=0.0,
                          arg_names_probability=0.0,
                          extra_constants_probability=0.9,
@@ -129,12 +135,16 @@ def make_random_sat_test(name, dag,
                 pred = new_f(arity + nexpargs)
                 if random.random() < explicit_args_probability:
                     vars = [new_a() for _ in range(arity + nexpargs)]
-                    s.add(ForAll(vars, Implies(And(*(exparg_fn()(vars[i]) for i in exparg_positions)), expargs_fn(pred)(*vars))))
+                    body = And(*(exparg_fn()(vars[i]) for i in exparg_positions))
+                    head = expargs_fn(pred)(*vars)
+                    s.add(ForAll(vars, Implies(body, head)))
                 if (random.random() < arg_names_probability) and arity:
                     names = map(str, range(arity))
                     random.shuffle(names)
                     vars = [new_a() for _ in range(arity + nexpargs)]
-                    s.add(ForAll(vars, Implies(And(*(name_fn(name)(vars[i]) for i, name in zip(regular_positions, names))), names_fn(pred)(*vars))))
+                    body = And(*(name_fn(name)(vars[i]) for i, name in zip(regular_positions, names)))
+                    head = names_fn(pred)(*vars)
+                    s.add(ForAll(vars, Implies(body, head)))
                 preds[arity] = (pred, exparg_positions, 0)
             (pred, exparg_positions, n) = preds[arity]
             preds[arity] = (pred, exparg_positions, n + 1)
@@ -145,7 +155,9 @@ def make_random_sat_test(name, dag,
                 names = map(str, range(arity))
                 random.shuffle(names)
                 vars = [new_a() for _ in range(arity)]
-                s.add(ForAll(vars, Implies(And(*(name_fn(names[i])(vars[i]) for i in range(arity))), names_fn(pred)(*vars))))
+                body = And(*(name_fn(names[i])(vars[i]) for i in range(arity)))
+                head = names_fn(pred)(*vars)
+                s.add(ForAll(vars, Implies(body, head)))
             return pred
 
     def random_int():
@@ -229,6 +241,37 @@ def make_random_sat_test(name, dag,
         body = And(pred[root_id](*vars), Sum(vars) < bounds[root_id])
         s.add(ForAll(vars, Implies(body, head)))
 
+    def declare_template(pred, arity, ntemplates, param_id):
+        vars = [new_a() for _ in range(arity + ntemplates)]
+        body = Sum(vars[:arity]) >= vars[arity + param_id]
+        head = template_fn(pred, ntemplates)(*vars)
+        s.add(ForAll(vars, Implies(body, head)))
+
+    templates = []
+    for i in sorted(dag):
+        if random.random() < templates_probability:
+            assert shared_preds_probability == 0.0
+            templates.append(i)
+
+    for param_id, node_id in enumerate(templates):
+        declare_template(pred[node_id], arity[node_id], len(templates), param_id)
+
+    def declare_extra_template_constraint(ntemplates):
+        vars = [new_a() for _ in range(ntemplates)]
+        bound = sum(bounds[i] for i in templates)
+        if random.random() < extra_template_constraint_probability:
+            if random.random() < 0.5:
+                body = Sum(vars) >= bound - random.randint(0, 2)
+            else:
+                body = Sum(vars) <= bound + random.randint(0, 2)
+        else:
+            body = BoolVal(True)
+        head = template_extra_fn(ntemplates)(*vars)
+        s.add(ForAll(vars, Implies(body, head)))
+
+    if templates:
+        declare_extra_template_constraint(len(templates))
+
     #print name
     #for i in sorted(dag):
     #    print i, pred[i], arity[i], dag[i], bounds[i]
@@ -237,7 +280,7 @@ def make_random_sat_test(name, dag,
     assert '(check-sat)' in code
     code = code[:code.index('(check-sat)')]
 
-    if (shared_preds_probability == 0.0) and (arg_names_probability == 0.0):
+    if (shared_preds_probability == 0.0) and (arg_names_probability == 0.0) and (templates_probability == 0.0): # >>> :(
         def sum_expr(xs):
             assert len(xs) > 0
             if len(xs) == 1:
@@ -246,12 +289,12 @@ def make_random_sat_test(name, dag,
                 return "(+ " + " ".join(xs) + ")"
         def make_model(i):
             xs = ["x!%d" % (j + 1) for j in range(arity[i])]
-            if bounds[i] == 0:
-                s = "(>= %s 0)" % sum_expr(xs)
+            if (i in templates) or (bounds[i] > 1):
+                s = "(>= %s %d)" % (sum_expr(xs), bounds[i])
             elif bounds[i] == 1:
                 s = "(> %s 0)" % sum_expr(xs)
-            elif bounds[i] > 1:
-                s = "(>= %s %d)" % (sum_expr(xs), bounds[i])
+            elif bounds[i] == 0:
+                s = "(>= %s 0)" % sum_expr(xs)
             else:
                 assert bounds[i] < 0
                 s = "(>= %s 0)" % sum_expr(xs + [str(-bounds[i])])
@@ -265,10 +308,14 @@ def make_random_sat_test(name, dag,
 sat_tests = [
     make_random_sat_test("simple", random_dag(3))
 ] + [
-    make_random_sat_test("unique-%d" % i, random_dag(50)) for i in range(10)
+    make_random_sat_test("basic-%d" % i, random_dag(50)) for i in range(10)
 ] + [
-    make_random_sat_test("mixed-%d" % i, random_dag(50),
-                         shared_preds_probability=0.5) for i in range(10)
+    make_random_sat_test("shared-%d" % i, random_dag(50),
+                         shared_preds_probability=1.0) for i in range(10)
+] + [
+    make_random_sat_test("templates-%d" % i, random_dag(50),
+                         templates_probability=0.3,
+                         extra_template_constraint_probability=0.3) for i in range(10)
 ] + [
     make_random_sat_test("expargs-%d" % i, random_dag(50),
                          shared_preds_probability=1.0,

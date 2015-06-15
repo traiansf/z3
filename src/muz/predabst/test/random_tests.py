@@ -70,6 +70,8 @@ def random_dag(nnodes):
         dag[i] = random.sample(dag.keys(), degree)
     return dag
 
+def pred_fn(pred):
+    return Function("__pred__" + pred.name(), *([pred.domain(i) for i in range(pred.arity())] + [pred.range()]))
 def template_fn(pred, ntemplates):
     return Function("__temp__" + pred.name(), *([pred.domain(i) for i in range(pred.arity())] + [IntSort() for _ in range(ntemplates)] + [pred.range()]))
 def template_extra_fn(ntemplates):
@@ -115,6 +117,7 @@ def Partial(f, argmap):
 # where P0 is the root node.
 def make_random_sat_test(name, dag,
                          shared_preds_probability=0.0,
+                         initial_preds_probability=0.0,
                          templates_probability=0.0,
                          extra_template_constraint_probability=0.0,
                          explicit_args_probability=0.0,
@@ -241,6 +244,17 @@ def make_random_sat_test(name, dag,
         body = And(pred[root_id](*vars), Sum(vars) < bounds[root_id])
         s.add(ForAll(vars, Implies(body, head)))
 
+    def declare_initial_preds(pred, arity, bounds):
+        vars = [new_a() for _ in range(arity)]
+        body = And(*(Sum(vars) >= bounds - random.randint(-1, 30) for _ in range(10)))
+        head = pred_fn(pred)(*vars)
+        s.add(ForAll(vars, Implies(body, head)))
+
+    for i in sorted(dag):
+        if random.random() < arg_names_probability:
+            assert shared_preds_probability == 0.0
+            declare_initial_preds(pred[i], arity[i], bounds[i])
+
     def declare_template(pred, arity, ntemplates, param_id):
         vars = [new_a() for _ in range(arity + ntemplates)]
         body = Sum(vars[:arity]) >= vars[arity + param_id]
@@ -251,6 +265,7 @@ def make_random_sat_test(name, dag,
     for i in sorted(dag):
         if random.random() < templates_probability:
             assert shared_preds_probability == 0.0
+            assert initial_preds_probability == 0.0
             templates.append(i)
 
     for param_id, node_id in enumerate(templates):
@@ -280,7 +295,7 @@ def make_random_sat_test(name, dag,
     assert '(check-sat)' in code
     code = code[:code.index('(check-sat)')]
 
-    if (shared_preds_probability == 0.0) and (arg_names_probability == 0.0) and (templates_probability == 0.0): # >>> :(
+    if (shared_preds_probability == 0.0) and (initial_preds_probability == 0.0) and (arg_names_probability == 0.0) and (templates_probability == 0.0): # >>> :(
         def sum_expr(xs):
             assert len(xs) > 0
             if len(xs) == 1:
@@ -312,6 +327,9 @@ sat_tests = [
 ] + [
     make_random_sat_test("shared-%d" % i, random_dag(50),
                          shared_preds_probability=1.0) for i in range(10)
+] + [
+    make_random_sat_test("preds-%d" % i, random_dag(50),
+                         initial_preds_probability=1.0) for i in range(10)
 ] + [
     make_random_sat_test("templates-%d" % i, random_dag(50),
                          templates_probability=0.3,

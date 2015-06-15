@@ -251,7 +251,7 @@ def make_random_sat_test(name, dag,
         s.add(ForAll(vars, Implies(body, head)))
 
     for i in sorted(dag):
-        if random.random() < arg_names_probability:
+        if random.random() < initial_preds_probability:
             assert shared_preds_probability == 0.0
             declare_initial_preds(pred[i], arity[i], bounds[i])
 

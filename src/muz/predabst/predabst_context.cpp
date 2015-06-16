@@ -1706,7 +1706,7 @@ namespace datalog {
 				}
 				m_current_solver = solver;
 			}
-			lbool result = solver->check();
+			lbool result = solver->check(num_assumptions, assumptions);
 			{
 				// >>> atomic
 				m_current_solver = NULL;
@@ -2877,18 +2877,16 @@ namespace datalog {
             if ((core_info.m_count == terms.size()) &&
                 (check(&solver, guard_vars.size(), guard_vars.c_ptr()) == l_true)) {
                 STRACE("predabst", {
-                    model_ref modref;
+					tout << "Example model, assuming guard_vars " << guard_vars << ":\n";
+					model_ref modref;
                     solver.get_model(modref);
-                    expr_ref_vector solution(m);
-                    for (unsigned i = 0; i < root_args.size(); ++i) {
-                        expr_ref val(m);
-                        if (!modref->eval(root_args.get(i), val, true)) {
-                            tout << "Failed to get model for root_args[" << i << "]\n";
-                        }
-                        solution.push_back(val);
-                    }
-                    tout << "Example solution: " << root_node.m_fdecl_info << "(" << solution << ")\n";
-                });
+					CASSERT("predabst", modref);
+					for (unsigned i = 0; i < modref->get_num_constants(); ++i) {
+						func_decl_ref c(modref->get_constant(i), m);
+						expr_ref e(modref->get_const_interp(c), m);
+						tout << "  " << c->get_name() << " has value " << mk_pp(e, m) << "\n";
+					}
+				});
                 return false;
             }
             else {

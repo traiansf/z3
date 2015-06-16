@@ -148,9 +148,9 @@ unknown_tests = [
     # unable to find.
     ("empty-pythagoras-constraint",
      """
-(declare-fun __temp__extra__ (Int Int) Bool)
-(assert (forall ((a Int) (b Int)) (=> (= (+ (* a a) (* b b)) 25) (__temp__extra__ a b))))""",
-     "underlying solver incomplete"),
+(declare-fun __temp__extra__ (Int Int Int) Bool)
+(assert (forall ((a Int) (b Int) (c Int)) (=> (and (> a 0) (> b 0) (> c 0) (= (+ (* a a) (* b b)) (* c c))) (__temp__extra__ a b c))))""",
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 ]
 
 template_tests = (sat_tests, unsat_tests, unknown_tests)

@@ -743,9 +743,9 @@ unknown_tests = [
     ("pythagoras-reach",
      """
 (declare-fun p (Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 1) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))""",
-     "underlying solver incomplete"),
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # As above, but x, y and z are explicit arguments.
     ("pythagoras-reach-exp-args",
@@ -753,18 +753,18 @@ unknown_tests = [
 (declare-fun p (Int Int Int) Bool)
 (declare-fun __expargs__p (Int Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 1) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z)) (__expargs__p x y z))))""",
-     "underlying solver incomplete"),
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # The node is not reachable, but the solver is unable to determine this.
     ("pythagoras-unreach",
      """
 (declare-fun p (Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (< z 5) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 1) (= (+ (* x x x) (* y y y)) (* z z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))""",
-     "underlying solver incomplete"),
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # As above, but x, y and z are explicit arguments.
     ("pythagoras-unreach-exp-args",
@@ -772,10 +772,10 @@ unknown_tests = [
 (declare-fun p (Int Int Int) Bool)
 (declare-fun __expargs__p (Int Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (< z 5) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 1) (= (+ (* x x x) (* y y y)) (* z z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z)) (__expargs__p x y z))))""",
-     "underlying solver incomplete"),
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # The head predicate is not implied by the body, but the solver is unable to
     # prove this.
@@ -783,9 +783,9 @@ unknown_tests = [
      """
 (declare-fun p (Int Int Int) Bool)
 (declare-fun __pred__p (Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 0) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (= z 1) (__pred__p x y z))))""",
-     "underlying solver incomplete"),
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # The head predicate is implied by the body, but the solver is unable to
     # prove this.
@@ -793,20 +793,20 @@ unknown_tests = [
      """
 (declare-fun p (Int Int Int) Bool)
 (declare-fun __pred__p (Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (< z 5) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 0) (= (+ (* x x x) (* y y y)) (* z z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (= z 1) (__pred__p x y z))))""",
-    "underlying solver incomplete"),
+    "(underlying-solver (incomplete (theory arithmetic)))"),
 
-    # The node is obviously (>>>?) reachable (with (x,y,z) := (1,1,1)), but the
-    # solver is unable to prove that the values of explicit arguments are
-    # unique.
+    # The node is obviously reachable (with (x,y,z) := (0,0,0) or
+    # (1,1,1), say), but the solver is unable to determine whether the
+    # values of explicit arguments are unique.
     ("pythagoras-exp-values",
      """
 (declare-fun p (Int Int Int) Bool)
 (declare-fun __expargs__p (Int Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (< z 5) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
-     (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z)) (__expargs__p x y z))))""",
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (>= x 0) (>= y 0) (>= z 0) (= (+ (* x x x) (* y y y)) (* z z z))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z)) (__expargs__p x y z))))""",
      "values of explicit arguments for p were not uniquely determined"),
 
     # The node is reachable without abstraction (with (x,y,z) := (3,4,5)), but
@@ -816,20 +816,20 @@ unknown_tests = [
 (declare-fun sq (Int Int) Bool)
 (declare-fun p (Int Int Int) Bool)
 (assert (forall ((x Int) (y Int)) (=> (= (* x x) y) (sq x y))))
-(assert (forall ((x Int) (y Int) (z Int) (a Int) (b Int) (c Int)) (=> (and (> z 1) (= (+ a b) c) (sq x a) (sq y b) (sq z c)) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int) (a Int) (b Int) (c Int)) (=> (and (> x 0) (> y 0) (> z 1) (= (+ a b) c) (sq x a) (sq y b) (sq z c)) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))""",
-     "underlying solver incomplete"),
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # The node is not reachable without abstraction, but the solver is unable to
     # determine this.
     ("pythagoras-refine-unreach",
      """
-(declare-fun sq (Int Int) Bool)
+(declare-fun cube (Int Int) Bool)
 (declare-fun p (Int Int Int) Bool)
-(assert (forall ((x Int) (y Int)) (=> (= (* x x) y) (sq x y))))
-(assert (forall ((x Int) (y Int) (z Int) (a Int) (b Int) (c Int)) (=> (and (> z 1) (< z 5) (= (+ a b) c) (sq x a) (sq y b) (sq z c)) (p x y z))))
+(assert (forall ((x Int) (y Int)) (=> (= (* x x x) y) (cube x y))))
+(assert (forall ((x Int) (y Int) (z Int) (a Int) (b Int) (c Int)) (=> (and (> x 0) (> y 0) (> z 1) (= (+ a b) c) (cube x a) (cube y b) (cube z c)) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))""",
-     "underlying solver incomplete"),
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # Predicate refinement fails because Farkas is incomplete on integers.
     ("refine-farkas-incomplete",

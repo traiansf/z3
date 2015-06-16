@@ -117,9 +117,9 @@ unknown_tests = [
      """
 (declare-fun __wf__p (Int Int Int Int) Bool)
 (declare-fun __pred____wf__p (Int Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z)))) (__wf__p x z y 0))))
-(assert (forall ((x Int) (y Int) (z Int) (w Int)) (=> (and (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z)))) (__pred____wf__p x z y w))))""",
-     "underlying solver incomplete"),
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z))) (__wf__p x z y 0))))
+(assert (forall ((x Int) (y Int) (z Int) (w Int)) (=> (and (> x 0) (> y 0) (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z))) (__pred____wf__p x z y w))))""",
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # The node is not well-founded (the graph of p is {(1,1,1,5), (3,5,4,5), (4,5,3,5)}, which
     # admits a cycle), but the solver is not able to determine this.
@@ -127,9 +127,9 @@ unknown_tests = [
      """
 (declare-fun __wf__p (Int Int Int Int) Bool)
 (declare-fun __pred____wf__p (Int Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z)))) (__wf__p x z y 5))))
-(assert (forall ((x Int) (y Int) (z Int) (w Int)) (=> (and (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z)))) (__pred____wf__p x z y w))))""",
-     "underlying solver incomplete"),
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z))) (__wf__p x z y 5))))
+(assert (forall ((x Int) (y Int) (z Int) (w Int)) (=> (and (> x 0) (> y 0) (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z))) (__pred____wf__p x z y w))))""",
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # The node is reachable without abstraction (>>> obvious?); however it is not well-founded
     # without abstraction (the graph of p is {(1,1,1,0), (3,5,4,0), (4,5,3,0)}), but the solver is
@@ -137,8 +137,8 @@ unknown_tests = [
     ("pythagoras-refine-wf",
      """
 (declare-fun __wf__p (Int Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z)))) (__wf__p x z y 0))))""",
-     "underlying solver incomplete"),
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z))) (__wf__p x z y 0))))""",
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 
     # The node is reachable without abstraction (>>> obvious?); however it is not well-founded
     # without abstraction (the graph of p is {(1,1,1,5), (3,5,4,5), (4,5,3,5)}, which admits a
@@ -146,8 +146,8 @@ unknown_tests = [
     ("pythagoras-refine-not-wf",
      """
 (declare-fun __wf__p (Int Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z)))) (__wf__p x z y 5))))""",
-     "underlying solver incomplete"),
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> x 0) (> y 0) (> z 0) (<= z 5) (= (+ (* x x) (* y y)) (* z z))) (__wf__p x z y 5))))""",
+     "(underlying-solver (incomplete (theory arithmetic)))"),
 ]
 
 wf_tests = (sat_tests, unsat_tests, unknown_tests)

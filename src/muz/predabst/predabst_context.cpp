@@ -415,7 +415,8 @@ namespace datalog {
 #ifdef PREDABST_PRE_SIMPLIFY
         mutable simplifier     m_simplifier;
 #endif
-        volatile bool          m_cancel;      // Boolean flag to track external cancelation.
+		mutable smt::kernel* volatile m_current_solver;
+        bool volatile          m_cancel;      // Boolean flag to track external cancelation.
         mutable stats          m_stats;       // statistics information specific to the predabst module.
 
         func_decl_ref_vector                m_func_decls;
@@ -474,7 +475,8 @@ namespace datalog {
             m_simplifier(m),
 #endif
             m_cancel(false),
-            m_func_decls(m),
+			m_current_solver(NULL),
+			m_func_decls(m),
             m_template_params(m),
             m_template_param_values(m),
             m_template_extras(m),
@@ -582,27 +584,19 @@ namespace datalog {
         }
 
         void cancel() {
+			// >>> atomic
             m_cancel = true;
-#ifdef PREDABST_SOLVER_PER_RULE
-            for (unsigned i = 0; i < m_rules.size(); ++i) {
-                m_rules[i].m_instance_info.cancel();
-            }
-#else
-            m_solver.cancel();
-#endif
+			smt::kernel* current_solver = m_current_solver;
+			if (current_solver) {
+				current_solver->cancel();
+			}
         }
 
         void cleanup() {
-            m_cancel = false;
-            // TBD hmm?
-#ifdef PREDABST_SOLVER_PER_RULE
-            for (unsigned i = 0; i < m_rules.size(); ++i) {
-                m_rules[i].m_instance_info.reset_cancel();
-            }
-#else
-            m_solver.reset_cancel();
-#endif
-        }
+			// >>> atomic
+			CASSERT("predabst", !m_current_solver);
+			m_cancel = false;
+		}
 
         void reset_statistics() {
             m_stats.reset();
@@ -1574,17 +1568,15 @@ namespace datalog {
 			}
 		}
 
-#define RETURN_CHECK_CANCELLED(result) return m_cancel ? l_undef : result;
-
         lbool abstract_check_refine() {
             STRACE("predabst", print_initial_state(tout););
 
             if (!instantiate_templates()) {
                 STRACE("predabst", tout << "Initial template refinement unsuccessful: result is UNSAT\n";);
-                RETURN_CHECK_CANCELLED(l_true);
+                return l_true;
             }
 
-            for (unsigned i = 0; !m_cancel && i < m_rules.size(); ++i) {
+            for (unsigned i = 0; i < m_rules.size(); ++i) {
                 rule_info& ri = m_rules[i];
                 instantiate_rule(ri);
                 ri.m_unsat = !rule_body_satisfiable(ri);
@@ -1608,7 +1600,7 @@ namespace datalog {
 
                 // Set up m_rules for this iteration:
                 // for each rule: ground body and instantiate predicates for applications
-                for (unsigned i = 0; !m_cancel && i < m_rules.size(); ++i) {
+                for (unsigned i = 0; i < m_rules.size(); ++i) {
                     rule_info& ri = m_rules[i];
                     instantiate_rule_preds(ri);
                 }
@@ -1623,11 +1615,11 @@ namespace datalog {
                 acr_error error;
                 if (find_solution(refine_count, error)) {
                     STRACE("predabst", tout << "Solution found: result is SAT\n";);
-                    RETURN_CHECK_CANCELLED(l_false);
+                    return l_false;
                 }
                 else if (!m_fp_params.use_refinement()) {
                     STRACE("predabst", tout << "No solution found: result is UNSAT\n";);
-                    RETURN_CHECK_CANCELLED(l_true);
+                    return l_true;
                 }
                 else {
                     // Our attempt to find a solution failed and we want to try refinement.
@@ -1641,7 +1633,7 @@ namespace datalog {
                         // We need to refine the abstraction and retry.
                         if (!refine_predicates_not_reachable(error_node, error_args, core_info)) {
                             STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
-                            RETURN_CHECK_CANCELLED(l_undef);
+                            return l_undef;
                         }
 
                         STRACE("predabst", tout << "Predicate refinement successful: retrying\n";);
@@ -1651,7 +1643,7 @@ namespace datalog {
                         // We need to refine the abstraction and retry.
                         if (!refine_predicates_wf(error_node, error_args, core_info, core_info_wf)) {
                             STRACE("predabst", tout << "WF predicate refinement unsuccessful: result is UNKNOWN\n";);
-                            RETURN_CHECK_CANCELLED(l_undef);
+                            return l_undef;
                         }
  
                         STRACE("predabst", tout << "WF predicate refinement successful: retrying\n";);
@@ -1663,12 +1655,12 @@ namespace datalog {
                         constrain_templates(error_node, error_args, error.m_kind);
                         if (!instantiate_templates()) {
                             STRACE("predabst", tout << "Template refinement unsuccessful: result is UNSAT\n";);
-                            RETURN_CHECK_CANCELLED(l_true);
+                            return l_true;
                         }
 
                         STRACE("predabst", tout << "Template refinement successful: retrying\n";);
 
-                        for (unsigned i = 0; !m_cancel && i < m_rules.size(); ++i) {
+                        for (unsigned i = 0; i < m_rules.size(); ++i) {
                             rule_info& ri = m_rules[i];
                             instantiate_rule(ri);
                             ri.m_unsat = !rule_body_satisfiable(ri);
@@ -1706,11 +1698,34 @@ namespace datalog {
             }
         }
 
+		lbool check(smt::kernel* solver, unsigned num_assumptions = 0, expr* const* assumptions = 0) const {
+			{
+				// >>> atomic
+				if (m_cancel) {
+					throw default_exception("canceled");
+				}
+				m_current_solver = solver;
+			}
+			lbool result = solver->check();
+			{
+				// >>> atomic
+				m_current_solver = NULL;
+				if (m_cancel) {
+					solver->reset_cancel();
+					throw default_exception("canceled");
+				}
+			}
+			if (result == l_undef) {
+				throw default_exception("(underlying-solver " + solver->last_failure_as_string() + ")");
+			}
+			return result;
+		}
+
         void maybe_make_false(expr_ref_vector& exprs, smt::kernel* solver) const {
             for (unsigned i = 0; i < exprs.size(); ++i) {
                 scoped_push _push(*solver);
                 solver->assert_expr(exprs.get(i));
-                if (solver->check() == l_false) {
+                if (check(solver) == l_false) {
                     exprs[i] = m.mk_false();
                     m_stats.m_num_false_predicates++;
                 }
@@ -1723,7 +1738,7 @@ namespace datalog {
                 expr_ref e(m.mk_not(exprs.get(i)), m);
                 pre_simplify(e);
                 solver->assert_expr(e);
-                if (solver->check() == l_false) {
+                if (check(solver) == l_false) {
                     exprs[i] = m.mk_true();
                     m_stats.m_num_true_predicates++;
                 }
@@ -1880,7 +1895,7 @@ namespace datalog {
             }
 #endif
 
-            lbool result = solver_for(ri)->check();
+			lbool result = check(solver_for(ri));
             if (result == l_false) {
                 // unsat body
                 STRACE("predabst", tout << "Rule " << ri << " will always fail\n";);
@@ -1945,7 +1960,7 @@ namespace datalog {
 
                 scoped_push push(solver);
                 solver.assert_expr(ground(expr_ref(m.mk_and(body_exp, mk_not(head_exp)), m), "c"));
-                if (solver.check() != l_false) {
+                if (check(&solver) != l_false) {
                     STRACE("predabst", tout << "Solution does not satisfy rule " << i << "\n";);
                     return false;
                 }
@@ -1959,7 +1974,7 @@ namespace datalog {
             try {
                 // initial abstract inference
                 STRACE("predabst", tout << "Performing initial inference\n";);
-                for (unsigned i = 0; !m_cancel && i < m_rules.size(); ++i) {
+                for (unsigned i = 0; i < m_rules.size(); ++i) {
                     rule_info const& ri = m_rules[i];
                     if (ri.get_tail_size() == 0) {
                         initialize_abs(ri);
@@ -1968,7 +1983,7 @@ namespace datalog {
 
                 // process worklist
                 unsigned infer_count = 0;
-                while (!m_cancel && !m_node_worklist.empty()) {
+                while (!m_node_worklist.empty()) {
                     m_stats.m_num_nodes_dequeued++;
 
                     STRACE("predabst", print_inference_state(tout, refine_count, infer_count););
@@ -1979,12 +1994,12 @@ namespace datalog {
 
                     if ((m_fp_params.max_predabst_iterations() > 0) &&
                         (m_stats.m_num_nodes_dequeued >= m_fp_params.max_predabst_iterations())) {
-                        m_cancel = true;
+						throw default_exception("exceeded maximum number of iterations");
                     }
                 }
 
 //#ifdef Z3DEBUG
-                if (!m_cancel && !check_solution()) {
+                if (!check_solution()) {
                     throw default_exception("check_solution failed");
                 }
 //#endif
@@ -2238,7 +2253,7 @@ namespace datalog {
 
             m_fparams.m_model = (all_combs > 1);
 
-            while (solver_for(ri)->check() == l_true) {
+            while (check(solver_for(ri)) == l_true) {
                 model_ref modref;
                 if (all_combs > 1) {
                     solver_for(ri)->get_model(modref);
@@ -2405,7 +2420,7 @@ namespace datalog {
                        
                         bool sat = true;
                         if (!assume_sat) {
-                            lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
+							lbool result = check(solver_for(ri), assumptions.size(), assumptions.c_ptr());
                             if (result == l_false) {
                                 m_stats.m_num_body_checks_unsat++;
                             }
@@ -2431,7 +2446,7 @@ namespace datalog {
                 CASSERT("predabst", j == pos_cubes.size());
             }
             else {
-                CASSERT("predabst", solver_for(ri)->check(assumptions.size(), assumptions.c_ptr()) != l_false);
+                CASSERT("predabst", check(solver_for(ri), assumptions.size(), assumptions.c_ptr()) != l_false);
 
                 // collect abstract cube and explicit values
                 cube_t cube = cart_pred_abst_cube(ri, head_es, assumptions);
@@ -2466,7 +2481,7 @@ namespace datalog {
                     scoped_push _push2(*solver_for(ri));
                     solver_for(ri)->assert_expr(es.get(i));
 #endif
-                    lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
+                    lbool result = check(solver_for(ri), assumptions.size(), assumptions.c_ptr());
 #ifdef PREDABST_USE_HEAD_ASSUMPTIONS
                     assumptions.pop_back();
 #endif
@@ -2476,7 +2491,7 @@ namespace datalog {
                     }
                     else {
                         m_stats.m_num_head_checks_sat++;
-                    }
+					}
                 }
             }
             return cube;
@@ -2494,7 +2509,7 @@ namespace datalog {
             else {
                 bool old_model = m_fparams.m_model;
                 m_fparams.m_model = true;
-                lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
+                lbool result = check(solver_for(ri), assumptions.size(), assumptions.c_ptr());
                 CASSERT("predabst", result == l_true);
                 m_fparams.m_model = old_model;
                 model_ref modref;
@@ -2534,8 +2549,8 @@ namespace datalog {
             }
             expr_ref to_assert(m.mk_not(mk_conj(es)), m);
             solver_for(ri)->assert_expr(to_assert);
-            lbool result = solver_for(ri)->check(assumptions.size(), assumptions.c_ptr());
-            if (result == l_true) {
+            lbool result = check(solver_for(ri), assumptions.size(), assumptions.c_ptr());
+			if (result == l_true) {
                 STRACE("predabst", tout << "Error: values of explicit arguments were not uniquely determined\n";);
                 throw default_exception("values of explicit arguments for " + ri.get_decl(this)->m_fdecl->get_name().str() + " were not uniquely determined");
             }
@@ -2788,7 +2803,7 @@ namespace datalog {
             }
             CASSERT("predabst", n > lo);
             CASSERT("predabst", n <= hi);
-            CASSERT("predabst", solver.check(n, assumptions) != l_true);
+            CASSERT("predabst", check(&solver, n, assumptions) != l_true);
             return n;
         }
 
@@ -2806,7 +2821,7 @@ namespace datalog {
             unsigned mid = lo + ((hi - lo) * m_fp_params.bsearch_mid_numerator()) / m_fp_params.bsearch_mid_denominator();
             CASSERT("predabst", lo < mid);
             CASSERT("predabst", mid < hi);
-            if (solver.check(mid, assumptions) != l_true) {
+            if (check(&solver, mid, assumptions) != l_true) {
                 mid = reduce_unsat(solver, assumptions, lo, mid, assumption_to_index);
                 return find_unsat_prefix(solver, assumptions, lo, mid, assumption_to_index);
             }
@@ -2849,7 +2864,7 @@ namespace datalog {
                         solver.assert_expr(e);
                     }
                 }
-                if (solver.check(hi, guard_vars.c_ptr()) != l_true) {
+                if (check(&solver, hi, guard_vars.c_ptr()) != l_true) {
                     hi = reduce_unsat(solver, guard_vars.c_ptr(), lo, hi, guard_var_to_index);
                     break;
                 }
@@ -2860,7 +2875,7 @@ namespace datalog {
             CASSERT("predabst", core_info.m_count <= guard_vars.size());
 
             if ((core_info.m_count == terms.size()) &&
-                (solver.check(guard_vars.size(), guard_vars.c_ptr()) == l_true)) {
+                (check(&solver, guard_vars.size(), guard_vars.c_ptr()) == l_true)) {
                 STRACE("predabst", {
                     model_ref modref;
                     solver.get_model(modref);
@@ -3187,7 +3202,7 @@ namespace datalog {
             for (unsigned i = 0; i < lambda_constraints.size(); ++i) {
                 solver.assert_expr(lambda_constraints.get(i));
             }
-            if (solver.check() != l_true) {
+            if (check(&solver) != l_true) {
                 STRACE("predabst", tout << "Failed to solve template constraints\n";);
                 return false;
             }

@@ -743,7 +743,7 @@ unknown_tests = [
     ("pythagoras-reach",
      """
 (declare-fun p (Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (= (+ (* x x) (* y y)) (* z z)))) (p x y z)))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))""",
      "underlying solver incomplete"),
 
@@ -753,7 +753,7 @@ unknown_tests = [
 (declare-fun p (Int Int Int) Bool)
 (declare-fun __expargs__p (Int Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (= (+ (* x x) (* y y)) (* z z)))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z)) (__expargs__p x y z))))""",
      "underlying solver incomplete"),
@@ -762,7 +762,7 @@ unknown_tests = [
     ("pythagoras-unreach",
      """
 (declare-fun p (Int Int Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (< z 5) (= (+ (* x x) (* y y)) (* z z)))) (p x y z)))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (< z 5) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))""",
      "underlying solver incomplete"),
 
@@ -772,7 +772,7 @@ unknown_tests = [
 (declare-fun p (Int Int Int) Bool)
 (declare-fun __expargs__p (Int Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (< z 5) (= (+ (* x x) (* y y)) (* z z)))) (p x y z))))
+(assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 1) (< z 5) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (not (p x y z))))
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z)) (__expargs__p x y z))))""",
      "underlying solver incomplete"),
@@ -803,10 +803,10 @@ unknown_tests = [
     ("pythagoras-exp-values",
      """
 (declare-fun p (Int Int Int) Bool)
-(declare-fun __expargs__p (Int Int) Bool)
+(declare-fun __expargs__p (Int Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int) (y Int) (z Int)) (=> (and (> z 0) (< z 5) (= (+ (* x x) (* y y)) (* z z))) (p x y z))))
-     (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z) (__expargs__p x y z))))""",
+     (assert (forall ((x Int) (y Int) (z Int)) (=> (and (__exparg__ x) (__exparg__ y) (__exparg__ z)) (__expargs__p x y z))))""",
      "values of explicit arguments for p were not uniquely determined"),
 
     # The node is reachable without abstraction (with (x,y,z) := (3,4,5)), but

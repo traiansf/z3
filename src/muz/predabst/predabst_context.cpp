@@ -161,10 +161,10 @@ namespace datalog {
             var_ref_vector       m_non_explicit_vars;
             uint_set             m_users;
             node_set             m_max_reach_nodes;
-            bool                 m_is_wf_predicate;
+            bool                 m_is_dwf_predicate;
             bool                 m_has_template;
             unsigned             m_template_id;
-            func_decl_info(func_decl* fdecl, var_ref_vector const& vars, bool is_wf_predicate) :
+            func_decl_info(func_decl* fdecl, var_ref_vector const& vars, bool is_dwf_predicate) :
                 m_fdecl(fdecl),
                 m_vars(vars),
                 m_preds(vars.m()),
@@ -172,7 +172,7 @@ namespace datalog {
                 m_var_names(vars.m()),
                 m_explicit_vars(vars.m()),
                 m_non_explicit_vars(vars.m()),
-                m_is_wf_predicate(is_wf_predicate),
+                m_is_dwf_predicate(is_dwf_predicate),
                 m_has_template(false),
                 m_template_id(0) {
                 m_var_names.reserve(vars.size());
@@ -544,13 +544,13 @@ namespace datalog {
                     }
                 }
 
-                if (fi->m_is_wf_predicate) {
+                if (fi->m_is_dwf_predicate) {
                     CASSERT("predabst", fi->m_explicit_args.size() % 2 == 0);
                     unsigned n = fi->m_explicit_args.size() / 2;
                     for (unsigned j = 0; j < n; ++j) {
                         if (fi->m_explicit_args[j] != fi->m_explicit_args[j + n]) {
-                            STRACE("predabst", tout << "Error: WF predicate symbol has non-pairwise explicit arguments\n";);
-                            throw default_exception("WF predicate symbol " + fi->m_fdecl->get_name().str() + " has non-pairwise explicit arguments");
+                            STRACE("predabst", tout << "Error: DWF predicate symbol has non-pairwise explicit arguments\n";);
+                            throw default_exception("DWF predicate symbol " + fi->m_fdecl->get_name().str() + " has non-pairwise explicit arguments");
                         }
                     }
                 }
@@ -1137,36 +1137,36 @@ namespace datalog {
             }
 
             if (!m_func_decl2info.contains(fdecl)) {
-                bool is_wf = is_wf_predicate(fdecl);
-                if (is_wf) {
+                bool is_dwf = is_dwf_predicate(fdecl);
+                if (is_dwf) {
                     if (fdecl->get_arity() % 2 != 0) {
-                        STRACE("predabst", tout << "Error: WF predicate symbol " << fdecl->get_name() << " has arity " << fdecl->get_arity() << " which is odd\n";);
-                        throw default_exception("WF predicate symbol " + fdecl->get_name().str() + " has odd arity");
+                        STRACE("predabst", tout << "Error: DWF predicate symbol " << fdecl->get_name() << " has arity " << fdecl->get_arity() << " which is odd\n";);
+                        throw default_exception("DWF predicate symbol " + fdecl->get_name().str() + " has odd arity");
                     }
                     for (unsigned i = 0; i < fdecl->get_arity() / 2; ++i) {
                         unsigned j = fdecl->get_arity() / 2 + i;
                         if (fdecl->get_domain(i) != fdecl->get_domain(j)) {
-                            STRACE("predabst", tout << "Error: WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " and argument " << j << " of type " << mk_pp(fdecl->get_domain(j), m) << "\n";);
-                            throw default_exception("WF predicate symbol " + fdecl->get_name().str() + " has mismatching argument types");
+                            STRACE("predabst", tout << "Error: DWF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " and argument " << j << " of type " << mk_pp(fdecl->get_domain(j), m) << "\n";);
+                            throw default_exception("DWF predicate symbol " + fdecl->get_name().str() + " has mismatching argument types");
                         }
                         // The following restriction may be removed in future.
                         if (fdecl->get_domain(i) != arith_util(m).mk_int()) {
-                            STRACE("predabst", tout << "Error: WF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " which is not int\n";);
-                            throw default_exception("WF predicate symbol " + fdecl->get_name().str() + " has non-integer argument types");
+                            STRACE("predabst", tout << "Error: DWF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " which is not int\n";);
+                            throw default_exception("DWF predicate symbol " + fdecl->get_name().str() + " has non-integer argument types");
                         }
                     }
                 }
 
                 m_func_decls.push_back(fdecl);
                 var_ref_vector vars = get_arg_vars(fdecl);
-                m_func_decl2info.insert(fdecl, alloc(func_decl_info, fdecl, vars, is_wf));
+                m_func_decl2info.insert(fdecl, alloc(func_decl_info, fdecl, vars, is_dwf));
                 m_stats.m_num_predicate_symbols++;
                 m_stats.m_num_predicate_symbol_arguments += fdecl->get_arity();
             }
         }
 
-        bool is_wf_predicate(func_decl const* pred) const {
-            return pred->get_name().str().substr(0, 6) == "__wf__";
+        bool is_dwf_predicate(func_decl const* pred) const {
+            return pred->get_name().str().substr(0, 7) == "__dwf__";
         }
 
         void process_special_rules(rule_set& rules, bool(*p)(func_decl const*), void (imp::*f)(rule const*)) {
@@ -1274,9 +1274,9 @@ namespace datalog {
             }
 
             func_decl_info* fi = m_func_decl2info[suffix_decl];
-            if (fi->m_is_wf_predicate) {
-                STRACE("predabst", tout << "Error: found template for WF predicate symbol\n";);
-                throw default_exception("found template for WF predicate symbol " + suffix.str());
+            if (fi->m_is_dwf_predicate) {
+                STRACE("predabst", tout << "Error: found template for DWF predicate symbol\n";);
+                throw default_exception("found template for DWF predicate symbol " + suffix.str());
             }
 
             if (fi->m_has_template) {
@@ -2564,7 +2564,7 @@ namespace datalog {
                 throw acr_error(node.m_id, reached_query);
             }
             CASSERT("predabst", !node.m_fdecl_info->m_has_template);
-            if (node.m_fdecl_info->m_is_wf_predicate) {
+            if (node.m_fdecl_info->m_is_dwf_predicate) {
                 if (!is_well_founded(node)) {
                     STRACE("predabst", tout << "Formula is not well-founded\n";);
                     throw acr_error(node.m_id, not_wf);
@@ -2575,7 +2575,7 @@ namespace datalog {
 
         bool is_well_founded(node_info const& node) {
             func_decl_info const* fi = node.m_fdecl_info;
-            CASSERT("predabst", fi->m_is_wf_predicate);
+            CASSERT("predabst", fi->m_is_dwf_predicate);
 
             CASSERT("predabst", node.m_explicit_values.size() % 2 == 0);
             unsigned n = node.m_explicit_values.size() / 2;
@@ -2660,7 +2660,7 @@ namespace datalog {
 
         bool wf_without_abstraction(node_info const& root_node, expr_ref_vector const& root_args, core_tree_wf_info& core_wf_info) const {
             STRACE("predabst", tout << "Determining well-foundedness of node " << root_node << " without abstraction\n";);
-            CASSERT("predabst", root_node.m_fdecl_info->m_is_wf_predicate);
+            CASSERT("predabst", root_node.m_fdecl_info->m_is_dwf_predicate);
             expr_ref actual_cube = mk_leaves(root_node, root_args);
             quantifier_elimination(root_args, actual_cube);
             bool result = well_founded(root_args, actual_cube, &core_wf_info.m_bound, &core_wf_info.m_decrease);

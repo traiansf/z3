@@ -3,23 +3,23 @@
 # self-explanatory.
 
 unknown_tests = [
-    ("wf-odd-arity",
+    ("dwf-odd-arity",
      """
-(declare-fun __wf__p (Int) Bool)
-(assert (forall ((x Int)) (__wf__p x)))""",
-     "WF predicate symbol __wf__p has odd arity"),
+(declare-fun __dwf__p (Int) Bool)
+(assert (forall ((x Int)) (__dwf__p x)))""",
+     "DWF predicate symbol __dwf__p has odd arity"),
 
-    ("wf-mismatching-args",
+    ("dwf-mismatching-args",
      """
-(declare-fun __wf__p (Int Real) Bool)
-(assert (forall ((x Int) (y Real)) (__wf__p x y)))""",
-     "WF predicate symbol __wf__p has mismatching argument types"),
+(declare-fun __dwf__p (Int Real) Bool)
+(assert (forall ((x Int) (y Real)) (__dwf__p x y)))""",
+     "DWF predicate symbol __dwf__p has mismatching argument types"),
 
-    ("wf-non-int-args",
+    ("dwf-non-int-args",
      """
-(declare-fun __wf__p (Real Real) Bool)
-(assert (forall ((x Real) (y Real)) (__wf__p x y)))""",
-     "WF predicate symbol __wf__p has non-integer argument types"),
+(declare-fun __dwf__p (Real Real) Bool)
+(assert (forall ((x Real) (y Real)) (__dwf__p x y)))""",
+     "DWF predicate symbol __dwf__p has non-integer argument types"),
 
      ("extra-multiple-same-type",
      """
@@ -106,11 +106,11 @@ unknown_tests = [
 
     ("templ-wf",
      """
-(declare-fun __wf__p (Int Int) Bool)
-(declare-fun __temp____wf__p (Int Int) Bool)
-(assert (forall ((x Int) (y Int)) (__wf__p x y)))
-(assert (forall ((x Int) (y Int)) (__temp____wf__p x y)))""",
-     "found template for WF predicate symbol __wf__p"),
+(declare-fun __dwf__p (Int Int) Bool)
+(declare-fun __temp____dwf__p (Int Int) Bool)
+(assert (forall ((x Int) (y Int)) (__dwf__p x y)))
+(assert (forall ((x Int) (y Int)) (__temp____dwf__p x y)))""",
+     "found template for DWF predicate symbol __dwf__p"),
 
     ("templ-multiple",
      """
@@ -280,14 +280,14 @@ unknown_tests = [
 (assert (forall ((x Int)) (=> (__exparg__ x) (p x))))""",
      "found explicit argument __exparg__ in body of regular rule"),
 
-    ("expargs-wf-not-pairwise",
+    ("expargs-dwf-not-pairwise",
      """
-(declare-fun __wf__p (Int Int) Bool)
-(declare-fun __expargs____wf__p (Int Int) Bool)
+(declare-fun __dwf__p (Int Int) Bool)
+(declare-fun __expargs____dwf__p (Int Int) Bool)
 (declare-fun __exparg__ (Int) Bool)
-(assert (forall ((x Int) (y Int)) (__wf__p x y)))
-(assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs____wf__p x y))))""",
-     "WF predicate symbol __wf__p has non-pairwise explicit arguments"),
+(assert (forall ((x Int) (y Int)) (__dwf__p x y)))
+(assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs____dwf__p x y))))""",
+     "DWF predicate symbol __dwf__p has non-pairwise explicit arguments"),
 
     ("expargs-incorrect",
      """

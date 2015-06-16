@@ -5,6 +5,7 @@ import glob
 import re
 import shutil
 import difflib
+import time
 
 OUTFILE = "test.log"
 Z3TRCFILE = ".z3-trace"
@@ -74,7 +75,12 @@ with open(OUTFILE, "w") as outfile:
             writeHeader(outfile, inFilename)
             writeHeader(trcfile, inFilename)
             try:
-                output = subprocess.check_output(z3cmd + [inFilename], stderr=subprocess.STDOUT)
+                start = time.time()
+                try:
+                    output = subprocess.check_output(z3cmd + [inFilename], stderr=subprocess.STDOUT)
+                finally:
+                    end = time.time()
+                    duration = end - start
                 if expectedOutput is not None:
                     if compareOutput(expectedOutput, output):
                         status = PASSED
@@ -104,7 +110,7 @@ with open(OUTFILE, "w") as outfile:
                 shutil.copyfileobj(z3trcfile, trcfile)
             writeFooter(outfile, msg)
             writeFooter(trcfile, msg)
-            print "%s: %s" % (inFilename, msg)
+            print "%s: %s (in %.2f seconds)" % (inFilename, msg, duration)
             if status is PASSED:
                numPassed += 1
             else:

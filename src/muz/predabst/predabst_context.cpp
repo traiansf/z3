@@ -442,12 +442,6 @@ namespace datalog {
                 m_count(0) {}
         };
 
-        struct core_tree_template_info {
-            expr_ref m_body;
-            core_tree_template_info(ast_manager& m) :
-                m_body(m) {}
-        };
-
         struct core_tree_wf_info {
             expr_ref         m_bound;
             expr_ref         m_decrease;
@@ -1569,113 +1563,103 @@ namespace datalog {
         lbool abstract_check_refine() {
             STRACE("predabst", print_initial_state(tout););
 
-            if (!instantiate_templates()) {
-                STRACE("predabst", tout << "Initial template refinement unsuccessful: result is UNSAT\n";);
-                return l_true;
-            }
-
-            for (unsigned i = 0; i < m_rules.size(); ++i) {
-                rule_info* ri = m_rules[i];
-                instantiate_rule(ri);
-                ri->m_unsat = !rule_body_satisfiable(ri);
-            }
-
-            // The only things that change on subsequent iterations of this loop are
-            // the predicate lists
-            // (m_func_decl2info::m_preds) and template instances.  The latter can have an
-            // effect on the execution of the algorithm via the initial nodes
-            // set up by initialize_abs.
-            unsigned refine_count = 0;
-            while (true) {
-                m_stats.m_num_refinement_iterations++;
-				for (unsigned i = 0; i < m_nodes.size(); ++i) {
-					dealloc(m_nodes[i]);
+			unsigned refine_count = 0;
+			while (true) {
+				if (!instantiate_templates()) {
+					STRACE("predabst", tout << "Template instantiation unsuccessful: result is UNSAT\n";);
+					return l_true;
 				}
-                m_nodes.reset();
-                for (unsigned i = 0; i < m_func_decls.size(); ++i) {
-                    func_decl_info* fi = m_func_decls.get(i);
-                    if (!fi->m_has_template) {
-                        fi->m_max_reach_nodes.reset();
-                    }
-                }
 
-                // Set up m_rules for this iteration:
-                // for each rule: ground body and instantiate predicates for applications
-                for (unsigned i = 0; i < m_rules.size(); ++i) {
-                    rule_info* ri = m_rules[i];
-                    instantiate_rule_preds(ri);
-                }
+				for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+					func_decl_info* fi = m_func_decls[i];
+					fi->m_new_preds = fi->m_preds.size();
+				}
 
-                STRACE("predabst", print_refinement_state(tout, refine_count););
+				for (unsigned i = 0; i < m_rules.size(); ++i) {
+					rule_info* ri = m_rules[i];
+					instantiate_rule(ri);
+					ri->m_unsat = !rule_body_satisfiable(ri);
+				}
 
-                for (unsigned i = 0; i < m_func_decls.size(); ++i) {
-                    func_decl_info* fi = m_func_decls[i];
-                    fi->m_new_preds = 0;
-                }
+				// The only things that change on subsequent iterations of this loop are
+				// the predicate lists
+				// (m_func_decl2info::m_preds) and template instances.  The latter can have an
+				// effect on the execution of the algorithm via the initial nodes
+				// set up by initialize_abs.
+				while (true) {
+					m_stats.m_num_refinement_iterations++;
+					for (unsigned i = 0; i < m_nodes.size(); ++i) {
+						dealloc(m_nodes[i]);
+					}
+					m_nodes.reset();
+					for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+						func_decl_info* fi = m_func_decls.get(i);
+						if (!fi->m_has_template) {
+							fi->m_max_reach_nodes.reset();
+						}
+					}
 
-                acr_error error;
-                if (find_solution(refine_count, error)) {
-                    STRACE("predabst", tout << "Solution found: result is SAT\n";);
-                    return l_false;
-                }
-                else if (!m_fp_params.use_refinement()) {
-                    STRACE("predabst", tout << "No solution found: result is UNSAT\n";);
-                    return l_true;
-                }
-                else {
-                    // Our attempt to find a solution failed and we want to try refinement.
-                    core_tree_info core_info;
-                    core_tree_wf_info core_info_wf(m);
-                    core_tree_template_info core_info_template(m);
-                    node_info const* error_node = error.m_node;
-                    expr_ref_vector error_args = get_fresh_args(error_node->m_fdecl_info, "r");
-                    if (not_reachable_without_abstraction(error_node, error_args, core_info)) {
-                        // The problem node isn't reachable without abstraction.
-                        // We need to refine the abstraction and retry.
-                        if (!refine_predicates_not_reachable(error_node, error_args, core_info)) {
-                            STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
-                            return l_undef;
-                        }
+					// Set up m_rules for this iteration:
+					// for each rule: ground body and instantiate predicates for applications
+					for (unsigned i = 0; i < m_rules.size(); ++i) {
+						rule_info* ri = m_rules[i];
+						instantiate_rule_preds(ri);
+					}
 
-                        STRACE("predabst", tout << "Predicate refinement successful: retrying\n";);
-                    }
-                    else if ((error.m_kind == not_wf) && wf_without_abstraction(error_node, error_args, core_info_wf)) {
-                        // The problem node is well-founded without abstraction.
-                        // We need to refine the abstraction and retry.
-                        if (!refine_predicates_wf(error_node, error_args, core_info, core_info_wf)) {
-                            STRACE("predabst", tout << "WF predicate refinement unsuccessful: result is UNKNOWN\n";);
-                            return l_undef;
-                        }
- 
-                        STRACE("predabst", tout << "WF predicate refinement successful: retrying\n";);
-                    }
-                    else {
-                        // The problem persists without abstraction.  Unless
-                        // we can refine the templates, we have a proof of
-                        // unsatisfiability.
-                        constrain_templates(error_node, error_args, error.m_kind);
-                        if (!instantiate_templates()) {
-                            STRACE("predabst", tout << "Template refinement unsuccessful: result is UNSAT\n";);
-                            return l_true;
-                        }
+					STRACE("predabst", print_refinement_state(tout, refine_count););
 
-                        STRACE("predabst", tout << "Template refinement successful: retrying\n";);
+					for (unsigned i = 0; i < m_func_decls.size(); ++i) {
+						func_decl_info* fi = m_func_decls[i];
+						fi->m_new_preds = 0;
+					}
 
-                        for (unsigned i = 0; i < m_rules.size(); ++i) {
-                            rule_info* ri = m_rules[i];
-                            instantiate_rule(ri);
-                            ri->m_unsat = !rule_body_satisfiable(ri);
-                        }
+					acr_error error;
+					if (find_solution(refine_count, error)) {
+						STRACE("predabst", tout << "Solution found: result is SAT\n";);
+						return l_false;
+					}
+					else if (!m_fp_params.use_refinement()) {
+						STRACE("predabst", tout << "No solution found: result is UNSAT\n";);
+						return l_true;
+					}
+					else {
+						// Our attempt to find a solution failed and we want to try refinement.
+						refine_count++;
+						core_tree_info core_info;
+						core_tree_wf_info core_info_wf(m);
+						node_info const* error_node = error.m_node;
+						expr_ref_vector error_args = get_fresh_args(error_node->m_fdecl_info, "r");
+						if (not_reachable_without_abstraction(error_node, error_args, core_info)) {
+							// The problem node isn't reachable without abstraction.
+							// We need to refine the abstraction and retry.
+							if (!refine_predicates_not_reachable(error_node, error_args, core_info)) {
+								STRACE("predabst", tout << "Predicate refinement unsuccessful: result is UNKNOWN\n";);
+								return l_undef;
+							}
 
-                        for (unsigned i = 0; i < m_func_decls.size(); ++i) {
-                            func_decl_info* fi = m_func_decls[i];
-                            fi->m_new_preds = fi->m_preds.size();
-                        }
-                    }
-                }
+							STRACE("predabst", tout << "Predicate refinement successful: retrying\n";);
+						}
+						else if ((error.m_kind == not_wf) && wf_without_abstraction(error_node, error_args, core_info_wf)) {
+							// The problem node is well-founded without abstraction.
+							// We need to refine the abstraction and retry.
+							if (!refine_predicates_wf(error_node, error_args, core_info, core_info_wf)) {
+								STRACE("predabst", tout << "WF predicate refinement unsuccessful: result is UNKNOWN\n";);
+								return l_undef;
+							}
 
-                refine_count++;
-            }
+							STRACE("predabst", tout << "WF predicate refinement successful: retrying\n";);
+						}
+						else {
+							// The problem persists without abstraction.  Unless
+							// we can refine the templates, we have a proof of
+							// unsatisfiability.
+							constrain_templates(error_node, error_args, error.m_kind);
+							STRACE("predabst", tout << "Attempting template refinement\n";);
+							break;
+						}
+					}
+				}
+			}
         }
 
         void invert(expr_ref_vector& exprs) {

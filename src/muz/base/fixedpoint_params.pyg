@@ -105,6 +105,14 @@ def_module_params('fixedpoint',
 			  ('bail_if_no_combinations', BOOL, True, "PREDABST: terminate Cartesian product search early for empty product"),
 			  ('bail_if_all_combinations_sat', BOOL, True, "PREDABST: terminate Cartesian product search early if all elements are found to be satisfiable"),
 			  ('skip_singleton_model_eval', BOOL, True, "PREDABST: in the Cartesian product search, don't evaluate the model for a singleton set"),
+			  ('max_lambda', UINT, 2, "PREDABST: maximum value of bilinear Farkas coefficients"),
+			  ('use_allsat', BOOL, False, "PREDABST: use the ALLSAT-based algorithm for enumerating satisfiable parent node combinations"),
+			  ('summarize_cubes', BOOL, False, "PREDABST: use a guard variable to summarize each parent cube"),
+			  ('summarize_cubes_using_iff', BOOL, False, "PREDABST: if summarizing parent cubes, do so using <=> (iff) rather than => (implies)"),
+			  ('use_body_assumptions', BOOL, False, "PREDABST: pass body predicates to the solver using assumptions"),
+			  ('use_head_assumptions', BOOL, False, "PREDABST: pass head predicates to the solver using assumptions"),
+			  ('pre_simplify', BOOL, True, "PREDABST: simplify all expressions before passing them to the solver"),
+			  ('no_simplify', BOOL, True, "PREDABST: tell the solver not to simplify any expressions it is passed"),
                           ))
 
 

@@ -1691,6 +1691,7 @@ namespace datalog {
 			{
 				// >>> atomic
 				if (m_cancel) {
+					STRACE("predabst", tout << "Canceled!\n";);
 					throw default_exception("canceled");
 				}
 				m_current_solver = solver;
@@ -1701,10 +1702,12 @@ namespace datalog {
 				m_current_solver = NULL;
 				if (m_cancel) {
 					solver->reset_cancel();
+					STRACE("predabst", tout << "Canceled!\n";);
 					throw default_exception("canceled");
 				}
 			}
 			if (result == l_undef) {
+				STRACE("predabst", tout << "Solver failed with " << solver->last_failure_as_string() << "\n";);
 				throw default_exception("(underlying-solver " + solver->last_failure_as_string() + ")");
 			}
 			return result;
@@ -1983,6 +1986,7 @@ namespace datalog {
 
                     if ((m_fp_params.max_predabst_iterations() > 0) &&
                         (m_stats.m_num_nodes_dequeued >= m_fp_params.max_predabst_iterations())) {
+						STRACE("predabst", tout << "Exceeded maximum number of iterations\n";);
 						throw default_exception("exceeded maximum number of iterations");
                     }
                 }
@@ -2195,6 +2199,7 @@ namespace datalog {
 #if !defined(PREDABST_SOLVER_PER_RULE)
 			// >>> move to query()
 			if (m_fp_params.use_body_assumptions() && !m_fp_params.summarize_cubes()) {
+				STRACE("predabst", tout << "Can't use body assumptions without having guard variables to assume\n";);
 				throw default_exception("can't use body assumptions without having guard variables to assume");
 			}
 #endif
@@ -2550,6 +2555,7 @@ namespace datalog {
                 }
             }
             expr_ref to_assert(m.mk_not(mk_conj(es)), m);
+			pre_simplify(to_assert);
             solver_for(ri)->assert_expr(to_assert);
             lbool result = check(solver_for(ri), assumptions.size(), assumptions.c_ptr());
 			if (result == l_true) {

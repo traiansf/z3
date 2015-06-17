@@ -6,6 +6,7 @@ import re
 import shutil
 import difflib
 import time
+import argparse
 
 OUTFILE = "test.log"
 Z3TRCFILE = ".z3-trace"
@@ -19,21 +20,30 @@ Z3OPTS = [
     "timeout=300000", # 5 minutes
 ]
 
-debug = True
-use_asserts = True
-use_tracing = True
-filter = sys.argv[1:]
+parser = argparse.ArgumentParser(description='Run predabst test cases.')
+parser.add_argument('--release', action='store_true', help='use release build of Z3 (default: use debug build of Z3); implies --no-asserts and --no-tracing')
+parser.add_argument('--no-asserts', action='store_true', help='disable asserts within predabst (default: asserts are enabled)')
+parser.add_argument('--no-tracing', action='store_true', help='disable tracing within predabst (default: tracing is enabled)')
+parser.add_argument('--arg', action='append', metavar='ARG', dest='extra_args', default=[], help='additional argument to be passed to Z3 (may be specified multiple times)')
+parser.add_argument('filter', metavar='FILTER', nargs='*', help='filter for test file names (prefix match)')
+
+args = parser.parse_args()
+debug = not args.release
+use_asserts = debug and (not args.no_asserts)
+use_tracing = debug and (not args.no_tracing)
+extra_args = args.extra_args
+filter = args.filter
 
 z3root = os.path.join(os.path.dirname(__file__), r"..\..\..\..")
 
 if debug:
-    z3cmd = [os.path.join(z3root, "build", "z3")] + Z3OPTS
+    z3cmd = [os.path.join(z3root, "build", "z3")] + Z3OPTS + extra_args
     if use_asserts:
         z3cmd.append("-dbg:predabst")
     if use_tracing:
         z3cmd.append("-tr:predabst")
 else:
-    z3cmd = [os.path.join(z3root, "build-release", "z3")] + Z3OPTS
+    z3cmd = [os.path.join(z3root, "build-release", "z3")] + Z3OPTS + extra_args
 
 def writeHeader(f, filename):
     print >>f, "=" * 80

@@ -13,13 +13,13 @@ unknown_tests = [
      """
 (declare-fun __dwf__p (Int Real) Bool)
 (assert (forall ((x Int) (y Real)) (__dwf__p x y)))""",
-     "DWF predicate symbol __dwf__p has mismatching argument types"),
+     "DWF predicate symbol __dwf__p has arguments 0 and 1 of unequal types"),
 
     ("dwf-non-int-args",
      """
 (declare-fun __dwf__p (Real Real) Bool)
 (assert (forall ((x Real) (y Real)) (__dwf__p x y)))""",
-     "DWF predicate symbol __dwf__p has non-integer argument types"),
+     "DWF predicate symbol __dwf__p has argument 0 of non-integer type"),
 
      ("extra-multiple-same-type",
      """
@@ -88,7 +88,7 @@ unknown_tests = [
 (declare-fun __temp__p (Real Int) Bool)
 (assert (forall ((a Int) (b Real)) (__temp__extra__ a b)))
 (assert (forall ((a Real) (b Int)) (__temp__p a b)))""",
-     "extra parameter to template for p is of wrong type"),
+     "extra parameter 0 to template for p is of wrong type"),
 
     ("templ-no-query",
      """
@@ -265,7 +265,7 @@ unknown_tests = [
 (declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
 (assert (forall ((x Int) (y Int)) (=> (and (__exparg__ x) (__exparg__ x)) (__expargs__p x y))))""",
-     "explicit argument list for p has duplicate __exparg__ declaration for argument"),
+     "explicit argument list for p has duplicate __exparg__ declaration for argument 0"),
 
     ("exparg-in-head",
      """
@@ -287,7 +287,7 @@ unknown_tests = [
 (declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int) (y Int)) (__dwf__p x y)))
 (assert (forall ((x Int) (y Int)) (=> (__exparg__ x) (__expargs____dwf__p x y))))""",
-     "DWF predicate symbol __dwf__p has non-pairwise explicit arguments"),
+     "DWF predicate symbol __dwf__p has arguments 0 and 1 that are not both explicit or non-explicit"),
 
     ("expargs-incorrect",
      """
@@ -483,7 +483,7 @@ unknown_tests = [
 (declare-fun __name__ (Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
 (assert (forall ((x Int) (y Int)) (=> (__name__ x) (__names__p x y))))""",
-     "argument name list for p has zero-length name for argument"),
+     "argument name list for p has zero-length name for argument 0"),
 
     ("names-duplicate-name-same",
      """
@@ -492,7 +492,7 @@ unknown_tests = [
 (declare-fun __name__foo (Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
 (assert (forall ((x Int) (y Int)) (=> (and (__name__foo x) (__name__foo x)) (__names__p x y))))""",
-     "argument name list for p has duplicate name for argument"),
+     "argument name list for p has duplicate name for argument 0"),
 
     ("names-duplicate-name-different",
      """
@@ -502,7 +502,7 @@ unknown_tests = [
 (declare-fun __name__bar (Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
 (assert (forall ((x Int) (y Int)) (=> (and (__name__foo x) (__name__bar x)) (__names__p x y))))""",
-     "argument name list for p has duplicate name for argument"),
+     "argument name list for p has duplicate name for argument 0"),
 
     ("names-non-unique-name",
      """
@@ -511,7 +511,7 @@ unknown_tests = [
 (declare-fun __name__foo (Int) Bool)
 (assert (forall ((x Int) (y Int)) (p x y)))
 (assert (forall ((x Int) (y Int)) (=> (and (__name__foo x) (__name__foo y)) (__names__p x y))))""",
-     "argument name list for p has non-unique argument names"),
+     "argument name list for p has non-unique name for argument 1"),
 
     ("name-in-head",
      """

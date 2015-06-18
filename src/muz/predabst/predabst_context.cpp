@@ -42,6 +42,11 @@ Revision History:
 
 namespace datalog {
 
+	static void failwith(std::string msg) {
+		STRACE("predabst", tout << "Malformed input: " << msg << "\n";);
+		throw default_exception(msg);
+	}
+
 	class subst_util {
 		ast_manager& m;
 		var_subst    m_var_subst;
@@ -626,8 +631,7 @@ namespace datalog {
 					unsigned n = fi->m_explicit_args.size() / 2;
 					for (unsigned j = 0; j < n; ++j) {
 						if (fi->m_explicit_args[j] != fi->m_explicit_args[j + n]) {
-							STRACE("predabst", tout << "Error: DWF predicate symbol has non-pairwise explicit arguments\n";);
-							throw default_exception("DWF predicate symbol " + fi->m_fdecl->get_name().str() + " has non-pairwise explicit arguments");
+							failwith("DWF predicate symbol " + fi->m_fdecl->get_name().str() + " has arguments " + to_string(j) + " and " + to_string(j + n) + " that are not both explicit or non-explicit");
 						}
 					}
 				}
@@ -1087,44 +1091,35 @@ namespace datalog {
                     for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
                         func_decl* fdecl = r->get_decl(j);
                         if (is_template_extra(fdecl)) {
-                            STRACE("predabst", tout << "Error: found extra template constraint in non-head position\n";);
-                            throw default_exception("found extra template constraint in non-head position");
+                            failwith("found extra template constraint in non-head position");
                         }
                         if (is_template(fdecl)) {
-                            STRACE("predabst", tout << "Error: found template " << fdecl->get_name() << " in non-head position\n";);
-                            throw default_exception("found template " + fdecl->get_name().str() + " in non-head position");
+                            failwith("found template " + fdecl->get_name().str() + " in non-head position");
                         }
                         if (is_explicit_arg_list(fdecl)) {
-                            STRACE("predabst", tout << "Error: found explicit argument list " << fdecl->get_name() << " in non-head position\n";);
-                            throw default_exception("found explicit argument list " + fdecl->get_name().str() + " in non-head position");
-                        }
-                        if (is_explicit_arg(fdecl)) {
-                            STRACE("predabst", tout << "Error: found explicit argument " << fdecl->get_name() << " in body of regular rule\n";);
-                            throw default_exception("found explicit argument " + fdecl->get_name().str() + " in body of regular rule");
+                            failwith("found explicit argument list " + fdecl->get_name().str() + " in non-head position");
                         }
                         if (is_predicate_list(fdecl)) {
-                            STRACE("predabst", tout << "Error: found predicate list " << fdecl->get_name() << " in non-head position\n";);
-                            throw default_exception("found predicate list " + fdecl->get_name().str() + " in non-head position");
+                            failwith("found predicate list " + fdecl->get_name().str() + " in non-head position");
                         }
                         if (is_arg_name_list(fdecl)) {
-                            STRACE("predabst", tout << "Error: found argument name list " << fdecl->get_name() << " in non-head position\n";);
-                            throw default_exception("found argument name list " + fdecl->get_name().str() + " in non-head position");
+                            failwith("found argument name list " + fdecl->get_name().str() + " in non-head position");
                         }
-                        if (is_arg_name(fdecl)) {
-                            STRACE("predabst", tout << "Error: found argument name " << fdecl->get_name() << " in body of regular rule\n";);
-                            throw default_exception("found argument name " + fdecl->get_name().str() + " in body of regular rule");
+						if (is_explicit_arg(fdecl)) {
+							failwith("found explicit argument " + fdecl->get_name().str() + " in body of regular rule");
+						}
+						if (is_arg_name(fdecl)) {
+                            failwith("found argument name " + fdecl->get_name().str() + " in body of regular rule");
                         }
                         process_func_decl(rules, fdecl);
                     }
                     process_func_decl(rules, r->get_decl());
                 }
                 else if (is_explicit_arg(r->get_decl())) {
-                    STRACE("predabst", tout << "Error: found explicit argument " << r->get_decl()->get_name() << " in head position\n";);
-                    throw default_exception("found explicit argument " + r->get_decl()->get_name().str() + " in head position");
+                    failwith("found explicit argument " + r->get_decl()->get_name().str() + " in head position");
                 }
                 else if (is_arg_name(r->get_decl())) {
-                    STRACE("predabst", tout << "Error: found argument name " << r->get_decl()->get_name() << " in head position\n";);
-                    throw default_exception("found argument name " + r->get_decl()->get_name().str() + " in head position");
+                    failwith("found argument name " + r->get_decl()->get_name().str() + " in head position");
                 }
             }
         }
@@ -1140,19 +1135,16 @@ namespace datalog {
                 bool is_dwf = is_dwf_predicate(fdecl);
                 if (is_dwf) {
                     if (fdecl->get_arity() % 2 != 0) {
-                        STRACE("predabst", tout << "Error: DWF predicate symbol " << fdecl->get_name() << " has arity " << fdecl->get_arity() << " which is odd\n";);
-                        throw default_exception("DWF predicate symbol " + fdecl->get_name().str() + " has odd arity");
+                        failwith("DWF predicate symbol " + fdecl->get_name().str() + " has odd arity");
                     }
                     for (unsigned i = 0; i < fdecl->get_arity() / 2; ++i) {
                         unsigned j = fdecl->get_arity() / 2 + i;
                         if (fdecl->get_domain(i) != fdecl->get_domain(j)) {
-                            STRACE("predabst", tout << "Error: DWF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " and argument " << j << " of type " << mk_pp(fdecl->get_domain(j), m) << "\n";);
-                            throw default_exception("DWF predicate symbol " + fdecl->get_name().str() + " has mismatching argument types");
+							failwith("DWF predicate symbol " + fdecl->get_name().str() + " has arguments " + to_string(i) + " and " + to_string(j) + " of unequal types");
                         }
                         // The following restriction may be removed in future.
                         if (fdecl->get_domain(i) != arith_util(m).mk_int()) {
-                            STRACE("predabst", tout << "Error: DWF predicate symbol " << fdecl->get_name() << " has argument " << i << " of type " << mk_pp(fdecl->get_domain(i), m) << " which is not int\n";);
-                            throw default_exception("DWF predicate symbol " + fdecl->get_name().str() + " has non-integer argument types");
+                            failwith("DWF predicate symbol " + fdecl->get_name().str() + " has argument " + to_string(i) + " of non-integer type");
                         }
                     }
                 }
@@ -1198,19 +1190,16 @@ namespace datalog {
             CASSERT("predabst", r->get_decl()->get_range() == m.mk_bool_sort());
 
             if (m_template_params.size() > 0) {
-                STRACE("predabst", tout << "Error: found multiple extra template constraints\n";);
-                throw default_exception("found multiple extra template constraints");
+                failwith("found multiple extra template constraints");
             }
 
             var_ref_vector args(m);
             if (!args_are_distinct_vars(r->get_head(), args)) {
-                STRACE("predabst", tout << "Error: extra template constraint has invalid argument list\n";);
-                throw default_exception("extra template constraint has invalid argument list");
+                failwith("extra template constraint has invalid argument list");
             }
 
             if (r->get_uninterpreted_tail_size() != 0) {
-                STRACE("predabst", tout << "Error: extra template constraint has an uninterpreted tail\n";);
-                throw default_exception("extra template constraint has an uninterpreted tail");
+                failwith("extra template constraint has an uninterpreted tail");
             }
 
             // Replace the variables corresponding to the extra template parameters with fresh constants.
@@ -1220,8 +1209,7 @@ namespace datalog {
             STRACE("predabst", tout << "  " << mk_pp(extras, m) << "\n";);
 
             if (has_vars(extras)) {
-                STRACE("predabst", tout << "Error: extra template constraint has free variables\n";);
-                throw default_exception("extra template constraint has free variables");
+                failwith("extra template constraint has free variables");
             }
 
             CASSERT("predabst", m_template_params.empty());
@@ -1243,23 +1231,20 @@ namespace datalog {
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(8).c_str());
             if (suffix.str().empty()) {
-                STRACE("predabst", tout << "Error: found template for predicate symbol with zero-length name\n";);
-                throw default_exception("found template for predicate symbol with zero-length name");
+                failwith("found template for predicate symbol with zero-length name");
             }
 
             STRACE("predabst", tout << "Found template for predicate symbol " << suffix << "\n";);
 
             unsigned num_extras = m_template_params.size();
             if (head_decl->get_arity() < num_extras) {
-                STRACE("predabst", tout << "Error: template has insufficient parameters for the extra template parameters\n";);
-                throw default_exception("template for " + suffix.str() + " has insufficient parameters");
+                failwith("template for " + suffix.str() + " has insufficient parameters");
             }
 
             unsigned new_arity = head_decl->get_arity() - num_extras;
             for (unsigned i = 0; i < num_extras; ++i) {
                 if (head_decl->get_domain(new_arity + i) != to_app(m_template_params.get(i))->get_decl()->get_range()) {
-                    STRACE("predabst", tout << "Error: extra template parameter " << i << " is of wrong type\n";);
-                    throw default_exception("extra parameter to template for " + suffix.str() + " is of wrong type");
+                    failwith("extra parameter " + to_string(i) + " to template for " + suffix.str() + " is of wrong type");
                 }
             }
 
@@ -1269,30 +1254,25 @@ namespace datalog {
                 head_decl->get_domain(),
                 head_decl->get_range()), m);
             if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found template for non-existent predicate symbol\n";);
-                throw default_exception("found template for non-existent predicate symbol " + suffix.str());
+                failwith("found template for non-existent predicate symbol " + suffix.str());
             }
 
             func_decl_info* fi = m_func_decl2info[suffix_decl];
             if (fi->m_is_dwf_predicate) {
-                STRACE("predabst", tout << "Error: found template for DWF predicate symbol\n";);
-                throw default_exception("found template for DWF predicate symbol " + suffix.str());
+                failwith("found template for DWF predicate symbol " + suffix.str());
             }
 
             if (fi->m_template) {
-                STRACE("predabst", tout << "Error: found multiple templates for " << suffix.str() << "\n";);
-                throw default_exception("found multiple templates for " + suffix.str());
+                failwith("found multiple templates for " + suffix.str());
             }
 
             var_ref_vector args(m);
             if (!args_are_distinct_vars(r->get_head(), args)) {
-                STRACE("predabst", tout << "Error: template has invalid argument list\n";);
-                throw default_exception("template for " + suffix.str() + " has invalid argument list");
+                failwith("template for " + suffix.str() + " has invalid argument list");
             }
 
             if (r->get_uninterpreted_tail_size() != 0) {
-                STRACE("predabst", tout << "Error: template has an uninterpreted tail\n";);
-                throw default_exception("template for " + suffix.str() + " has an uninterpreted tail");
+                failwith("template for " + suffix.str() + " has an uninterpreted tail");
             }
 
             var_ref_vector vars = get_arg_vars(r->get_decl());
@@ -1300,8 +1280,7 @@ namespace datalog {
             expr_ref_vector body(m);
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 if (has_free_vars(r->get_tail(i), args)) {
-                    STRACE("predabst", tout << "Error: template has free variables\n";);
-                    throw default_exception("template for " + suffix.str() + " has free variables");
+                    failwith("template for " + suffix.str() + " has free variables");
                 }
                 body.push_back(m_subst.apply(r->get_tail(i), subst));
             }
@@ -1328,8 +1307,7 @@ namespace datalog {
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(11).c_str());
             if (suffix.str().empty()) {
-                STRACE("predabst", tout << "Error: found explicit argument list for predicate symbol with zero-length name\n";);
-                throw default_exception("found explicit argument list for predicate symbol with zero-length name");
+                failwith("found explicit argument list for predicate symbol with zero-length name");
             }
 
             STRACE("predabst", tout << "Found explicit argument list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
@@ -1340,51 +1318,42 @@ namespace datalog {
                 head_decl->get_domain(),
                 head_decl->get_range()), m);
             if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found explicit argument list for non-existent predicate symbol\n";);
-                throw default_exception("found explicit argument list for non-existent predicate symbol " + suffix.str());
+                failwith("found explicit argument list for non-existent predicate symbol " + suffix.str());
             }
 
             func_decl_info* fi = m_func_decl2info[suffix_decl];
             if (fi->m_template) {
-                STRACE("predabst", tout << "Error: found explicit argument list for templated predicate symbol\n";);
-                throw default_exception("found explicit argument list for templated predicate symbol " + suffix.str());
+                failwith("found explicit argument list for templated predicate symbol " + suffix.str());
             }
 
             var_ref_vector args(m);
             if (!args_are_distinct_vars(r->get_head(), args)) {
-                STRACE("predabst", tout << "Error: explicit argument list has invalid argument list\n";);
-                throw default_exception("explicit argument list for " + suffix.str() + " has invalid argument list");
+                failwith("explicit argument list for " + suffix.str() + " has invalid argument list");
             }
 
             if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
-                STRACE("predabst", tout << "Error: explicit argument list has an interpreted tail\n";);
-                throw default_exception("explicit argument list for " + suffix.str() + " has an interpreted tail");
+                failwith("explicit argument list for " + suffix.str() + " has an interpreted tail");
             }
 
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 app_ref tail(r->get_tail(i), m);
                 if (!is_explicit_arg(tail->get_decl())) {
-                    STRACE("predabst", tout << "Error: explicit argument list has unexpected predicate in uninterpreted tail\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has unexpected predicate in uninterpreted tail");
+                    failwith("explicit argument list for " + suffix.str() + " has unexpected predicate in uninterpreted tail");
                 }
                 CASSERT("predabst", tail->get_decl()->get_range() == m.mk_bool_sort());
                 if (tail->get_decl()->get_arity() != 1) {
-                    STRACE("predabst", tout << "Error: incorrect arity of __exparg__ predicate\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has __exparg__ predicate of incorrect arity");
+                    failwith("explicit argument list for " + suffix.str() + " has __exparg__ predicate of incorrect arity");
                 }
                 if (!is_var(tail->get_arg(0))) {
-                    STRACE("predabst", tout << "Error: non-variable argument to __exparg__ predicate\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has __exparg__ predicate with non-variable argument");
+                    failwith("explicit argument list for " + suffix.str() + " has __exparg__ predicate with non-variable argument");
                 }
                 var_ref v(to_var(tail->get_arg(0)), m);
                 if (!args.contains(v)) {
-                    STRACE("predabst", tout << "Error: argument to __exparg__ predicate does not appear in the head\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has __exparg__ predicate with argument that does not appear in the head");
+                    failwith("explicit argument list for " + suffix.str() + " has __exparg__ predicate with argument that does not appear in the head");
                 }
                 unsigned j = vector_find(args, v.get());
                 if (fi->m_explicit_args.get(j)) {
-                    STRACE("predabst", tout << "Error: duplicate __exparg__ declaration for argument " << j << "\n";);
-                    throw default_exception("explicit argument list for " + suffix.str() + " has duplicate __exparg__ declaration for argument");
+                    failwith("explicit argument list for " + suffix.str() + " has duplicate __exparg__ declaration for argument " + to_string(j));
                 }
                 m_stats.m_num_explicit_arguments++;
                 if (m_fp_params.use_exp_eval()) {
@@ -1413,8 +1382,7 @@ namespace datalog {
             func_decl* head_decl = r->get_decl();
             symbol suffix(head_decl->get_name().str().substr(9).c_str());
             if (suffix.str().empty()) {
-                STRACE("predabst", tout << "Error: found argument name list for predicate symbol with zero-length name\n";);
-                throw default_exception("found argument name list for predicate symbol with zero-length name");
+                failwith("found argument name list for predicate symbol with zero-length name");
             }
 
             STRACE("predabst", tout << "Found argument name list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
@@ -1425,65 +1393,50 @@ namespace datalog {
                 head_decl->get_domain(),
                 head_decl->get_range()), m);
             if (!m_func_decl2info.contains(suffix_decl)) {
-                STRACE("predabst", tout << "Error: found argument name list for non-existent predicate symbol\n";);
-                throw default_exception("found argument name list for non-existent predicate symbol " + suffix.str());
+                failwith("found argument name list for non-existent predicate symbol " + suffix.str());
             }
 
             func_decl_info* fi = m_func_decl2info[suffix_decl];
             if (fi->m_template) {
-                STRACE("predabst", tout << "Error: found argument name list for templated predicate symbol\n";);
-                throw default_exception("found argument name list for templated predicate symbol " + suffix.str());
+                failwith("found argument name list for templated predicate symbol " + suffix.str());
             }
 
             var_ref_vector args(m);
             if (!args_are_distinct_vars(r->get_head(), args)) {
-                STRACE("predabst", tout << "Error: argument name list has invalid argument list\n";);
-                throw default_exception("argument name list for " + suffix.str() + " has invalid argument list");
+                failwith("argument name list for " + suffix.str() + " has invalid argument list");
             }
 
             if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
-                STRACE("predabst", tout << "Error: argument name list has an interpreted tail\n";);
-                throw default_exception("argument name list for " + suffix.str() + " has an interpreted tail");
+                failwith("argument name list for " + suffix.str() + " has an interpreted tail");
             }
 
             for (unsigned i = 0; i < r->get_tail_size(); ++i) {
                 app_ref tail(r->get_tail(i), m);
                 if (!is_arg_name(tail->get_decl())) {
-                    STRACE("predabst", tout << "Error: argument name list has unexpected predicate in uninterpreted tail\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has unexpected predicate in uninterpreted tail");
+                    failwith("argument name list for " + suffix.str() + " has unexpected predicate in uninterpreted tail");
                 }
                 CASSERT("predabst", tail->get_decl()->get_range() == m.mk_bool_sort());
                 if (tail->get_decl()->get_arity() != 1) {
-                    STRACE("predabst", tout << "Error: incorrect arity of __name__X predicate\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate of incorrect arity");
+                    failwith("argument name list for " + suffix.str() + " has __name__X predicate of incorrect arity");
                 }
                 if (!is_var(tail->get_arg(0))) {
-                    STRACE("predabst", tout << "Error: non-variable argument to __name__X predicate\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate with non-variable argument");
+                    failwith("argument name list for " + suffix.str() + " has __name__X predicate with non-variable argument");
                 }
                 var_ref v(to_var(tail->get_arg(0)), m);
                 if (!args.contains(v)) {
-                    STRACE("predabst", tout << "Error: argument to __name__X predicate does not appear in the head\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has __name__X predicate with argument that does not appear in the head");
+                    failwith("argument name list for " + suffix.str() + " has __name__X predicate with argument that does not appear in the head");
                 }
                 unsigned j = vector_find(args, v.get());
                 if (fi->m_var_names.get(j)) {
-                    STRACE("predabst", tout << "Error: duplicate name for argument " << j << "\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has duplicate name for argument");
+                    failwith("argument name list for " + suffix.str() + " has duplicate name for argument " + to_string(j));
                 }
                 symbol name(tail->get_decl()->get_name().str().substr(8).c_str());
                 if (name.str().empty()) {
-                    STRACE("predabst", tout << "Error: zero-length name for argument " << j << "\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has zero-length name for argument");
+                    failwith("argument name list for " + suffix.str() + " has zero-length name for argument " + to_string(j));
                 }
                 func_decl_ref name_decl(m.mk_const_decl(name, args.get(j)->get_sort()), m);
                 if (fi->m_var_names.contains(name_decl)) {
-                    STRACE("predabst", tout << "Error: non-unique name for argument " << j << "\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has non-unique argument names");
-                }
-                if (fi->m_var_names.contains(name_decl)) {
-                    STRACE("predabst", tout << "Error: non-unique name for argument " << j << "\n";);
-                    throw default_exception("argument name list for " + suffix.str() + " has non-unique argument names");
+                    failwith("argument name list for " + suffix.str() + " has non-unique name for argument " + to_string(j));
                 }
                 m_stats.m_num_named_arguments++;
                 if (fi->m_explicit_args.get(j)) {
@@ -1508,8 +1461,7 @@ namespace datalog {
 			func_decl* head_decl = r->get_decl();
 			symbol suffix(head_decl->get_name().str().substr(8).c_str());
 			if (suffix.str().empty()) {
-				STRACE("predabst", tout << "Error: found predicate list for predicate symbol with zero-length name\n";);
-				throw default_exception("found predicate list for predicate symbol with zero-length name");
+				failwith("found predicate list for predicate symbol with zero-length name");
 			}
 
 			STRACE("predabst", tout << "Found predicate list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
@@ -1520,20 +1472,17 @@ namespace datalog {
 				head_decl->get_domain(),
 				head_decl->get_range()), m);
 			if (!m_func_decl2info.contains(suffix_decl)) {
-				STRACE("predabst", tout << "Error: found predicate list for non-existent predicate symbol\n";);
-				throw default_exception("found predicate list for non-existent predicate symbol " + suffix.str());
+				failwith("found predicate list for non-existent predicate symbol " + suffix.str());
 			}
 
 			func_decl_info* fi = m_func_decl2info[suffix_decl];
 			if (fi->m_template) {
-				STRACE("predabst", tout << "Error: found predicate list for templated predicate symbol\n";);
-				throw default_exception("found predicate list for templated predicate symbol " + suffix.str());
+				failwith("found predicate list for templated predicate symbol " + suffix.str());
 			}
 
 			var_ref_vector args(m);
 			if (!args_are_distinct_vars(r->get_head(), args)) {
-				STRACE("predabst", tout << "Error: predicate list has invalid argument list\n";);
-				throw default_exception("predicate list for " + suffix.str() + " has invalid argument list");
+				failwith("predicate list for " + suffix.str() + " has invalid argument list");
 			}
 
 			var_ref_vector non_explicit_args(m);
@@ -1544,20 +1493,17 @@ namespace datalog {
 			}
 
 			if (r->get_uninterpreted_tail_size() != 0) {
-				STRACE("predabst", tout << "Error: predicate list has an uninterpreted tail\n";);
-				throw default_exception("predicate list for " + suffix.str() + " has an uninterpreted tail");
+				failwith("predicate list for " + suffix.str() + " has an uninterpreted tail");
 			}
 
 			// Add p1..pN to m_func_decl2info[SUFFIX].m_preds.
 			expr_ref_vector subst = m_subst.build(args, fi->m_vars); // >>> this ought to be neater
 			for (unsigned i = 0; i < r->get_tail_size(); ++i) {
 				if (has_free_vars(r->get_tail(i), args)) {
-					STRACE("predabst", tout << "Error: predicate has free variables\n";);
-					throw default_exception("predicate for " + suffix.str() + " has free variables");
+					failwith("predicate for " + suffix.str() + " has free variables");
 				}
 				if (has_free_vars(r->get_tail(i), non_explicit_args)) {
-					STRACE("predabst", tout << "Error: predicate uses explicit arguments\n";);
-					throw default_exception("predicate for " + suffix.str() + " uses explicit arguments");
+					failwith("predicate for " + suffix.str() + " uses explicit arguments");
 				}
 
 				expr_ref pred = m_subst.apply(to_expr(r->get_tail(i)), subst);
@@ -2533,7 +2479,7 @@ namespace datalog {
                         catch (model_evaluator_exception& ex) {
                             (void)ex;
                             STRACE("predabst", tout << "Failed to evaluate: " << ex.msg() << "\n";); // >>>
-                            throw default_exception("failed to evaluate");
+							throw default_exception("failed to evaluate");
                         }
                         values.push_back(val);
                         m_stats.m_num_head_evals++;
@@ -2557,7 +2503,7 @@ namespace datalog {
             lbool result = check(solver_for(ri), assumptions.size(), assumptions.c_ptr());
 			if (result == l_true) {
                 STRACE("predabst", tout << "Error: values of explicit arguments were not uniquely determined\n";);
-                throw default_exception("values of explicit arguments for " + ri->get_decl()->m_fdecl->get_name().str() + " were not uniquely determined");
+				throw default_exception("values of explicit arguments for " + ri->get_decl()->m_fdecl->get_name().str() + " were not uniquely determined");
             }
 #endif
             return values;

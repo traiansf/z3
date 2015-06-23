@@ -248,6 +248,26 @@ expr_ref_vector get_all_vars(expr_ref const& fml) {
     return vars;
 }
 
+// Returns a vector of fresh constants of the right type to be arguments to fdecl.
+expr_ref_vector get_arg_fresh_consts(func_decl* fdecl, char const* prefix, ast_manager& m) {
+	expr_ref_vector args(m);
+	args.reserve(fdecl->get_arity());
+	for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
+		args[i] = m.mk_fresh_const(prefix, fdecl->get_domain(i));
+	}
+	return args;
+}
+
+// Returns a vector of variables of the right type to be arguments to fdecl.
+var_ref_vector get_arg_vars(func_decl* fdecl, ast_manager& m) {
+	var_ref_vector args(m);
+	args.reserve(fdecl->get_arity());
+	for (unsigned i = 0; i < fdecl->get_arity(); ++i) {
+		args[i] = m.mk_var(i, fdecl->get_domain(i));
+	}
+	return args;
+}
+
 void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
     ast_manager& m = fml.get_manager();
     app_ref_vector q_vars(m);

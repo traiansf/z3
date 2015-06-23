@@ -113,6 +113,7 @@ def_module_params('fixedpoint',
 			  ('use_head_assumptions', BOOL, False, "PREDABST: pass head predicates to the solver using assumptions"),
 			  ('pre_simplify', BOOL, True, "PREDABST: simplify all expressions before passing them to the solver"),
 			  ('no_simplify', BOOL, True, "PREDABST: tell the solver not to simplify any expressions it is passed"),
+			  ('solver_per_rule', BOOL, False, "PREDABST: use a separate solver for each rule"),
                           ))
 
 

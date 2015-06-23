@@ -118,6 +118,9 @@ expr* replace_pred(expr_ref_vector const& args, var_ref_vector const& vars, expr
 
 expr_ref_vector get_all_vars(expr_ref const& fml);
 
+expr_ref_vector get_arg_fresh_consts(func_decl* fdecl, char const* prefix, ast_manager& m);
+var_ref_vector get_arg_vars(func_decl* fdecl, ast_manager& m);
+
 void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml);
 
 expr_ref to_nnf(expr_ref const& fml);

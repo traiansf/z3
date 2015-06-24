@@ -343,8 +343,8 @@ sat_tests = [
 (assert (not s))""",
      """
 (define-fun p () Bool true)
-(define-fun q () Bool false)
 (define-fun r () Bool false)
+(define-fun q () Bool false)
 (define-fun s () Bool false)"""),
 
     # A recursive predicate symbol, but with a finite set of true values.

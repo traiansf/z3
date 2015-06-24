@@ -39,6 +39,7 @@ namespace datalog {
 	};
 
 	struct rule_instance_info {
+		expr_ref_vector         m_rule_subst;
 		smt::kernel*            m_solver;
 		expr_ref_vector         m_body;
 		expr_ref_vector         m_head_preds;
@@ -49,7 +50,8 @@ namespace datalog {
 		vector<expr_ref_vector> m_body_explicit_args;
 		vector<vector<bool>>    m_body_known_args;
 		bool                    m_unsat;
-		rule_instance_info(smt::kernel* solver, ast_manager& m) :
+		rule_instance_info(expr_ref_vector const& rule_subst, smt::kernel* solver, ast_manager& m) :
+			m_rule_subst(rule_subst),
 			m_solver(solver),
 			m_body(m),
 			m_head_preds(m),
@@ -59,30 +61,30 @@ namespace datalog {
 
 	class predabst_core::imp {
 		struct acr_error {
-			node_info const* const m_node;
-			acr_error_kind   const m_kind;
-			acr_error(node_info const* node, acr_error_kind kind) :
+			node_info const*    const m_node;
+			counterexample_kind const m_kind;
+			acr_error(node_info const* node, counterexample_kind kind) :
 				m_node(node),
 				m_kind(kind) {}
 		};
 
-		vector<rule_info*> const&                  m_rules;
-		vector<rule_instance_info*>                m_rule_instances;
-		vector<node_info*>                         m_nodes;
-		obj_map<func_decl_info const, node_vector> m_max_reach_nodes;
-		node_vector                                m_node_worklist;
-		acr_error_kind                             m_counterexample_kind;
-		node_info const*                           m_counterexample_node;
-		smt_params                                 m_fparams;     // parameters specific to smt solving
-		smt::kernel*                               m_solver;
-		mutable simplifier                         m_simplifier;
-		fixedpoint_params const&                   m_fp_params;
-		mutable stats                              m_stats;
-		subst_util                                 m_subst;
-		ast_manager&                               m;
+		vector<rule_info*> const&                     m_rules;
+		obj_map<rule_info const, rule_instance_info*> m_rule_instances;
+		vector<node_info*>                            m_nodes;
+		obj_map<symbol_info const, node_vector>       m_max_reach_nodes;
+		node_vector                                   m_node_worklist;
+		counterexample_kind							  m_counterexample_kind;
+		node_info const*							  m_counterexample_node;
+		smt_params									  m_fparams;     // parameters specific to smt solving
+		smt::kernel*								  m_solver;
+		mutable simplifier							  m_simplifier;
+		fixedpoint_params const&					  m_fp_params;
+		mutable stats								  m_stats;
+		subst_util									  m_subst;
+		ast_manager&								  m;
 
 	public:
-		imp(vector<func_decl_info*> const& func_decls, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m) :
+		imp(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m) :
 			m_rules(rules),
 			m_solver(NULL),
 			m_simplifier(m),
@@ -108,7 +110,6 @@ namespace datalog {
 			}
 			for (unsigned i = 0; i < m_rules.size(); ++i) {
 				rule_info const* ri = m_rules[i];
-				CASSERT("predabst", ri->m_id == i);
 				smt::kernel* solver;
 				if (m_fp_params.solver_per_rule()) {
 					solver = alloc(smt::kernel, m, m_fparams);
@@ -118,7 +119,7 @@ namespace datalog {
 					solver = m_solver;
 				}
 				try {
-					m_rule_instances.push_back(instantiate_rule(ri, solver));
+					m_rule_instances.insert(ri, instantiate_rule(ri, solver));
 				}
 				catch (...) {
 					if (m_fp_params.solver_per_rule()) {
@@ -129,9 +130,9 @@ namespace datalog {
 				}
 			}
 
-			for (unsigned i = 0; i < func_decls.size(); ++i) {
-				func_decl_info const* fi = func_decls[i];
-				m_max_reach_nodes.insert(fi, node_vector());
+			for (unsigned i = 0; i < symbols.size(); ++i) {
+				symbol_info const* si = symbols[i];
+				m_max_reach_nodes.insert(si, node_vector());
 			}
 		}
 
@@ -139,14 +140,12 @@ namespace datalog {
 			if (!m_fp_params.solver_per_rule()) {
 				dealloc(m_solver);
 			}
-			for (unsigned i = 0; i < m_rule_instances.size(); ++i) {
+			for (unsigned i = 0; i < m_rules.size(); ++i) {
+				rule_info const* ri = m_rules[i];
 				if (m_fp_params.solver_per_rule()) {
-					dealloc(m_rule_instances[i]->m_solver);
+					dealloc(m_rule_instances[ri]->m_solver);
 				}
-			}
-
-			for (unsigned i = 0; i < m_rule_instances.size(); ++i) {
-				dealloc(m_rule_instances[i]);
+				dealloc(m_rule_instances[ri]);
 			}
 			for (unsigned i = 0; i < m_nodes.size(); ++i) {
 				dealloc(m_nodes[i]);
@@ -158,7 +157,7 @@ namespace datalog {
 				dealloc(m_nodes[i]);
 			}
 			m_nodes.reset();
-			for (obj_map<func_decl_info const, node_vector>::iterator it = m_max_reach_nodes.begin(); it != m_max_reach_nodes.end(); ++it) {
+			for (obj_map<symbol_info const, node_vector>::iterator it = m_max_reach_nodes.begin(); it != m_max_reach_nodes.end(); ++it) {
 				it->m_value.reset();
 			}
 			m_node_worklist.reset();
@@ -213,9 +212,9 @@ namespace datalog {
 			}
 		}
 
-		expr_ref get_model(func_decl_info const* fi) const {
+		expr_ref get_model(symbol_info const* si) const {
 			CASSERT("predabst", !m_counterexample_node);
-			node_vector const& nodes = m_max_reach_nodes[fi];
+			node_vector const& nodes = m_max_reach_nodes[si];
 			expr_ref_vector disj(m);
 			for (node_vector::const_iterator it = nodes.begin(); it != nodes.end(); ++it) {
 				node_info const* node = *it;
@@ -224,7 +223,7 @@ namespace datalog {
 			return mk_disj(disj);
 		}
 
-		acr_error_kind get_counterexample_kind() const {
+		counterexample_kind get_counterexample_kind() const {
 			CASSERT("predabst", m_counterexample_node);
 			return m_counterexample_kind;
 		}
@@ -243,7 +242,7 @@ namespace datalog {
 		}
 
 		inline smt::kernel* solver_for(rule_info const* ri) {
-			return m_rule_instances[ri->m_id]->m_solver;
+			return m_rule_instances[ri]->m_solver;
 		}
 
 		// Returns whether c1 implies c2, or in other words, whether the set
@@ -362,20 +361,37 @@ namespace datalog {
 			return result;
 		}
 
+		// Returns a substitution vector mapping each variable used in ri to a
+		// fresh constant.
+		static expr_ref_vector get_subst_vect_free(rule_info const* ri, char const* prefix, ast_manager& m) {
+			expr_ref_vector rule_subst(m);
+
+			used_vars used = ri->get_used_vars();
+			rule_subst.reserve(used.get_max_found_var_idx_plus_1());
+			for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
+				sort* s = used.get(i);
+				if (s) {
+					rule_subst[i] = m.mk_fresh_const(prefix, s);
+				}
+			}
+
+			return rule_subst;
+		}
+
 		rule_instance_info* instantiate_rule(rule_info const* ri, smt::kernel* solver) {
 			STRACE("predabst", tout << "Instantiating rule " << ri << "\n";);
-			rule_instance_info* info = alloc(rule_instance_info, solver, m);
+			rule_instance_info* info = alloc(rule_instance_info, get_subst_vect_free(ri, "s", m), solver, m);
+
 			try {
-				// create ground body (including templated head/body applications)
-				expr_ref_vector body = m_subst.apply(ri->get_body(), ri->m_rule_subst);
+				// create ground body
+				expr_ref_vector body = m_subst.apply(ri->get_body(), info->m_rule_subst);
 				pre_simplify(body);
 				info->m_body.swap(body);
 
-				// instantiate explicit arguments to non-templated head applications
-				func_decl_info const* fi = ri->get_decl();
-				if (fi) {
-					CASSERT("predabst", !fi->m_template);
-					expr_ref_vector head_args = m_subst.apply(ri->get_explicit_args(), ri->m_rule_subst);
+				// instantiate explicit arguments to head applications
+				symbol_info const* si = ri->get_decl();
+				if (si) {
+					expr_ref_vector head_args = m_subst.apply(ri->get_explicit_args(), info->m_rule_subst);
 					pre_simplify(head_args);
 					// >>> share code
 					vector<bool> known_args;
@@ -397,11 +413,11 @@ namespace datalog {
 					}
 				}
 
-				// instantiate explicit arguments to non-templated body applications
+				// instantiate explicit arguments to body applications
 				for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
-					func_decl_info const* fi = ri->get_decl(i);
-					CASSERT("predabst", fi && !fi->m_template);
-					expr_ref_vector body_args = m_subst.apply(ri->get_explicit_args(i), ri->m_rule_subst);
+					symbol_info const* si = ri->get_decl(i);
+					CASSERT("predabst", si);
+					expr_ref_vector body_args = m_subst.apply(ri->get_explicit_args(i), info->m_rule_subst);
 					pre_simplify(body_args);
 					vector<bool> known_args;
 					for (unsigned j = 0; j < body_args.size(); ++j) {
@@ -415,7 +431,7 @@ namespace datalog {
 					info->m_body_known_args.push_back(known_args);
 				}
 
-				// create placeholders for non-templated body applications
+				// create placeholders for body applications
 				for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
 					info->m_body_preds.push_back(expr_ref_vector(m));
 				}
@@ -454,7 +470,7 @@ namespace datalog {
 
 		void instantiate_rule_preds(rule_info* ri) {
 			STRACE("predabst", tout << "Instantiating predicates for rule " << ri << "\n";);
-			rule_instance_info* info = m_rule_instances[ri->m_id];
+			rule_instance_info* info = m_rule_instances[ri];
 
 			scoped_push push(*solver_for(ri)); // >>> unnecessary if solver per rule
 			if (!m_fp_params.solver_per_rule()) {
@@ -463,12 +479,11 @@ namespace datalog {
 				}
 			}
 
-			// create instantiations for non-templated head applications
-			func_decl_info const* fi = ri->get_decl();
-			if (fi) {
-				CASSERT("predabst", !fi->m_template);
-				expr_ref_vector head_args = m_subst.apply(ri->get_non_explicit_args(), ri->m_rule_subst);
-				expr_ref_vector head_preds = app_inst_preds(fi, head_args, info->m_head_preds.size());
+			// create instantiations for head applications
+			symbol_info const* si = ri->get_decl();
+			if (si) {
+				expr_ref_vector head_args = m_subst.apply(ri->get_abstracted_args(), info->m_rule_subst);
+				expr_ref_vector head_preds = app_inst_preds(si, head_args, info->m_head_preds.size());
 				invert(head_preds);
 				pre_simplify(head_preds);
 				if (m_fp_params.convert_true_head_preds()) {
@@ -486,12 +501,12 @@ namespace datalog {
 				}
 			}
 
-			// create instantiations for non-templated body applications
+			// create instantiations for body applications
 			for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
-				func_decl_info const* fi = ri->get_decl(i);
-				CASSERT("predabst", fi && !fi->m_template);
-				expr_ref_vector body_args = m_subst.apply(ri->get_non_explicit_args(i), ri->m_rule_subst);
-				expr_ref_vector body_preds = app_inst_preds(fi, body_args, info->m_body_preds.get(i).size());
+				symbol_info const* si = ri->get_decl(i);
+				CASSERT("predabst", si);
+				expr_ref_vector body_args = m_subst.apply(ri->get_abstracted_args(i), info->m_rule_subst);
+				expr_ref_vector body_preds = app_inst_preds(si, body_args, info->m_body_preds.get(i).size());
 				pre_simplify(body_preds);
 				if (m_fp_params.convert_true_body_preds()) {
 					maybe_make_true(body_preds, solver_for(ri));
@@ -510,11 +525,11 @@ namespace datalog {
 		}
 
 		// instantiate each predicate by replacing its free variables with (grounded) arguments of gappl
-		expr_ref_vector app_inst_preds(func_decl_info const* fi, expr_ref_vector const& args, unsigned num_pred_instances) {
+		expr_ref_vector app_inst_preds(symbol_info const* si, expr_ref_vector const& args, unsigned num_pred_instances) {
 			// instantiation maps preds variables to head arguments
-			expr_ref_vector inst = m_subst.build(fi->m_non_explicit_vars, args);
+			expr_ref_vector inst = m_subst.build(si->m_abstracted_vars, args);
 			// preds instantiates to inst_preds
-			return m_subst.apply(expr_ref_vector(m, fi->m_preds.size() - num_pred_instances, fi->m_preds.c_ptr() + num_pred_instances), inst);
+			return m_subst.apply(expr_ref_vector(m, si->m_preds.size() - num_pred_instances, si->m_preds.c_ptr() + num_pred_instances), inst);
 		}
 
 		void initialize_abs(rule_info const* ri) {
@@ -523,15 +538,15 @@ namespace datalog {
 
 		void inference_step(node_info const* node) {
 			// Find all rules whose body contains the func_decl of the new node.
-			func_decl_info const* fi = node->m_fdecl_info;
-			rule_info_vector const& rules = fi->m_users;
+			symbol_info const* si = node->m_symbol;
+			vector<rule_info const*> const& rules = si->m_users;
 			STRACE("predabst", tout << "Performing inference from node " << node << " using rules " << rules << "\n";);
-			for (rule_info_vector::const_iterator r_it = rules.begin(); r_it != rules.end(); ++r_it) {
+			for (vector<rule_info const*>::const_iterator r_it = rules.begin(); r_it != rules.end(); ++r_it) {
 				rule_info const* ri = *r_it;
 				STRACE("predabst-cprod", tout << "Attempting to apply rule " << ri << "\n";);
 				// Find all positions in the body of this rule at which the
 				// func_decl appears.
-				uint_set positions = get_rule_body_positions(ri, fi);
+				uint_set positions = get_rule_body_positions(ri, si);
 				CASSERT("predabst", positions.num_elems() != 0);
 				for (uint_set::iterator p_it = positions.begin(); p_it != positions.end(); ++p_it) {
 					STRACE("predabst-cprod", tout << "Using this node in position " << *p_it << "\n";);
@@ -543,10 +558,10 @@ namespace datalog {
 			}
 		}
 
-		uint_set get_rule_body_positions(rule_info const* ri, func_decl_info const* fi) {
+		uint_set get_rule_body_positions(rule_info const* ri, symbol_info const* si) {
 			uint_set positions;
 			for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
-				if (ri->get_decl(i) == fi) {
+				if (ri->get_decl(i) == si) {
 					positions.insert(i);
 				}
 			}
@@ -576,7 +591,7 @@ namespace datalog {
 		// This is implementing the "abstract inference rules" from Figure 2 of "synthesizing software verifiers from proof rules".
 		// With no 3rd argument, rule Rinit is applied; otherwise rule Rstep is applied.
 		void cart_pred_abst_rule(rule_info const* ri, unsigned fixed_pos = 0, node_info const* fixed_node = NULL) {
-			rule_instance_info const* info = m_rule_instances[ri->m_id];
+			rule_instance_info const* info = m_rule_instances[ri];
 			CASSERT("predabst", (fixed_node == NULL) || (fixed_pos < ri->get_tail_size()));
 
 			if (info->m_unsat) {
@@ -624,7 +639,7 @@ namespace datalog {
 						}
 					}
 					if (!skip) {
-						expr_ref_vector const& values = node->m_explicit_values;
+						expr_ref_vector const& values = node->m_values;
 						expr_ref_vector const& body_args = info->m_body_explicit_args[i];
 						vector<bool> const& known_args = info->m_body_known_args[i];
 						CASSERT("predabst", values.size() == body_args.size());
@@ -672,7 +687,7 @@ namespace datalog {
 							pos_cube.push_back(body_preds[j]);
 						}
 					}
-					expr_ref_vector const& values = node->m_explicit_values;
+					expr_ref_vector const& values = node->m_values;
 					expr_ref_vector const& body_args = info->m_body_explicit_args[i];
 					vector<bool> const& known_args = info->m_body_known_args[i];
 					CASSERT("predabst", values.size() == body_args.size());
@@ -973,7 +988,7 @@ namespace datalog {
 		}
 
 		cube_t cart_pred_abst_cube(rule_info const* ri, expr_ref_vector const& es, expr_ref_vector& assumptions) {
-			rule_instance_info const* info = m_rule_instances[ri->m_id];
+			rule_instance_info const* info = m_rule_instances[ri];
 			unsigned num_preds = es.size();
 			CASSERT("predabst", (!ri->get_decl() && (num_preds == 0)) || (num_preds == ri->get_decl()->m_preds.size()));
 			cube_t cube;
@@ -1013,7 +1028,7 @@ namespace datalog {
 		}
 
 		expr_ref_vector cart_pred_abst_values(rule_info const* ri, expr_ref_vector const& assumptions) {
-			rule_instance_info const* info = m_rule_instances[ri->m_id];
+			rule_instance_info const* info = m_rule_instances[ri];
 			expr_ref_vector values(m);
 			if (info->m_head_explicit_args.size() == 0) {
 				// nothing to do
@@ -1075,49 +1090,48 @@ namespace datalog {
 		}
 
 		void check_node_property(node_info const* node) {
-			if (!node->m_fdecl_info) {
-				STRACE("predabst", tout << "Reached query symbol " << node->m_fdecl_info << "\n";);
+			if (!node->m_symbol) {
+				STRACE("predabst", tout << "Reached query symbol\n";);
 				throw acr_error(node, reached_query);
 			}
-			CASSERT("predabst", !node->m_fdecl_info->m_template);
-			if (node->m_fdecl_info->m_is_dwf_predicate) {
+			if (node->m_symbol->m_is_dwf) {
 				if (!is_well_founded(node)) {
 					STRACE("predabst", tout << "Formula is not well-founded\n";);
-					throw acr_error(node, not_wf);
+					throw acr_error(node, not_dwf);
 				}
 				m_stats.m_num_well_founded_nodes++;
 			}
 		}
 
 		bool is_well_founded(node_info const* node) {
-			func_decl_info const* fi = node->m_fdecl_info;
-			CASSERT("predabst", fi->m_is_dwf_predicate);
+			symbol_info const* si = node->m_symbol;
+			CASSERT("predabst", si->m_is_dwf);
 
-			CASSERT("predabst", node->m_explicit_values.size() % 2 == 0);
-			unsigned n = node->m_explicit_values.size() / 2;
+			CASSERT("predabst", node->m_values.size() % 2 == 0);
+			unsigned n = node->m_values.size() / 2;
 			for (unsigned i = 0; i < n; ++i) {
-				if (node->m_explicit_values[i] != node->m_explicit_values[i + n]) {
+				if (node->m_values[i] != node->m_values[i + n]) {
 					return true;
 				}
 			}
 
-			expr_ref expr = cube_to_formula(node->m_cube, fi->m_preds);
-			expr_ref_vector args = fi->get_fresh_args("s");
-			expr_ref to_rank = m_subst.apply(expr, m_subst.build(fi->m_non_explicit_vars, args));
+			expr_ref expr = cube_to_formula(node->m_cube, si->m_preds);
+			expr_ref_vector args = si->get_fresh_args("s");
+			expr_ref to_rank = m_subst.apply(expr, m_subst.build(si->m_abstracted_vars, args));
 
 			return well_founded(args, to_rank, NULL, NULL);
 		}
 
 		node_info const* add_node(rule_info const* ri, cube_t const& cube, expr_ref_vector const& values, node_vector const& nodes = node_vector()) {
-			CASSERT("predabst", cube.size() == m_rule_instances[ri->m_id]->m_head_preds.size());
-			CASSERT("predabst", values.size() == m_rule_instances[ri->m_id]->m_head_explicit_args.size());
+			CASSERT("predabst", cube.size() == m_rule_instances[ri]->m_head_preds.size());
+			CASSERT("predabst", values.size() == m_rule_instances[ri]->m_head_explicit_args.size());
 			m_stats.m_num_nodes_discovered++;
-			func_decl_info const* fi = ri->get_decl();
-			if (fi) {
+			symbol_info const* si = ri->get_decl();
+			if (si) {
 				// first fixpoint check combined with maximality maintainance
 				node_vector old_lt_nodes;
-				for (node_vector::const_iterator it = m_max_reach_nodes[fi].begin(); it != m_max_reach_nodes[fi].end(); ++it) {
-					if (!vector_equals(values, (*it)->m_explicit_values)) {
+				for (node_vector::const_iterator it = m_max_reach_nodes[si].begin(); it != m_max_reach_nodes[si].end(); ++it) {
+					if (!vector_equals(values, (*it)->m_values)) {
 						continue;
 					}
 					cube_t const& old_cube = (*it)->m_cube;
@@ -1137,7 +1151,7 @@ namespace datalog {
 				// (no???) fixpoint reached since didn't return
 				// remove subsumed maximal nodes
 				for (node_vector::const_iterator it = old_lt_nodes.begin(); it != old_lt_nodes.end(); ++it) {
-					m_max_reach_nodes[fi].erase(*it);
+					m_max_reach_nodes[si].erase(*it);
 					m_stats.m_num_frontier_nodes_removed++;
 					if (m_node_worklist.contains(*it)) {
 						m_node_worklist.erase(*it); // removing non-existent element is ok
@@ -1146,28 +1160,28 @@ namespace datalog {
 				}
 			}
 			// no fixpoint reached hence create new node
-			m_nodes.push_back(alloc(node_info, m_nodes.size(), fi, cube, values, ri, nodes));
+			m_nodes.push_back(alloc(node_info, m_nodes.size(), si, cube, values, ri, nodes));
 			node_info const* node = m_nodes.back();
-			if (fi) {
-				m_max_reach_nodes[fi].insert(node);
+			if (si) {
+				m_max_reach_nodes[si].insert(node);
 				m_stats.m_num_frontier_nodes_added++;
 			}
 			m_node_worklist.insert(node);
 			m_stats.m_num_nodes_enqueued++;
-			STRACE("predabst", tout << "Added node " << node << " for " << fi << "\n";);
+			STRACE("predabst", tout << "Added node " << node << " for " << si << "\n";);
 			return node;
 		}
 
 		expr_ref node_to_formula(node_info const* node) const {
 			expr_ref_vector es(m);
-			expr_ref_vector const& values = node->m_explicit_values;
-			var_ref_vector const& args = node->m_fdecl_info->m_explicit_vars;
+			expr_ref_vector const& values = node->m_values;
+			var_ref_vector const& args = node->m_symbol->m_explicit_vars;
 			CASSERT("predabst", values.size() == args.size());
 			for (unsigned i = 0; i < values.size(); ++i) {
 				es.push_back(m.mk_eq(args.get(i), values.get(i)));
 			}
 			cube_t const& cube = node->m_cube;
-			expr_ref_vector const& preds = node->m_fdecl_info->m_preds;
+			expr_ref_vector const& preds = node->m_symbol->m_preds;
 			CASSERT("predabst", cube.size() == preds.size());
 			for (unsigned i = 0; i < cube.size(); ++i) {
 				if (cube[i]) {
@@ -1182,7 +1196,7 @@ namespace datalog {
 			out << "  Instantiated rules:" << std::endl;
 			for (unsigned i = 0; i < m_rules.size(); ++i) {
 				rule_info const* ri = m_rules[i];
-				rule_instance_info const* info = m_rule_instances[i];
+				rule_instance_info const* info = m_rule_instances[ri];
 				out << "    " << i << ":" << std::endl;
 				out << "      head preds (" << ri->get_decl() << "): " << info->m_head_preds << "\n";
 				CASSERT("predabst", ri->get_tail_size() == info->m_body_preds.size());
@@ -1208,28 +1222,22 @@ namespace datalog {
 				out << "    " << i << ": rule " << node->m_parent_rule
 					<< " applied to nodes (" << node->m_parent_nodes
 					<< ") giving cube [" << node->m_cube
-					<< "] and values (" << node->m_explicit_values
-					<< ") for " << node->m_fdecl_info
+					<< "] and values (" << node->m_values
+					<< ") for " << node->m_symbol
 					<< std::endl;
 			}
 			out << "  Max reached nodes:" << std::endl;
-			for (obj_map<func_decl_info const, node_vector>::iterator it = m_max_reach_nodes.begin(); it != m_max_reach_nodes.end(); ++it) {
-				func_decl_info const* fi = it->m_key;
-				if (fi->m_template) {
-					CASSERT("predabst", it->m_value.empty());
-				}
-				else {
-					out << "    " << fi << ": "
-						<< it->m_value << std::endl;
-				}
+			for (obj_map<symbol_info const, node_vector>::iterator it = m_max_reach_nodes.begin(); it != m_max_reach_nodes.end(); ++it) {
+				symbol_info const* si = it->m_key;
+				out << "    " << si << ": "	<< it->m_value << std::endl;
 			}
 			out << "  Worklist: " << m_node_worklist << std::endl;
 			out << "=====================================\n";
 		}
 	};
 
-	predabst_core::predabst_core(vector<func_decl_info*> const& func_decls, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m) :
-		m_imp(alloc(imp, func_decls, rules, fp_params, m)) {
+	predabst_core::predabst_core(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m) :
+		m_imp(alloc(imp, symbols, rules, fp_params, m)) {
 	}
 	
 	predabst_core::~predabst_core() {
@@ -1240,11 +1248,11 @@ namespace datalog {
 		return m_imp->find_solution(refine_count);
 	}
 
-	expr_ref predabst_core::get_model(func_decl_info const* fi) const {
-		return m_imp->get_model(fi);
+	expr_ref predabst_core::get_model(symbol_info const* si) const {
+		return m_imp->get_model(si);
 	}
 
-	acr_error_kind predabst_core::get_counterexample_kind() const {
+	counterexample_kind predabst_core::get_counterexample_kind() const {
 		return m_imp->get_counterexample_kind();
 	}
 

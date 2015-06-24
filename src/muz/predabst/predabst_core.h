@@ -30,17 +30,17 @@ namespace datalog {
 	typedef vector<node_info const*> node_vector;
 
 	struct node_info {
-		unsigned              const m_id;
-		func_decl_info const* const m_fdecl_info;
-		cube_t                const m_cube;
-		expr_ref_vector       const m_explicit_values;
-		rule_info const*      const m_parent_rule;
-		node_vector           const m_parent_nodes;
-		node_info(unsigned id, func_decl_info const* fdecl_info, cube_t const& cube, expr_ref_vector const& explicit_values, rule_info const* parent_rule, node_vector const& parent_nodes) :
+		unsigned           const m_id;
+		symbol_info const* const m_symbol;
+		cube_t             const m_cube;
+		expr_ref_vector    const m_values;
+		rule_info const*   const m_parent_rule;
+		node_vector        const m_parent_nodes;
+		node_info(unsigned id, symbol_info const* symbol, cube_t const& cube, expr_ref_vector const& values, rule_info const* parent_rule, node_vector const& parent_nodes) :
 			m_id(id),
-			m_fdecl_info(fdecl_info),
+			m_symbol(symbol),
 			m_cube(cube),
-			m_explicit_values(explicit_values),
+			m_values(values),
 			m_parent_rule(parent_rule),
 			m_parent_nodes(parent_nodes) {}
 		friend std::ostream& operator<<(std::ostream& out, node_info const* node) {
@@ -49,7 +49,7 @@ namespace datalog {
 		}
 	};
 
-	typedef enum { reached_query, not_wf } acr_error_kind; // >>> rename
+	typedef enum { reached_query, not_dwf } counterexample_kind;
 
 	class predabst_core {
 		class imp;
@@ -108,11 +108,11 @@ namespace datalog {
 			}
 		};
 
-		predabst_core(vector<func_decl_info*> const& func_decls, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m);
+		predabst_core(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m);
 		~predabst_core();
 		bool find_solution(unsigned refine_count);
-		expr_ref get_model(func_decl_info const* fi) const;
-		acr_error_kind get_counterexample_kind() const;
+		expr_ref get_model(symbol_info const* si) const;
+		counterexample_kind get_counterexample_kind() const;
 		node_info const* get_counterexample() const;
 	};
 };

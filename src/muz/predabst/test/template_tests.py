@@ -86,8 +86,8 @@ sat_tests = [
 (assert (forall ((x Int)) (=> (and (p x) (q x)) false)))
 (assert (forall ((x Int)) (=> (= x 0) (__temp__p x))))""",
      """
-(define-fun q ((x!1 Int)) Bool (> x!1 0))
-(define-fun p ((x!1 Int)) Bool (= x!1 0))"""),
+(define-fun p ((x!1 Int)) Bool (= x!1 0))
+(define-fun q ((x!1 Int)) Bool (> x!1 0))"""),
 
     ("refine-head",
      """

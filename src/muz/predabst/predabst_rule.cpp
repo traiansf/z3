@@ -20,7 +20,7 @@ Revision History:
 #include "predabst_rule.h"
 
 namespace datalog {
-	expr_ref_vector rule_info::get_non_explicit_args() const {
+	expr_ref_vector rule_info::get_abstracted_args() const {
 		if (get_decl()) {
 			expr_ref_vector args(m);
 			for (unsigned i = 0; i < get_decl()->m_explicit_args.size(); ++i) {
@@ -34,16 +34,18 @@ namespace datalog {
 			return expr_ref_vector(m);
 		}
 	}
-	expr_ref_vector rule_info::get_non_explicit_args(unsigned i) const {
+
+	expr_ref_vector rule_info::get_abstracted_args(unsigned i) const {
 		CASSERT("predabst", get_decl(i));
 		expr_ref_vector args(m);
 		for (unsigned j = 0; j < get_decl(i)->m_explicit_args.size(); ++j) {
 			if (!get_decl(i)->m_explicit_args.get(j)) {
-				args.push_back(get_uninterp_tail(i)->get_arg(j));
+				args.push_back(get_symbol_tail(i)->get_arg(j));
 			}
 		}
 		return args;
 	}
+
 	expr_ref_vector rule_info::get_explicit_args() const {
 		if (get_decl()) {
 			expr_ref_vector args(m);
@@ -58,16 +60,18 @@ namespace datalog {
 			return expr_ref_vector(m);
 		}
 	}
+
 	expr_ref_vector rule_info::get_explicit_args(unsigned i) const {
 		CASSERT("predabst", get_decl(i));
 		expr_ref_vector args(m);
 		for (unsigned j = 0; j < get_decl(i)->m_explicit_args.size(); ++j) {
 			if (get_decl(i)->m_explicit_args.get(j)) {
-				args.push_back(get_uninterp_tail(i)->get_arg(j));
+				args.push_back(get_symbol_tail(i)->get_arg(j));
 			}
 		}
 		return args;
 	}
+
 	expr_ref_vector rule_info::get_body(bool substitute_template_params) const {
 		unsigned usz = m_rule->get_uninterpreted_tail_size();
 		unsigned tsz = m_rule->get_tail_size();
@@ -82,9 +86,10 @@ namespace datalog {
 		}
 		return body;
 	}
+
 	used_vars rule_info::get_used_vars() const {
-		used_vars used;
 		// The following is a clone of m_rule->get_used_vars(&used), which is unfortunately inaccessible.
+		used_vars used;
 		used.process(m_rule->get_head());
 		for (unsigned i = 0; i < m_rule->get_tail_size(); ++i) {
 			used.process(m_rule->get_tail(i));
@@ -92,58 +97,31 @@ namespace datalog {
 		return used;
 	}
 
-	// Returns a substitution vector mapping each variable used in r to a
-	// fresh constant.
-	static expr_ref_vector get_subst_vect_free(rule* r, char const* prefix, ast_manager& m) {
-		used_vars used;
-		// The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
-		used.process(r->get_head());
-		for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-			used.process(r->get_tail(i));
+	rule_info* make_rule_info(unsigned id, rule* r, obj_map<func_decl, symbol_info*> const& func_decl2symbol, obj_map<func_decl, template_info*> const& func_decl2template, ast_manager& m) {
+		symbol_info* head_symbol = NULL;
+		if (func_decl2symbol.contains(r->get_decl())) {
+			head_symbol = func_decl2symbol[r->get_decl()];
+		}
+		template_info* head_template = NULL;
+		if (func_decl2template.contains(r->get_decl())) {
+			head_template = func_decl2template[r->get_decl()];		
 		}
 
-		expr_ref_vector rule_subst(m);
-		rule_subst.reserve(used.get_max_found_var_idx_plus_1());
-		for (unsigned i = 0; i < used.get_max_found_var_idx_plus_1(); ++i) {
-			sort* s = used.get(i);
-			if (s) {
-				rule_subst[i] = m.mk_fresh_const(prefix, s);
-			}
-		}
-
-		return rule_subst;
-	}
-
-	rule_info* make_rule_info(unsigned id, rule* r, obj_map<func_decl, func_decl_info*> const& func_decl2info, ast_manager& m, subst_util& subst) {
-		func_decl_info* head_func_decl = NULL;
-		template_info* head_temp = NULL;
-		if (func_decl2info.contains(r->get_decl())) {
-			func_decl_info* fi = func_decl2info[r->get_decl()];
-			if (fi->m_template) {
-				head_temp = fi->m_template;
-			}
-			else {
-				head_func_decl = fi;
-			}
-		}
-
-		vector<func_decl_info*> tail_func_decls;
-		vector<template_info*> tail_temps;
-		vector<unsigned> uninterp_pos;
-		vector<unsigned> temp_pos;
+		vector<symbol_info*> tail_symbols;
+		vector<template_info*> tail_templates;
+		vector<unsigned> symbol_pos;
+		vector<unsigned> template_pos;
 		for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
-			CASSERT("predabst", func_decl2info.contains(r->get_decl(j)));
-			func_decl_info* fi = func_decl2info[r->get_decl(j)];
-			if (fi->m_template) {
-				tail_temps.push_back(fi->m_template);
-				temp_pos.push_back(j);
+			if (func_decl2symbol.contains(r->get_decl(j))) {
+				tail_symbols.push_back(func_decl2symbol[r->get_decl(j)]);
+				symbol_pos.push_back(j);
 			}
-			else {
-				tail_func_decls.push_back(fi);
-				uninterp_pos.push_back(j);
+			if (func_decl2template.contains(r->get_decl(j))) {
+				tail_templates.push_back(func_decl2template[r->get_decl(j)]);
+				template_pos.push_back(j);
 			}
 		}
 
-		return alloc(rule_info, id, r, head_func_decl, tail_func_decls, uninterp_pos, head_temp, tail_temps, temp_pos, get_subst_vect_free(r, "c", m), m, subst);
+		return alloc(rule_info, id, r, head_symbol, head_template, tail_symbols, tail_templates, symbol_pos, template_pos, m);
 	}
 }

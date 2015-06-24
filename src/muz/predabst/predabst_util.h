@@ -70,6 +70,17 @@ inline V vector_intersection(V const& v1, V const& v2) {
     return intersection;
 }
 
+// Returns true if v1 is a (possibly non-strict) subset of v2.
+template<typename V>
+static bool vector_subset(V const& v1, V const& v2) {
+	for (unsigned i = 0; i < v1.size(); ++i) {
+		if (!v2.contains(v1.get(i))) {
+			return false;
+		}
+	}
+	return true;
+}
+
 template<typename T>
 inline std::ostream& operator<<(std::ostream& out, vector<T> const& v) {
     for (unsigned i = 0; i < v.size(); ++i) {

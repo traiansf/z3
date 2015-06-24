@@ -3,15 +3,15 @@ Copyright (c) 2013 Microsoft Corporation
 
 Module Name:
 
-predabst_rule.h
+	predabst_rule.h
 
 Abstract:
 
-Predicate abstraction rule.
+	Predicate abstraction rule.
 
 Author:
 
-James Lingard (jchl) 2015-06-22
+	James Lingard (jchl) 2015-06-22
 
 Revision History:
 
@@ -97,6 +97,7 @@ namespace datalog {
 	struct symbol_info {
 		func_decl*               const m_fdecl;
 		bool                     const m_is_dwf;
+		expr_ref_vector          m_initial_preds;
 		expr_ref_vector          m_preds;
 		func_decl_ref_vector     m_var_names;
 		vector<bool>             m_explicit_args;
@@ -107,6 +108,7 @@ namespace datalog {
 		symbol_info(func_decl* fdecl, bool is_dwf, ast_manager& m) :
 			m_fdecl(fdecl),
 			m_is_dwf(is_dwf),
+			m_initial_preds(m),
 			m_preds(m),
 			m_var_names(m),
 			m_abstracted_vars(m),

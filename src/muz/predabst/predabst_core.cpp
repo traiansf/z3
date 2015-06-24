@@ -3,15 +3,15 @@ Copyright (c) 2013 Microsoft Corporation
 
 Module Name:
 
-predabst_core.cpp
+	predabst_core.cpp
 
 Abstract:
 
-Bounded PREDABST (symbolic simulation using Z3) core.
+	Bounded PREDABST (symbolic simulation using Z3) core.
 
 Author:
 
-Created by James Lingard (jchl) 2015-06-18.
+	Created by James Lingard (jchl) 2015-06-18.
 
 Revision History:
 

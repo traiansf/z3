@@ -19,6 +19,7 @@ Revision History:
 #include "predabst_util.h"
 #include "farkas_util.h"
 #include "predabst_rule.h"
+#include "predabst_input.h"
 #include "predabst_core.h"
 #include "predabst_context.h"
 #include "dl_context.h"
@@ -35,11 +36,6 @@ Revision History:
 #include "iz3interp.h"
 
 namespace datalog {
-
-	static void failwith(std::string msg) {
-		STRACE("predabst", tout << "Malformed input: " << msg << "\n";);
-		throw default_exception(msg);
-	}
 
     struct name_app {
         unsigned        m_name;
@@ -83,20 +79,11 @@ namespace datalog {
     typedef vector<core_clause_solution> core_clause_solutions; // ditto
 
     class predabst::imp {
-        struct stats : private predabst_core::stats {
+        struct stats : private predabst_core::stats, private predabst_input::stats {
             stats() { reset(); }
             void reset() { memset(this, 0, sizeof(*this)); }
-            // Statistics about the input.
-            unsigned m_num_predicate_symbols;
-            unsigned m_num_predicate_symbol_arguments;
-            unsigned m_num_explicit_arguments;
-            unsigned m_num_named_arguments;
-            unsigned m_num_template_params;
-            unsigned m_num_templates;
-            unsigned m_num_initial_predicates;
-            unsigned m_num_rules;
 
-            // Overall statistics.
+			// Overall statistics.
             unsigned m_num_refinement_iterations;
             unsigned m_num_template_instantiations;
 
@@ -106,15 +93,8 @@ namespace datalog {
 
 			void update(statistics& st) {
 				predabst_core::stats::update(st);
+				predabst_input::stats::update(st);
 #define UPDATE_STAT(NAME) st.update(#NAME, m_ ## NAME)
-				UPDATE_STAT(num_predicate_symbols);
-				UPDATE_STAT(num_predicate_symbol_arguments);
-				UPDATE_STAT(num_explicit_arguments);
-				UPDATE_STAT(num_named_arguments);
-				UPDATE_STAT(num_template_params);
-				UPDATE_STAT(num_templates);
-				UPDATE_STAT(num_initial_predicates);
-				UPDATE_STAT(num_rules);
 				UPDATE_STAT(num_refinement_iterations);
 				UPDATE_STAT(num_template_instantiations);
 				UPDATE_STAT(num_predicates_added);
@@ -129,18 +109,11 @@ namespace datalog {
         bool volatile                 m_cancel;      // Boolean flag to track external cancelation.
 		model_ref                     m_model;
         mutable stats                 m_stats;       // statistics information specific to the predabst module.
-
-		obj_map<func_decl, symbol_info*>    m_func_decl2symbol;
-		vector<symbol_info*>                m_symbols;
-		obj_map<func_decl, template_info*>  m_func_decl2template;
-		vector<template_info*>              m_templates;
-		vector<rule_info*>                  m_rules;
-		expr_ref                            m_template_extras;
 		
-		expr_ref_vector                     m_template_params;
-        expr_ref_vector                     m_template_param_values;
-	    expr_ref_vector                     m_template_constraint_vars;
-        expr_ref_vector                     m_template_constraints;
+		scoped_ptr<predabst_input>    m_input;
+        expr_ref_vector               m_template_param_values;
+	    expr_ref_vector               m_template_constraint_vars;
+        expr_ref_vector               m_template_constraints;
 
         struct core_tree_info {
             unsigned m_count;
@@ -149,8 +122,8 @@ namespace datalog {
         };
 
         struct core_tree_wf_info {
-            expr_ref         m_bound;
-            expr_ref         m_decrease;
+            expr_ref m_bound;
+            expr_ref m_decrease;
             core_tree_wf_info(ast_manager& m) :
                 m_bound(m),
                 m_decrease(m) {}
@@ -163,89 +136,22 @@ namespace datalog {
             m_fp_params(fp_params),
             m_cancel(false),
 			m_current_solver(NULL),
-            m_template_params(m),
             m_template_param_values(m),
-            m_template_extras(m),
             m_template_constraints(m),
             m_template_constraint_vars(m) {
 
             reg_decl_plugins(m);
         }
 
-        ~imp() {
-			for (unsigned i = 0; i < m_symbols.size(); ++i) {
-				dealloc(m_symbols[i]);
-			}
-			for (unsigned i = 0; i < m_rules.size(); ++i) {
-				dealloc(m_rules[i]);
-			}
-			for (unsigned i = 0; i < m_templates.size(); ++i) {
-				dealloc(m_templates[i]);
-			}
-        }
-
 		lbool query(rule_set& rules) {
-			find_all_func_decls(rules);
+			m_input = make_predabst_input(rules, m, m_subst, m_template_param_values, m_fp_params);
 
-			// Some of the rules are actually declarations of templates, extra
-			// constraints on templates, explicit argument lists, predicate
-			// lists, and argument name lists.  Find these, and remove them
-			// from the rule set.  Note that we must process the extra template
-			// constraints before the templates, in order that we know how many
-			// extra arguments each template has; we must process the templates
-			// before the explicit argument/argument name/predicate lists, in
-			// order to reject such lists for templated predicate symbols; we
-			// must process the explicit argument lists before the
-			// argument name/predicate lists, in order to reject both
-			// predicates that involve explicit arguments and names for
-			// explicit arguments; and we must process the argument name lists
-			// before the predicate lists, so that we can use the argument
-			// names to translate predicates from one predicate symbol to
-			// another.
-			process_special_rules(rules, is_template_extra, &imp::collect_template_extra);
-			process_special_rules(rules, is_template, &imp::collect_template);
-			process_special_rules(rules, is_explicit_arg_list, &imp::collect_explicit_arg_list);
-
-			for (unsigned i = 0; i < m_symbols.size(); ++i) {
-				symbol_info* si = m_symbols[i];
-				var_ref_vector vars = get_arg_vars(si->m_fdecl, m);
-				for (unsigned j = 0; j < vars.size(); ++j) {
-					if (si->m_explicit_args.get(j)) {
-						si->m_explicit_vars.push_back(vars.get(j));
-					}
-					else {
-						si->m_abstracted_vars.push_back(vars.get(j));
-					}
-				}
-
-				if (si->m_is_dwf) {
-					CASSERT("predabst", si->m_explicit_args.size() % 2 == 0);
-					unsigned n = si->m_explicit_args.size() / 2;
-					for (unsigned j = 0; j < n; ++j) {
-						if (si->m_explicit_args[j] != si->m_explicit_args[j + n]) {
-							failwith("DWF predicate symbol " + si->m_fdecl->get_name().str() + " has arguments " + to_string(j) + " and " + to_string(j + n) + " that are not both explicit or non-explicit");
-						}
-					}
+			for (unsigned i = 0; i < m_input->m_symbols.size(); ++i) {
+				symbol_info* si = m_input->m_symbols[i];
+				for (unsigned j = 0; j < si->m_initial_preds.size(); ++j) {
+					maybe_add_pred(si, expr_ref(si->m_initial_preds.get(j), m));
 				}
 			}
-
-			process_special_rules(rules, is_arg_name_list, &imp::collect_arg_name_list);
-			process_special_rules(rules, is_predicate_list, &imp::collect_predicate_list);
-
-			CASSERT("predabst", m_rules.empty());
-			for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
-				rule* r = rules.get_rule(i);
-				m_rules.push_back(make_rule_info(m_rules.size(), r, m_func_decl2symbol, m_func_decl2template, m));
-			}
-
-			for (unsigned i = 0; i < m_rules.size(); ++i) {
-				rule_info* ri = m_rules[i];
-				for (unsigned j = 0; j < ri->get_tail_size(); ++j) {
-					ri->get_decl(j)->m_users.insert(ri);
-                }
-            }
-
-            m_stats.m_num_rules = m_rules.size();
 
             lbool result = abstract_check_refine();
 //#ifdef Z3DEBUG
@@ -297,18 +203,6 @@ namespace datalog {
         }
 
     private:
-
-        // Returns true if v1 is a (possibly non-strict) subset of v2.
-        template<typename T>
-        static bool is_subset(T const& v1, T const& v2) {
-            for (unsigned i = 0; i < v1.size(); ++i) {
-                if (!v2.contains(v1.get(i))) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         // Returns a substitution vector (i.e. a vector indexed by variable
         // number) covering all the variables used by r, which maps the variables
         // used as head arguments to hvars, and maps all variables that do not
@@ -417,46 +311,6 @@ namespace datalog {
             return vector_concat(unification_terms, body_terms);
         }
 
-        static bool args_are_distinct_vars(app* a, var_ref_vector& vars) {
-            vector<bool> used;
-            for (unsigned i = 0; i < a->get_num_args(); ++i) {
-                if (!is_var(a->get_arg(i))) {
-                    return false;
-                }
-                unsigned idx = to_var(a->get_arg(i))->get_idx();
-                if (idx >= used.size()) {
-                    used.resize(idx + 1);
-                }
-                if (used.get(idx)) {
-                    return false;
-                }
-                used[idx] = true;
-                vars.push_back(to_var(a->get_arg(i)));
-            }
-            return true;
-        }
-
-        // Returns true if e contains any variables other than those in bound.
-        static bool has_free_vars(expr* e, var_ref_vector const& bound) {
-            if (is_var(e)) {
-                return !bound.contains(to_var(e));
-            }
-            if (is_app(e)) {
-                app* a = to_app(e);
-                for (unsigned i = 0; i < a->get_num_args(); ++i) {
-                    if (has_free_vars(a->get_arg(i), bound)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        }
-
-        // Returns true if e contains any variables.
-        bool has_vars(expr* e) const {
-            return has_free_vars(e, var_ref_vector(m));
-        }
-
         void set_logic(smt::kernel& solver) const {
             if (m_fp_params.solver_logic().bare_str()) { // >>> does this make sense?
                 bool result = solver.set_logic(m_fp_params.solver_logic());
@@ -464,463 +318,17 @@ namespace datalog {
             }
         }
 
-        static bool is_regular_predicate(func_decl const* fdecl) {
-            return !is_template_extra(fdecl) &&
-                !is_template(fdecl) &&
-                !is_explicit_arg_list(fdecl) &&
-                !is_explicit_arg(fdecl) &&
-                !is_predicate_list(fdecl) &&
-                !is_arg_name_list(fdecl) &&
-                !is_arg_name(fdecl);
-        }
-
-        void find_all_func_decls(rule_set const& rules) {
-            for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
-                rule* r = rules.get_rule(i);
-				func_decl* head_decl = r->get_decl();
-                if (is_regular_predicate(head_decl)) {
-					process_func_decl(rules, head_decl);
-
-					for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
-                        func_decl* body_decl = r->get_decl(j);
-						if (is_regular_predicate(body_decl)) {
-							process_func_decl(rules, body_decl);
-						}
-						else if (is_template_extra(body_decl)) {
-                            failwith("found extra template constraint in non-head position");
-                        }
-                        else if (is_template(body_decl)) {
-                            failwith("found template " + body_decl->get_name().str() + " in non-head position");
-                        }
-                        else if (is_explicit_arg_list(body_decl)) {
-                            failwith("found explicit argument list " + body_decl->get_name().str() + " in non-head position");
-                        }
-                        else if (is_predicate_list(body_decl)) {
-                            failwith("found predicate list " + body_decl->get_name().str() + " in non-head position");
-                        }
-                        else if (is_arg_name_list(body_decl)) {
-                            failwith("found argument name list " + body_decl->get_name().str() + " in non-head position");
-                        }
-						else if (is_explicit_arg(body_decl)) {
-							failwith("found explicit argument " + body_decl->get_name().str() + " in body of regular rule");
-						}
-						else if (is_arg_name(body_decl)) {
-                            failwith("found argument name " + body_decl->get_name().str() + " in body of regular rule");
-                        }
-						else {
-							UNREACHABLE();
-						}
-                    }
-                }
-				else if (is_explicit_arg(head_decl)) {
-					failwith("found explicit argument " + head_decl->get_name().str() + " in head position");
-                }
-				else if (is_arg_name(head_decl)) {
-					failwith("found argument name " + head_decl->get_name().str() + " in head position");
-                }
-            }
-        }
-
-        void process_func_decl(rule_set const& rules, func_decl *fdecl) {
-            CASSERT("predabst", is_regular_predicate(fdecl));
-            CASSERT("predabst", fdecl->get_range() == m.mk_bool_sort());
-            if (rules.is_output_predicate(fdecl)) {
-                return;
-            }
-
-            if (!m_func_decl2symbol.contains(fdecl)) {
-                bool is_dwf = is_dwf_predicate(fdecl);
-                if (is_dwf) {
-                    if (fdecl->get_arity() % 2 != 0) {
-                        failwith("DWF predicate symbol " + fdecl->get_name().str() + " has odd arity");
-                    }
-                    for (unsigned i = 0; i < fdecl->get_arity() / 2; ++i) {
-                        unsigned j = fdecl->get_arity() / 2 + i;
-                        if (fdecl->get_domain(i) != fdecl->get_domain(j)) {
-							failwith("DWF predicate symbol " + fdecl->get_name().str() + " has arguments " + to_string(i) + " and " + to_string(j) + " of unequal types");
-                        }
-                        // The following restriction may be removed in future.
-                        if (fdecl->get_domain(i) != arith_util(m).mk_int()) {
-                            failwith("DWF predicate symbol " + fdecl->get_name().str() + " has argument " + to_string(i) + " of non-integer type");
-                        }
-                    }
-                }
-
-				m_symbols.push_back(alloc(symbol_info, fdecl, is_dwf, m));
-                m_func_decl2symbol.insert(fdecl, m_symbols.back());
-                m_stats.m_num_predicate_symbols++;
-                m_stats.m_num_predicate_symbol_arguments += fdecl->get_arity();
-            }
-        }
-
-        bool is_dwf_predicate(func_decl const* pred) const {
-            return pred->get_name().str().substr(0, 7) == "__dwf__";
-        }
-
-        void process_special_rules(rule_set& rules, bool(*p)(func_decl const*), void (imp::*f)(rule const*)) {
-            ptr_vector<rule> to_delete;
-            for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
-                rule* r = rules.get_rule(i);
-                if (p(r->get_decl())) {
-                    (this->*f)(r);
-                    to_delete.push_back(r);
-                }
-            }
-
-            for (unsigned i = 0; i < to_delete.size(); ++i) {
-                rules.del_rule(to_delete[i]);
-            }
-        }
-
-        static bool is_template_extra(func_decl const* fdecl) {
-            return fdecl->get_name() == "__temp__extra__";
-        }
-
-        void collect_template_extra(rule const* r) {
-            CASSERT("predabst", is_template_extra(r->get_decl()));
-            // r is a rule of the form:
-            //  ??? => __temp__extra__
-            // Treat ??? as an extra template constraint.
-            func_decl* head_decl = r->get_decl();
-            STRACE("predabst", tout << "Found extra template constraint with " << head_decl->get_arity() << " parameters\n";);
-            CASSERT("predabst", r->get_decl()->get_range() == m.mk_bool_sort());
-
-            if (m_template_params.size() > 0) {
-                failwith("found multiple extra template constraints");
-            }
-
-            var_ref_vector args(m);
-            if (!args_are_distinct_vars(r->get_head(), args)) {
-                failwith("extra template constraint has invalid argument list");
-            }
-
-            if (r->get_uninterpreted_tail_size() != 0) {
-                failwith("extra template constraint has an uninterpreted tail");
-            }
-
-            // Replace the variables corresponding to the extra template parameters with fresh constants.
-            expr_ref_vector extra_params = get_arg_fresh_consts(r->get_decl(), "b", m);
-            expr_ref_vector extra_subst = m_subst.build(args, extra_params);
-            expr_ref extras = m_subst.apply(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
-            STRACE("predabst", tout << "  " << mk_pp(extras, m) << "\n";);
-
-            if (has_vars(extras)) {
-                failwith("extra template constraint has free variables");
-            }
-
-            CASSERT("predabst", m_template_params.empty());
-            m_template_params.swap(extra_params);
-            CASSERT("predabst", !m_template_extras);
-            m_template_extras = extras;
-            m_stats.m_num_template_params = m_template_params.size();
-        }
-
-        static bool is_template(func_decl const* fdecl) {
-            return (fdecl->get_name().str().substr(0, 8) == "__temp__") && !is_template_extra(fdecl);
-        }
-
-        void collect_template(rule const* r) {
-            CASSERT("predabst", is_template(r->get_decl()));
-            // r is a rule of the form:
-            //  ??? => __temp__SUFFIX
-            // Treat ??? as a template for predicate symbol SUFFIX.
-            func_decl* head_decl = r->get_decl();
-            symbol suffix(head_decl->get_name().str().substr(8).c_str());
-            if (suffix.str().empty()) {
-                failwith("found template for predicate symbol with zero-length name");
-            }
-
-            STRACE("predabst", tout << "Found template for predicate symbol " << suffix << "\n";);
-
-            unsigned num_extras = m_template_params.size();
-            if (head_decl->get_arity() < num_extras) {
-                failwith("template for " + suffix.str() + " has insufficient parameters");
-            }
-
-            unsigned new_arity = head_decl->get_arity() - num_extras;
-            for (unsigned i = 0; i < num_extras; ++i) {
-                if (head_decl->get_domain(new_arity + i) != to_app(m_template_params.get(i))->get_decl()->get_range()) {
-                    failwith("extra parameter " + to_string(i) + " to template for " + suffix.str() + " is of wrong type");
-                }
-            }
-
-            func_decl_ref suffix_decl(m.mk_func_decl(
-                suffix,
-                new_arity,
-                head_decl->get_domain(),
-                head_decl->get_range()), m);
-			if (m_func_decl2template.contains(suffix_decl)) {
-				failwith("found multiple templates for " + suffix.str());
-			}
-			if (!m_func_decl2symbol.contains(suffix_decl)) {
-                failwith("found template for non-existent predicate symbol " + suffix.str());
-            }
-
-            symbol_info* si = m_func_decl2symbol[suffix_decl];
-            if (si->m_is_dwf) {
-                failwith("found template for DWF predicate symbol " + suffix.str());
-            }
-
-            var_ref_vector args(m);
-            if (!args_are_distinct_vars(r->get_head(), args)) {
-                failwith("template for " + suffix.str() + " has invalid argument list");
-            }
-
-            if (r->get_uninterpreted_tail_size() != 0) {
-                failwith("template for " + suffix.str() + " has an uninterpreted tail");
-            }
-
-            var_ref_vector vars = get_arg_vars(r->get_decl(), m);
-            expr_ref_vector subst = m_subst.build(args, vars);
-            expr_ref_vector body(m);
-            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                if (has_free_vars(r->get_tail(i), args)) {
-                    failwith("template for " + suffix.str() + " has free variables");
-                }
-                body.push_back(m_subst.apply(r->get_tail(i), subst));
-            }
-            STRACE("predabst", tout << "  " << suffix_decl->get_name() << "(" << vars << ") := " << body << "\n";);
-            m_templates.push_back(alloc(template_info, suffix_decl, vars, body, m_template_params, m_template_param_values, m_subst));
-			m_func_decl2template.insert(suffix_decl, m_templates.back());
-			m_stats.m_num_templates++;
-
-			m_symbols.erase(si);
-			m_func_decl2symbol.remove(suffix_decl);
-		}
-
-        static bool is_explicit_arg_list(func_decl const* fdecl) {
-            return fdecl->get_name().str().substr(0, 11) == "__expargs__";
-        }
-
-        static bool is_explicit_arg(func_decl const* fdecl) {
-            return fdecl->get_name().str() == "__exparg__";
-        }
-
-        void collect_explicit_arg_list(rule const* r) {
-            CASSERT("predabst", is_explicit_arg_list(r->get_decl()));
-            // r is a rule of the form:
-            //   __exparg__(xi) AND ... AND __exparg__(xj) => __expargs__SUFFIX(x1, ..., xN)
-            // Treat xi,...,xj as explicit arguments for SUFFIX.
-            func_decl* head_decl = r->get_decl();
-            symbol suffix(head_decl->get_name().str().substr(11).c_str());
-            if (suffix.str().empty()) {
-                failwith("found explicit argument list for predicate symbol with zero-length name");
-            }
-
-            STRACE("predabst", tout << "Found explicit argument list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
-
-            func_decl_ref suffix_decl(m.mk_func_decl(
-                suffix,
-                head_decl->get_arity(),
-                head_decl->get_domain(),
-                head_decl->get_range()), m);
-			if (m_func_decl2template.contains(suffix_decl)) {
-				failwith("found explicit argument list for templated predicate symbol " + suffix.str());
-			}
-			if (!m_func_decl2symbol.contains(suffix_decl)) {
-                failwith("found explicit argument list for non-existent predicate symbol " + suffix.str());
-            }
-
-            symbol_info* si = m_func_decl2symbol[suffix_decl];
-
-            var_ref_vector args(m);
-            if (!args_are_distinct_vars(r->get_head(), args)) {
-                failwith("explicit argument list for " + suffix.str() + " has invalid argument list");
-            }
-
-            if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
-                failwith("explicit argument list for " + suffix.str() + " has an interpreted tail");
-            }
-
-            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                app_ref tail(r->get_tail(i), m);
-                if (!is_explicit_arg(tail->get_decl())) {
-                    failwith("explicit argument list for " + suffix.str() + " has unexpected predicate in uninterpreted tail");
-                }
-                CASSERT("predabst", tail->get_decl()->get_range() == m.mk_bool_sort());
-                if (tail->get_decl()->get_arity() != 1) {
-                    failwith("explicit argument list for " + suffix.str() + " has __exparg__ predicate of incorrect arity");
-                }
-                if (!is_var(tail->get_arg(0))) {
-                    failwith("explicit argument list for " + suffix.str() + " has __exparg__ predicate with non-variable argument");
-                }
-                var_ref v(to_var(tail->get_arg(0)), m);
-                if (!args.contains(v)) {
-                    failwith("explicit argument list for " + suffix.str() + " has __exparg__ predicate with argument that does not appear in the head");
-                }
-                unsigned j = vector_find(args, v.get());
-                if (si->m_explicit_args.get(j)) {
-                    failwith("explicit argument list for " + suffix.str() + " has duplicate __exparg__ declaration for argument " + to_string(j));
-                }
-                m_stats.m_num_explicit_arguments++;
-                if (m_fp_params.use_exp_eval()) {
-                    STRACE("predabst", tout << "Found explicit argument declaration for argument " << j << "\n";);
-                    si->m_explicit_args[j] = true;
-                }
-                else {
-                    STRACE("predabst", tout << "Ignoring explicit argument declaration for argument " << j << "\n";);
-                }
-            }
-        }
-
-        static bool is_arg_name_list(func_decl const* fdecl) {
-            return fdecl->get_name().str().substr(0, 9) == "__names__";
-        }
-
-        static bool is_arg_name(func_decl const* fdecl) {
-            return fdecl->get_name().str().substr(0, 8) == "__name__";
-        }
-
-        void collect_arg_name_list(rule const* r) {
-            CASSERT("predabst", is_arg_name_list(r->get_decl()));
-            // r is a rule of the form:
-            //   __name_a1(x1) AND ... AND __name_aN(xN) => __names__SUFFIX(x1, ..., xN)
-            // Treat a1..aN as the names of the arguments for SUFFIX.
-            func_decl* head_decl = r->get_decl();
-            symbol suffix(head_decl->get_name().str().substr(9).c_str());
-            if (suffix.str().empty()) {
-                failwith("found argument name list for predicate symbol with zero-length name");
-            }
-
-            STRACE("predabst", tout << "Found argument name list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
-
-            func_decl_ref suffix_decl(m.mk_func_decl(
-                suffix,
-                head_decl->get_arity(),
-                head_decl->get_domain(),
-                head_decl->get_range()), m);
-			if (m_func_decl2template.contains(suffix_decl)) {
-				failwith("found argument name list for templated predicate symbol " + suffix.str());
-			}
-			if (!m_func_decl2symbol.contains(suffix_decl)) {
-                failwith("found argument name list for non-existent predicate symbol " + suffix.str());
-            }
-
-            symbol_info* si = m_func_decl2symbol[suffix_decl];
-
-            var_ref_vector args(m);
-            if (!args_are_distinct_vars(r->get_head(), args)) {
-                failwith("argument name list for " + suffix.str() + " has invalid argument list");
-            }
-
-            if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
-                failwith("argument name list for " + suffix.str() + " has an interpreted tail");
-            }
-
-            for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-                app_ref tail(r->get_tail(i), m);
-                if (!is_arg_name(tail->get_decl())) {
-                    failwith("argument name list for " + suffix.str() + " has unexpected predicate in uninterpreted tail");
-                }
-                CASSERT("predabst", tail->get_decl()->get_range() == m.mk_bool_sort());
-                if (tail->get_decl()->get_arity() != 1) {
-                    failwith("argument name list for " + suffix.str() + " has __name__X predicate of incorrect arity");
-                }
-                if (!is_var(tail->get_arg(0))) {
-                    failwith("argument name list for " + suffix.str() + " has __name__X predicate with non-variable argument");
-                }
-                var_ref v(to_var(tail->get_arg(0)), m);
-                if (!args.contains(v)) {
-                    failwith("argument name list for " + suffix.str() + " has __name__X predicate with argument that does not appear in the head");
-                }
-                unsigned j = vector_find(args, v.get());
-                if (si->m_var_names.get(j)) {
-                    failwith("argument name list for " + suffix.str() + " has duplicate name for argument " + to_string(j));
-                }
-                symbol name(tail->get_decl()->get_name().str().substr(8).c_str());
-                if (name.str().empty()) {
-                    failwith("argument name list for " + suffix.str() + " has zero-length name for argument " + to_string(j));
-                }
-                func_decl_ref name_decl(m.mk_const_decl(name, args.get(j)->get_sort()), m);
-                if (si->m_var_names.contains(name_decl)) {
-                    failwith("argument name list for " + suffix.str() + " has non-unique name for argument " + to_string(j));
-                }
-                m_stats.m_num_named_arguments++;
-                if (si->m_explicit_args.get(j)) {
-                    STRACE("predabst", tout << "Ignoring name for explicit argument " << j << "\n";);
-                }
-                else {
-                    STRACE("predabst", tout << "Found name " << name << " for argument " << j << "\n";);
-                    si->m_var_names[j] = name_decl;
-                }
-            }
-        }
-
-		static bool is_predicate_list(func_decl const* fdecl) {
-			return fdecl->get_name().str().substr(0, 8) == "__pred__";
-		}
-
-		void collect_predicate_list(rule const* r) {
-			CASSERT("predabst", is_predicate_list(r->get_decl()));
-			// r is a rule of the form:
-			//   p1 AND ... AND pN => __pred__SUFFIX
-			// Treat p1...pN as initial predicates for predicate symbol SUFFIX.
-			func_decl* head_decl = r->get_decl();
-			symbol suffix(head_decl->get_name().str().substr(8).c_str());
-			if (suffix.str().empty()) {
-				failwith("found predicate list for predicate symbol with zero-length name");
-			}
-
-			STRACE("predabst", tout << "Found predicate list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
-
-			func_decl_ref suffix_decl(m.mk_func_decl(
-				suffix,
-				head_decl->get_arity(),
-				head_decl->get_domain(),
-				head_decl->get_range()), m);
-			if (m_func_decl2template.contains(suffix_decl)) {
-				failwith("found predicate list for templated predicate symbol " + suffix.str());
-			}
-			if (!m_func_decl2symbol.contains(suffix_decl)) {
-				failwith("found predicate list for non-existent predicate symbol " + suffix.str());
-			}
-
-			symbol_info* si = m_func_decl2symbol[suffix_decl];
-
-			var_ref_vector args(m);
-			if (!args_are_distinct_vars(r->get_head(), args)) {
-				failwith("predicate list for " + suffix.str() + " has invalid argument list");
-			}
-
-			var_ref_vector abstracted_args(m);
-			for (unsigned i = 0; i < args.size(); ++i) {
-				if (!si->m_explicit_args.get(i)) {
-					abstracted_args.push_back(args.get(i));
-				}
-			}
-
-			if (r->get_uninterpreted_tail_size() != 0) {
-				failwith("predicate list for " + suffix.str() + " has an uninterpreted tail");
-			}
-
-			// Add p1..pN to m_func_decl2symbol[SUFFIX].m_preds.
-			expr_ref_vector subst = m_subst.build(abstracted_args, si->m_abstracted_vars);
-			for (unsigned i = 0; i < r->get_tail_size(); ++i) {
-				if (has_free_vars(r->get_tail(i), args)) {
-					failwith("predicate for " + suffix.str() + " has free variables");
-				}
-				if (has_free_vars(r->get_tail(i), abstracted_args)) {
-					failwith("predicate for " + suffix.str() + " uses explicit arguments");
-				}
-
-				expr_ref pred = m_subst.apply(to_expr(r->get_tail(i)), subst);
-				STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
-				m_stats.m_num_initial_predicates++;
-				maybe_add_pred(si, pred);
-			}
-		}
-
 		model_ref make_model(predabst_core const& core) const {
 			model_ref md = alloc(model, m);
 			// templated predicate symbols are instantiated
-			for (unsigned i = 0; i < m_templates.size(); ++i) {
-				template_info const* ti = m_templates[i];
+			for (unsigned i = 0; i < m_input->m_templates.size(); ++i) {
+				template_info const* ti = m_input->m_templates[i];
 				expr_ref body = mk_conj(ti->get_body(ti->m_vars.c_ptr()));
 				register_decl(md, ti->m_fdecl, body);
 			}
 			// other predicate symbols are concretized
-			for (unsigned i = 0; i < m_symbols.size(); ++i) {
-				symbol_info const* si = m_symbols[i];
+			for (unsigned i = 0; i < m_input->m_symbols.size(); ++i) {
+				symbol_info const* si = m_input->m_symbols[i];
 				// Note that the generated model must be in terms of
 				// get_arg_vars(si->m_fdecl); we generate the model in terms of
 				// si->m_vars, which we assume to be the same.
@@ -931,8 +339,6 @@ namespace datalog {
 		}
 
         lbool abstract_check_refine() {
-            STRACE("predabst", print_initial_state(tout););
-
 			unsigned refine_count = 0;
 			while (true) {
 				if (!instantiate_templates()) {
@@ -940,7 +346,7 @@ namespace datalog {
 					return l_true;
 				}
 
-				predabst_core core(m_symbols, m_rules, m_fp_params, m);
+				predabst_core core(m_input->m_symbols, m_input->m_rules, m_fp_params, m);
 
 				// The only things that change on subsequent iterations of this loop are
 				// the predicate lists
@@ -1169,12 +575,12 @@ namespace datalog {
                         }
                         used_var_names.push_back(si->m_var_names.get(j));
                     }
-                    for (unsigned i = 0; i < m_symbols.size(); ++i) {
-                        symbol_info* fi2 = m_symbols[i];
+                    for (unsigned i = 0; i < m_input->m_symbols.size(); ++i) {
+                        symbol_info* fi2 = m_input->m_symbols[i];
                         if (fi2 == si) {
                             continue;
                         }
-                        if (is_subset(used_var_names, fi2->m_var_names)) {
+                        if (vector_subset(used_var_names, fi2->m_var_names)) {
                             var_ref_vector used_vars2(m);
                             for (unsigned j = 0; j < used_var_names.size(); ++j) {
                                 unsigned k = vector_find(fi2->m_var_names, used_var_names.get(j));
@@ -1199,7 +605,7 @@ namespace datalog {
 
         void constrain_templates(node_info const* error_node, expr_ref_vector const& error_args, counterexample_kind error_kind) {
             expr_ref cs = mk_leaves(error_node, error_args, false);
-            quantifier_elimination(vector_concat(error_args, m_template_params), cs);
+            quantifier_elimination(vector_concat(error_args, m_input->m_template_params), cs);
 
             expr_ref to_solve(m);
             if (error_kind == reached_query) {
@@ -1218,19 +624,19 @@ namespace datalog {
             for (unsigned i = 0; i < error_args.size(); ++i) {
                 evars.erase(error_args.get(i));
             }
-            for (unsigned i = 0; i < m_template_params.size(); ++i) {
-                evars.erase(m_template_params.get(i));
+            for (unsigned i = 0; i < m_input->m_template_params.size(); ++i) {
+                evars.erase(m_input->m_template_params.get(i));
             }
 
             m_template_constraint_vars.append(error_args);
             m_template_constraint_vars.append(evars);
         }
 
-        expr_ref template_constraint_reached_query(expr_ref cs) {
+        expr_ref template_constraint_reached_query(expr_ref const& cs) {
             return expr_ref(m.mk_not(cs), m);
         }
 
-        expr_ref template_constraint_not_wf(expr_ref_vector const& args, expr_ref cs) {
+        expr_ref template_constraint_not_wf(expr_ref_vector const& args, expr_ref const& cs) {
             expr_ref bound(m);
             expr_ref decrease(m);
             well_founded_bound_and_decrease(args, bound, decrease);
@@ -1635,8 +1041,8 @@ namespace datalog {
             smt_params new_param;
             smt::kernel solver(m, new_param);
             set_logic(solver);
-            if (m_template_extras) {
-                solver.assert_expr(m_template_extras);
+            if (m_input->m_template_extras) {
+                solver.assert_expr(m_input->m_template_extras);
             }
             for (unsigned i = 0; i < constraints.size(); ++i) {
                 solver.assert_expr(constraints.get(i));
@@ -1652,8 +1058,8 @@ namespace datalog {
             solver.get_model(modref);
 
             m_template_param_values.reset();
-            for (unsigned i = 0; i < m_template_params.size(); ++i) {
-                expr_ref param(m_template_params.get(i), m);
+            for (unsigned i = 0; i < m_input->m_template_params.size(); ++i) {
+                expr_ref param(m_input->m_template_params.get(i), m);
                 expr_ref param_value(m);
                 if (!modref->eval(param, param_value, true)) {
                     return false;
@@ -1678,35 +1084,12 @@ namespace datalog {
             }
         }
 
-        void print_initial_state(std::ostream& out) const {
-            out << "=====================================\n";
-            out << "Initial state:\n";
-			out << "  Symbols:" << std::endl;
-			for (unsigned i = 0; i < m_symbols.size(); ++i) {
-				symbol_info const* si = m_symbols[i];
-				out << "    " << si << " is used by rules " << si->m_users << std::endl;
-			}
-			out << "  Templates:" << std::endl;
-			for (unsigned i = 0; i < m_templates.size(); ++i) {
-				template_info const* ti = m_templates[i];
-				out << "    " << ti << "(" << ti->m_vars << ") := " << ti->m_body << std::endl;
-			}
-            out << "  Rules:" << std::endl;
-            for (unsigned i = 0; i < m_rules.size(); ++i) {
-				rule_info const* ri = m_rules[i];
-				out << "    " << ri << ": ";
-                ri->display_smt2(out);
-                out << std::endl;
-            }
-            out << "=====================================\n";
-        }
-
 		void print_refinement_state(std::ostream& out, unsigned refine_count) const {
 			out << "=====================================\n";
 			out << "State before refinement step " << refine_count << ":\n";
 			out << "  Symbols:" << std::endl;
-			for (unsigned i = 0; i < m_symbols.size(); ++i) {
-				symbol_info const* si = m_symbols[i];
+			for (unsigned i = 0; i < m_input->m_symbols.size(); ++i) {
+				symbol_info const* si = m_input->m_symbols[i];
 				out << "    " << si << " has ";
 				if (si->m_preds.empty()) {
 					out << "no ";
@@ -1714,9 +1097,9 @@ namespace datalog {
 				out << "predicates " << si->m_preds << std::endl;
 			}
 			out << "  Template parameter instances:" << std::endl;
-			CASSERT("predabst", m_template_params.size() == m_template_param_values.size());
-			for (unsigned i = 0; i < m_template_params.size(); ++i) {
-				expr* param = m_template_params.get(i);
+			CASSERT("predabst", m_input->m_template_params.size() == m_template_param_values.size());
+			for (unsigned i = 0; i < m_input->m_template_params.size(); ++i) {
+				expr* param = m_input->m_template_params.get(i);
 				expr* param_value = m_template_param_values.get(i);
 				out << "    " << i << ": " << mk_pp(param, m) << " := " << mk_pp(param_value, m) << std::endl;
 			}

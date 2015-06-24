@@ -3,15 +3,15 @@ Copyright (c) 2013 Microsoft Corporation
 
 Module Name:
 
-predabst_core.h
+	predabst_core.h
 
 Abstract:
 
-Predicate abstraction core.
+	Predicate abstraction core.
 
 Author:
 
-James Lingard (jchl) 2015-06-22
+	James Lingard (jchl) 2015-06-22
 
 Revision History:
 
@@ -59,8 +59,8 @@ namespace datalog {
 		struct stats {
 			stats() { reset(); }
 			void reset() { memset(this, 0, sizeof(*this)); }
-			// Statistics about rule pre-processing.  Note that these are
-			// cumulative over all template refinement iterations.
+
+			// Statistics about rule pre-processing.
 			unsigned m_num_head_predicates;
 			unsigned m_num_body_predicates;
 			unsigned m_num_true_predicates;

@@ -3,15 +3,15 @@ Copyright (c) 2013 Microsoft Corporation
 
 Module Name:
 
-predabst_rule.cpp
+	predabst_rule.cpp
 
 Abstract:
 
-Bounded PREDABST (symbolic simulation using Z3) rule.
+	Bounded PREDABST (symbolic simulation using Z3) rule.
 
 Author:
 
-Created by James Lingard (jchl) 2015-06-22.
+	Created by James Lingard (jchl) 2015-06-22.
 
 Revision History:
 

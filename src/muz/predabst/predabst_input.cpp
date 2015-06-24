@@ -28,16 +28,25 @@ namespace datalog {
 		throw default_exception(msg);
 	}
 
+	static bool startswith(symbol const& sym, std::string prefix) {
+		return sym.str().substr(0, prefix.size()) == prefix;
+	}
+
+	static symbol strip_prefix(symbol const& sym, std::string prefix) {
+		CASSERT("predabst", startswith(sym, prefix));
+		return symbol(sym.str().substr(prefix.size()).c_str());
+	}
+
 	class builder {
 		predabst_input*                     m_input;
 		obj_map<func_decl, symbol_info*>    m_func_decl2symbol;
 		obj_map<func_decl, template_info*>  m_func_decl2template;
 		predabst_input::stats               m_stats;
-		subst_util&                         m_subst;
+		subst_util&                         m_subst; // >>> doesn't need to be a ref?
 		ast_manager&                        m;
 
 		expr_ref_vector const&              m_template_param_values; // >>> doesn't belong here?
-		fixedpoint_params const&            m_fp_params;
+		fixedpoint_params const&            m_fp_params; // >>> doesn't belong here?
 
 	public:
 		builder(ast_manager& m, subst_util& subst, expr_ref_vector const& template_param_values, fixedpoint_params const& fp_params) :
@@ -51,7 +60,7 @@ namespace datalog {
 		void convert_input(rule_set& rules, predabst_input* input) {
 			m_input = input;
 
-			find_all_func_decls(rules);
+			find_all_symbols(rules);
 
 			// Some of the rules are actually declarations of templates, extra
 			// constraints on templates, explicit argument lists, predicate
@@ -117,21 +126,21 @@ namespace datalog {
 		}
 
 	private:
+		// Returns true if the arguments to a are all distinct variables, in
+		// which case vars is filled with those variables.
 		static bool args_are_distinct_vars(app* a, var_ref_vector& vars) {
-			vector<bool> used;
+			CASSERT("predabst", vars.empty());
+			ast_mark mark;
 			for (unsigned i = 0; i < a->get_num_args(); ++i) {
-				if (!is_var(a->get_arg(i))) {
+				expr* e = a->get_arg(i);
+				if (!is_var(e)) {
 					return false;
 				}
-				unsigned idx = to_var(a->get_arg(i))->get_idx();
-				if (idx >= used.size()) {
-					used.resize(idx + 1);
-				}
-				if (used.get(idx)) {
+				if (mark.is_marked(e)) {
 					return false;
 				}
-				used[idx] = true;
-				vars.push_back(to_var(a->get_arg(i)));
+				mark.mark(e, true);
+				vars.push_back(to_var(e));
 			}
 			return true;
 		}
@@ -162,22 +171,22 @@ namespace datalog {
 				!is_template(fdecl) &&
 				!is_explicit_arg_list(fdecl) &&
 				!is_explicit_arg(fdecl) &&
-				!is_predicate_list(fdecl) &&
 				!is_arg_name_list(fdecl) &&
-				!is_arg_name(fdecl);
+				!is_arg_name(fdecl) &&
+				!is_predicate_list(fdecl);
 		}
 
-		void find_all_func_decls(rule_set const& rules) {
+		void find_all_symbols(rule_set const& rules) {
 			for (unsigned i = 0; i < rules.get_num_rules(); ++i) {
 				rule* r = rules.get_rule(i);
 				func_decl* head_decl = r->get_decl();
 				if (is_regular_predicate(head_decl)) {
-					process_func_decl(rules, head_decl);
+					process_symbol(rules, head_decl);
 
 					for (unsigned j = 0; j < r->get_uninterpreted_tail_size(); ++j) {
 						func_decl* body_decl = r->get_decl(j);
 						if (is_regular_predicate(body_decl)) {
-							process_func_decl(rules, body_decl);
+							process_symbol(rules, body_decl);
 						}
 						else if (is_template_extra(body_decl)) {
 							failwith("found extra template constraint in non-head position");
@@ -214,7 +223,7 @@ namespace datalog {
 			}
 		}
 
-		void process_func_decl(rule_set const& rules, func_decl *fdecl) {
+		void process_symbol(rule_set const& rules, func_decl *fdecl) {
 			CASSERT("predabst", is_regular_predicate(fdecl));
 			CASSERT("predabst", fdecl->get_range() == m.mk_bool_sort());
 			if (rules.is_output_predicate(fdecl)) {
@@ -246,8 +255,8 @@ namespace datalog {
 			}
 		}
 
-		bool is_dwf_predicate(func_decl const* pred) const {
-			return pred->get_name().str().substr(0, 7) == "__dwf__";
+		bool is_dwf_predicate(func_decl const* fdecl) const {
+			return startswith(fdecl->get_name(), "__dwf__");
 		}
 
 		void process_special_rules(rule_set& rules, bool(*p)(func_decl const*), void (builder::*f)(rule const*)) {
@@ -278,7 +287,7 @@ namespace datalog {
 			STRACE("predabst", tout << "Found extra template constraint with " << head_decl->get_arity() << " parameters\n";);
 			CASSERT("predabst", head_decl->get_range() == m.mk_bool_sort());
 
-			if (m_input->m_template_params.size() > 0) {
+			if (!m_input->m_template_params.empty()) {
 				failwith("found multiple extra template constraints");
 			}
 
@@ -309,7 +318,7 @@ namespace datalog {
 		}
 
 		static bool is_template(func_decl const* fdecl) {
-			return (fdecl->get_name().str().substr(0, 8) == "__temp__") && !is_template_extra(fdecl);
+			return startswith(fdecl->get_name(), "__temp__") && !is_template_extra(fdecl);
 		}
 
 		void collect_template(rule const* r) {
@@ -318,12 +327,12 @@ namespace datalog {
 			//  ??? => __temp__SUFFIX
 			// Treat ??? as a template for predicate symbol SUFFIX.
 			func_decl* head_decl = r->get_decl();
-			symbol suffix(head_decl->get_name().str().substr(8).c_str());
+			symbol suffix = strip_prefix(head_decl->get_name(), "__temp__");
 			if (suffix.str().empty()) {
 				failwith("found template for predicate symbol with zero-length name");
 			}
 
-			STRACE("predabst", tout << "Found template for predicate symbol " << suffix << "\n";);
+			STRACE("predabst", tout << "Found template for predicate symbol " << suffix << "(" << get_args_vector(r->get_head(), m) << ")\n";);
 
 			unsigned num_extras = m_input->m_template_params.size();
 			if (head_decl->get_arity() < num_extras) {
@@ -382,26 +391,13 @@ namespace datalog {
 			dealloc(si);
 		}
 
-		static bool is_explicit_arg_list(func_decl const* fdecl) {
-			return fdecl->get_name().str().substr(0, 11) == "__expargs__";
-		}
-
-		static bool is_explicit_arg(func_decl const* fdecl) {
-			return fdecl->get_name().str() == "__exparg__";
-		}
-
-		void collect_explicit_arg_list(rule const* r) {
-			CASSERT("predabst", is_explicit_arg_list(r->get_decl()));
-			// r is a rule of the form:
-			//   __exparg__(xi) AND ... AND __exparg__(xj) => __expargs__SUFFIX(x1, ..., xN)
-			// Treat xi,...,xj as explicit arguments for SUFFIX.
+		symbol_info* process_symbol_metadata_decl(rule const* r, symbol suffix, std::string metadata_name, var_ref_vector& args) {
 			func_decl* head_decl = r->get_decl();
-			symbol suffix(head_decl->get_name().str().substr(11).c_str());
 			if (suffix.str().empty()) {
-				failwith("found explicit argument list for predicate symbol with zero-length name");
+				failwith("found " + metadata_name + " for predicate symbol with zero-length name");
 			}
 
-			STRACE("predabst", tout << "Found explicit argument list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
+			STRACE("predabst", tout << "Found " << metadata_name << " for predicate symbol " << suffix << "(" << get_args_vector(r->get_head(), m) << ")\n";);
 
 			func_decl_ref suffix_decl(m.mk_func_decl(
 				suffix,
@@ -409,18 +405,34 @@ namespace datalog {
 				head_decl->get_domain(),
 				head_decl->get_range()), m);
 			if (m_func_decl2template.contains(suffix_decl)) {
-				failwith("found explicit argument list for templated predicate symbol " + suffix.str());
+				failwith("found " + metadata_name + " for templated predicate symbol " + suffix.str());
 			}
 			if (!m_func_decl2symbol.contains(suffix_decl)) {
-				failwith("found explicit argument list for non-existent predicate symbol " + suffix.str());
+				failwith("found " + metadata_name + " for non-existent predicate symbol " + suffix.str());
 			}
-
-			symbol_info* si = m_func_decl2symbol[suffix_decl];
-
-			var_ref_vector args(m);
 			if (!args_are_distinct_vars(r->get_head(), args)) {
-				failwith("explicit argument list for " + suffix.str() + " has invalid argument list");
+				failwith(metadata_name + " for " + suffix.str() + " has invalid argument list");
 			}
+
+			return m_func_decl2symbol[suffix_decl];
+		}
+
+		static bool is_explicit_arg_list(func_decl const* fdecl) {
+			return startswith(fdecl->get_name(), "__expargs__");
+		}
+
+		static bool is_explicit_arg(func_decl const* fdecl) {
+			return fdecl->get_name() == "__exparg__";
+		}
+
+		void collect_explicit_arg_list(rule const* r) {
+			CASSERT("predabst", is_explicit_arg_list(r->get_decl()));
+			// r is a rule of the form:
+			//   __exparg__(xi) AND ... AND __exparg__(xj) => __expargs__SUFFIX(x1, ..., xN)
+			// Treat xi,...,xj as explicit arguments for SUFFIX.
+			symbol suffix = strip_prefix(r->get_decl()->get_name(), "__expargs__");
+			var_ref_vector args(m);
+			symbol_info* si = process_symbol_metadata_decl(r, suffix, "explicit argument list", args);
 
 			if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
 				failwith("explicit argument list for " + suffix.str() + " has an interpreted tail");
@@ -458,11 +470,11 @@ namespace datalog {
 		}
 
 		static bool is_arg_name_list(func_decl const* fdecl) {
-			return fdecl->get_name().str().substr(0, 9) == "__names__";
+			return startswith(fdecl->get_name(), "__names__");
 		}
 
 		static bool is_arg_name(func_decl const* fdecl) {
-			return fdecl->get_name().str().substr(0, 8) == "__name__";
+			return startswith(fdecl->get_name(), "__name__");
 		}
 
 		void collect_arg_name_list(rule const* r) {
@@ -470,32 +482,9 @@ namespace datalog {
 			// r is a rule of the form:
 			//   __name_a1(x1) AND ... AND __name_aN(xN) => __names__SUFFIX(x1, ..., xN)
 			// Treat a1..aN as the names of the arguments for SUFFIX.
-			func_decl* head_decl = r->get_decl();
-			symbol suffix(head_decl->get_name().str().substr(9).c_str());
-			if (suffix.str().empty()) {
-				failwith("found argument name list for predicate symbol with zero-length name");
-			}
-
-			STRACE("predabst", tout << "Found argument name list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
-
-			func_decl_ref suffix_decl(m.mk_func_decl(
-				suffix,
-				head_decl->get_arity(),
-				head_decl->get_domain(),
-				head_decl->get_range()), m);
-			if (m_func_decl2template.contains(suffix_decl)) {
-				failwith("found argument name list for templated predicate symbol " + suffix.str());
-			}
-			if (!m_func_decl2symbol.contains(suffix_decl)) {
-				failwith("found argument name list for non-existent predicate symbol " + suffix.str());
-			}
-
-			symbol_info* si = m_func_decl2symbol[suffix_decl];
-
+			symbol suffix = strip_prefix(r->get_decl()->get_name(), "__names__");
 			var_ref_vector args(m);
-			if (!args_are_distinct_vars(r->get_head(), args)) {
-				failwith("argument name list for " + suffix.str() + " has invalid argument list");
-			}
+			symbol_info* si = process_symbol_metadata_decl(r, suffix, "argument name list", args);
 
 			if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
 				failwith("argument name list for " + suffix.str() + " has an interpreted tail");
@@ -521,7 +510,7 @@ namespace datalog {
 				if (si->m_var_names.get(j)) {
 					failwith("argument name list for " + suffix.str() + " has duplicate name for argument " + to_string(j));
 				}
-				symbol name(tail->get_decl()->get_name().str().substr(8).c_str());
+				symbol name = strip_prefix(tail->get_decl()->get_name(), "__name__");
 				if (name.str().empty()) {
 					failwith("argument name list for " + suffix.str() + " has zero-length name for argument " + to_string(j));
 				}
@@ -541,7 +530,7 @@ namespace datalog {
 		}
 
 		static bool is_predicate_list(func_decl const* fdecl) {
-			return fdecl->get_name().str().substr(0, 8) == "__pred__";
+			return startswith(fdecl->get_name(), "__pred__");
 		}
 
 		void collect_predicate_list(rule const* r) {
@@ -549,31 +538,12 @@ namespace datalog {
 			// r is a rule of the form:
 			//   p1 AND ... AND pN => __pred__SUFFIX
 			// Treat p1...pN as initial predicates for predicate symbol SUFFIX.
-			func_decl* head_decl = r->get_decl();
-			symbol suffix(head_decl->get_name().str().substr(8).c_str());
-			if (suffix.str().empty()) {
-				failwith("found predicate list for predicate symbol with zero-length name");
-			}
-
-			STRACE("predabst", tout << "Found predicate list for predicate symbol " << suffix << "(" << expr_ref_vector(m, r->get_head()->get_num_args(), r->get_head()->get_args()) << ")\n";);
-
-			func_decl_ref suffix_decl(m.mk_func_decl(
-				suffix,
-				head_decl->get_arity(),
-				head_decl->get_domain(),
-				head_decl->get_range()), m);
-			if (m_func_decl2template.contains(suffix_decl)) {
-				failwith("found predicate list for templated predicate symbol " + suffix.str());
-			}
-			if (!m_func_decl2symbol.contains(suffix_decl)) {
-				failwith("found predicate list for non-existent predicate symbol " + suffix.str());
-			}
-
-			symbol_info* si = m_func_decl2symbol[suffix_decl];
-
+			symbol suffix = strip_prefix(r->get_decl()->get_name(), "__pred__");
 			var_ref_vector args(m);
-			if (!args_are_distinct_vars(r->get_head(), args)) {
-				failwith("predicate list for " + suffix.str() + " has invalid argument list");
+			symbol_info* si = process_symbol_metadata_decl(r, suffix, "predicate list", args);
+
+			if (r->get_uninterpreted_tail_size() != 0) {
+				failwith("predicate list for " + suffix.str() + " has an uninterpreted tail");
 			}
 
 			var_ref_vector abstracted_args(m);
@@ -582,13 +552,9 @@ namespace datalog {
 					abstracted_args.push_back(args.get(i));
 				}
 			}
-
-			if (r->get_uninterpreted_tail_size() != 0) {
-				failwith("predicate list for " + suffix.str() + " has an uninterpreted tail");
-			}
-
-			// Add p1..pN to m_func_decl2symbol[SUFFIX].m_preds.
 			expr_ref_vector subst = m_subst.build(abstracted_args, si->m_abstracted_vars);
+
+			// Add p1..pN to si->m_initial_preds.
 			for (unsigned i = 0; i < r->get_tail_size(); ++i) {
 				if (has_free_vars(r->get_tail(i), args)) {
 					failwith("predicate for " + suffix.str() + " has free variables");

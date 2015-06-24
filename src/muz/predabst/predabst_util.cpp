@@ -248,6 +248,10 @@ expr_ref_vector get_all_vars(expr_ref const& fml) {
     return vars;
 }
 
+expr_ref_vector get_args_vector(app* a, ast_manager& m) {
+	return expr_ref_vector(m, a->get_num_args(), a->get_args());
+}
+
 // Returns a vector of fresh constants of the right type to be arguments to fdecl.
 expr_ref_vector get_arg_fresh_consts(func_decl* fdecl, char const* prefix, ast_manager& m) {
 	expr_ref_vector args(m);

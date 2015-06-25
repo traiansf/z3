@@ -279,10 +279,10 @@ namespace datalog {
 		}
 
 		void collect_template_extra(rule const* r) {
-			CASSERT("predabst", is_template_extra(r->get_decl()));
 			// r is a rule of the form:
-			//  ??? => __temp__extra__
-			// Treat ??? as an extra template constraint.
+			//  ??? => __temp__extra__(x1, ..., xN)
+			// Treat x1...xN as the extra template parameters, and ??? as a
+			// constraint on the values of those parameters.
 			func_decl* head_decl = r->get_decl();
 			STRACE("predabst", tout << "Found extra template constraint with " << head_decl->get_arity() << " parameters\n";);
 			CASSERT("predabst", head_decl->get_range() == m.mk_bool_sort());
@@ -322,7 +322,6 @@ namespace datalog {
 		}
 
 		void collect_template(rule const* r) {
-			CASSERT("predabst", is_template(r->get_decl()));
 			// r is a rule of the form:
 			//  ??? => __temp__SUFFIX
 			// Treat ??? as a template for predicate symbol SUFFIX.
@@ -391,7 +390,7 @@ namespace datalog {
 			dealloc(si);
 		}
 
-		symbol_info* process_symbol_metadata_decl(rule const* r, symbol suffix, std::string metadata_name, var_ref_vector& args) {
+		symbol_info* process_symbol_metadata_rule(rule const* r, symbol suffix, std::string metadata_name, var_ref_vector& args) const {
 			func_decl* head_decl = r->get_decl();
 			if (suffix.str().empty()) {
 				failwith("found " + metadata_name + " for predicate symbol with zero-length name");
@@ -426,13 +425,12 @@ namespace datalog {
 		}
 
 		void collect_explicit_arg_list(rule const* r) {
-			CASSERT("predabst", is_explicit_arg_list(r->get_decl()));
 			// r is a rule of the form:
 			//   __exparg__(xi) AND ... AND __exparg__(xj) => __expargs__SUFFIX(x1, ..., xN)
-			// Treat xi,...,xj as explicit arguments for SUFFIX.
+			// Treat xi...xj as explicit arguments for predicate symbol SUFFIX.
 			symbol suffix = strip_prefix(r->get_decl()->get_name(), "__expargs__");
 			var_ref_vector args(m);
-			symbol_info* si = process_symbol_metadata_decl(r, suffix, "explicit argument list", args);
+			symbol_info* si = process_symbol_metadata_rule(r, suffix, "explicit argument list", args);
 
 			if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
 				failwith("explicit argument list for " + suffix.str() + " has an interpreted tail");
@@ -480,11 +478,11 @@ namespace datalog {
 		void collect_arg_name_list(rule const* r) {
 			CASSERT("predabst", is_arg_name_list(r->get_decl()));
 			// r is a rule of the form:
-			//   __name_a1(x1) AND ... AND __name_aN(xN) => __names__SUFFIX(x1, ..., xN)
-			// Treat a1..aN as the names of the arguments for SUFFIX.
+			//   __name__a1(xi) AND ... AND __name__aN(xj) => __names__SUFFIX(x1, ..., xN)
+			// Treat a1...aN as the names of the arguments xi..xj to predicate symbol SUFFIX.
 			symbol suffix = strip_prefix(r->get_decl()->get_name(), "__names__");
 			var_ref_vector args(m);
-			symbol_info* si = process_symbol_metadata_decl(r, suffix, "argument name list", args);
+			symbol_info* si = process_symbol_metadata_rule(r, suffix, "argument name list", args);
 
 			if (r->get_tail_size() != r->get_uninterpreted_tail_size()) {
 				failwith("argument name list for " + suffix.str() + " has an interpreted tail");
@@ -540,7 +538,7 @@ namespace datalog {
 			// Treat p1...pN as initial predicates for predicate symbol SUFFIX.
 			symbol suffix = strip_prefix(r->get_decl()->get_name(), "__pred__");
 			var_ref_vector args(m);
-			symbol_info* si = process_symbol_metadata_decl(r, suffix, "predicate list", args);
+			symbol_info* si = process_symbol_metadata_rule(r, suffix, "predicate list", args);
 
 			if (r->get_uninterpreted_tail_size() != 0) {
 				failwith("predicate list for " + suffix.str() + " has an uninterpreted tail");

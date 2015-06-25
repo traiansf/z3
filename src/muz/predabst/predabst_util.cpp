@@ -18,7 +18,6 @@ Revision History:
 --*/
 #include "predabst_util.h"
 #include "arith_decl_plugin.h"
-#include "ast_pp.h"
 #include "smt_kernel.h"
 #include "smt_params.h"
 #include "qe_lite.h"
@@ -281,10 +280,10 @@ void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
             q_vars.push_back(to_app(all_vars.get(i)));
         }
     }
-    STRACE("predabst", tout << "Eliminating existentials " << q_vars << " from " << mk_pp(fml, m) << " in variables " << vars << " ...\n";);
+    STRACE("predabst", tout << "Eliminating existentials " << q_vars << " from " << fml << " in variables " << vars << " ...\n";);
     qe_lite ql(m);
     ql(q_vars, fml);
-    STRACE("predabst", tout << "... produces " << mk_pp(fml, m) << "\n";);
+    STRACE("predabst", tout << "... produces " << fml << "\n";);
     if (!q_vars.empty()) {
         STRACE("predabst", tout << "Note: failed to eliminate " << q_vars << "\n";);
     }

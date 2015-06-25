@@ -70,7 +70,7 @@ namespace datalog {
             m_head(head),
             m_body(body) {}
         friend std::ostream& operator<<(std::ostream& out, core_clause_solution const& solution) {
-            out << solution.m_head << " := " << mk_pp(solution.m_body, solution.m_body.m());
+            out << solution.m_head << " := " << solution.m_body;
             return out;
         }
     };
@@ -190,7 +190,7 @@ namespace datalog {
             // TBD hmm?
             STRACE("predabst", tout << "inside display_certificate\n";);
             expr_ref ans = get_answer();
-            out << mk_pp(ans, m) << "\n";
+            out << ans << "\n";
         }
 
         expr_ref get_answer() const {
@@ -552,11 +552,11 @@ namespace datalog {
         unsigned maybe_add_pred(symbol_info* si, expr_ref const& p) {
             expr_ref pred = normalize_pred(p, si->m_abstracted_vars);
             if (m.is_true(pred) || m.is_false(pred)) {
-                STRACE("predabst", tout << "Ignoring predicate " << mk_pp(pred, m) << " for " << si << "\n";);
+                STRACE("predabst", tout << "Ignoring predicate " << pred << " for " << si << "\n";);
                 return 0;
             }
             else if (si->m_preds.contains(pred)) {
-                STRACE("predabst", tout << "Predicate " << mk_pp(pred, m) << " for " << si << " is already present\n";);
+                STRACE("predabst", tout << "Predicate " << pred << " for " << si << " is already present\n";);
                 return 0;
             }
             else {
@@ -567,10 +567,10 @@ namespace datalog {
                     var_ref_vector used_vars = to_vars(get_all_vars(pred));
                     func_decl_ref_vector used_var_names(m);
                     for (unsigned i = 0; i < used_vars.size(); ++i) {
-                        CASSERT("predabst", is_var(used_vars.get(i)));
-                        unsigned j = used_vars.get(i)->get_idx();
+						var_ref var(used_vars.get(i), m);
+                        unsigned j = var->get_idx();
                         if (!si->m_var_names.get(j)) {
-                            STRACE("predabst", tout << "Don't have name for variable " << mk_pp(used_vars.get(i), m) << " used in predicate " << mk_pp(p, m) << " for " << si << "\n";);
+                            STRACE("predabst", tout << "Don't have name for variable " << var << " used in predicate " << p << " for " << si << "\n";);
                             return new_preds_added;
                         }
                         used_var_names.push_back(si->m_var_names.get(j));
@@ -599,7 +599,7 @@ namespace datalog {
         void add_pred(symbol_info* si, expr_ref const& pred) {
             CASSERT("predabst", !si->m_preds.contains(pred));
             CASSERT("predabst", vector_intersection(si->m_explicit_vars, to_vars(get_all_vars(pred))).empty());
-            STRACE("predabst", tout << "Found new predicate " << mk_pp(pred, m) << " for " << si << "\n";);
+            STRACE("predabst", tout << "Found new predicate " << pred << " for " << si << "\n";);
             si->m_preds.push_back(pred);
         }
 
@@ -727,14 +727,16 @@ namespace datalog {
             if ((core_info.m_count == terms.size()) &&
                 (check(&solver, guard_vars.size(), guard_vars.c_ptr()) == l_true)) {
                 STRACE("predabst", {
-					tout << "Example model, assuming guard_vars " << guard_vars << ":\n";
+					tout << "Example model:\n";
 					model_ref modref;
                     solver.get_model(modref);
 					CASSERT("predabst", modref);
 					for (unsigned i = 0; i < modref->get_num_constants(); ++i) {
 						func_decl_ref c(modref->get_constant(i), m);
-						expr_ref e(modref->get_const_interp(c), m);
-						tout << "  " << c->get_name() << " has value " << mk_pp(e, m) << "\n";
+						if (!guard_vars.contains(m.mk_const(c))) {
+							expr_ref e(modref->get_const_interp(c), m);
+							tout << "  " << c->get_name() << " has value " << e << "\n";
+						}
 					}
 				});
                 return false;
@@ -829,7 +831,7 @@ namespace datalog {
                 return clauses;
             }
 
-            STRACE("predabst", tout << "Computing cone of influence for expression " << mk_pp(critical, m) << "\n";);
+            STRACE("predabst", tout << "Computing cone of influence for expression " << critical << "\n";);
                 
             // Find connected components for the graph whose vertices are
             // the variables used by the clauses, and whose has an edge from
@@ -882,7 +884,7 @@ namespace datalog {
 
             STRACE("predabst", {
                 for (obj_map<expr, unsigned>::iterator it = component_map.begin(); it != component_map.end(); ++it) {
-                    tout << "  " << mk_pp(it->m_key, m) << " -> component " << it->m_value << "\n";
+                    tout << "  " << expr_ref(it->m_key, m) << " -> component " << it->m_value << "\n";
                 }
             });
 
@@ -930,50 +932,63 @@ namespace datalog {
         }
 
         core_clause_solutions solve_core_clauses(core_clauses const& clauses) const {
-            expr_ref_vector assertions(m);
-            vector<unsigned> assertion_start_index;
-            for (unsigned i = 0; i < clauses.size(); ++i) {
-                assertion_start_index.push_back(assertions.size());
+			vector<unsigned> assertion_start_index;
+			expr_ref_vector assertions(m);
+			for (unsigned i = 0; i < clauses.size(); ++i) {
                 core_clause const& clause = clauses[i];
-                for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
-                    assertions.push_back(to_nnf(expr_ref(clause.m_interp_body[j], m))); // >>> to_nnf is a bit of a hack here (why?)
-                }
+				assertion_start_index.push_back(assertions.size());
+				for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
+					assertions.push_back(clause.m_interp_body[j]);
+				}
             }
+
+			expr_ref_vector vars = get_all_vars(mk_conj(assertions));
+			vector<linear_inequality> assertion_inequalities;
+			for (unsigned i = 0; i < assertions.size(); ++i) {
+				assertion_inequalities.push_back(linear_inequality(vars.size(), m));
+				if (!assertion_inequalities.back().set_from_expr(to_nnf(expr_ref(assertions.get(i), m)), vars)) { // >>> to_nnf is a bit of a hack to handle things like (not (x < y)); really need to do to_dnf to handle more complex expressions
+					STRACE("predabst", tout << "Cannot solve clauses: not a system of linear (in)equalities\n";);
+					return core_clause_solutions();
+				}
+			}
 
             vector<int64> assertion_coeffs;
-            bool result = get_farkas_coeffs(assertions, assertion_coeffs);
-            if (!result) {
-                STRACE("predabst", tout << "Cannot solve clauses: not a system of linear (in)equalities\n";);
-                return core_clause_solutions();
-            }
+            get_farkas_coeffs(assertion_inequalities, assertion_coeffs);
+			STRACE("predabst", {
+				tout << "Farkas coefficients are:\n";
+				for (unsigned i = 0; i < assertion_coeffs.size(); ++i) {
+					tout << "  " << assertion_coeffs[i] << " @ " << assertion_inequalities[i].to_expr(vars) << "\n";
+				}
+			});
 
-            STRACE("predabst", tout << "Farkas coefficients are: " << assertion_coeffs << "\n";);
-
-            core_clause_solutions solutions;
-            expr_ref_vector name2solution(m);
+            vector<linear_inequality> name2solution;
             for (unsigned i = clauses.size() - 1; i > 0; --i) { // skip clause 0
                 core_clause const& clause = clauses[i];
                 vector<int64> coeffs;
-                expr_ref_vector inequalities(m);
+                vector<linear_inequality> inequalities;
                 for (unsigned j = 0; j < clause.m_interp_body.size(); ++j) {
                     coeffs.push_back(assertion_coeffs[assertion_start_index[i] + j]);
-                    inequalities.push_back(to_nnf(expr_ref(clause.m_interp_body[j], m)));
+					inequalities.push_back(assertion_inequalities[assertion_start_index[i] + j]);
                 }
                 for (unsigned j = 0; j < clause.m_uninterp_body.size(); ++j) {
                     coeffs.push_back(1);
                     // >>> TODO assert that head and body arguments are distinct uninterpreted constants
-                    // >>> TODO assert that the head arguments and the body arguments are the same (otherwise need to do substitution); otherwise need to do substitution
+                    // >>> TODO assert that the head arguments and the body arguments are the same (otherwise need to do substitution)
                     inequalities.push_back(name2solution.get(clause.m_uninterp_body[j].m_name));
                 }
-                expr_ref body = make_linear_combination(coeffs, inequalities);
-                // >>> TODO: assert that body has no uninterpreted constants not in head
-                core_clause_solution solution(clause.m_head, body);
-                STRACE("predabst", tout << "Solution for clause " << i << ": " << solution << "\n";);
-                solutions.push_back(solution);
-                name2solution.reserve(clause.m_head.m_name + 1);
-                name2solution[clause.m_head.m_name] = body;
-            }
-            return solutions;
+                name2solution.reserve(clause.m_head.m_name + 1, linear_inequality(vars.size(), m));
+				name2solution[clause.m_head.m_name].set_from_linear_combination(coeffs, inequalities);
+			}
+
+			core_clause_solutions solutions;
+			for (unsigned i = 1; i < clauses.size(); ++i) { // skip clause 0
+				core_clause const& clause = clauses[i];
+				// >>> TODO: assert that body has no uninterpreted constants not in head
+				core_clause_solution solution(clause.m_head, name2solution[clause.m_head.m_name].to_expr(vars));
+				STRACE("predabst", tout << "Solution for clause " << i << ": " << solution << "\n";);
+				solutions.push_back(solution);
+			}
+			return solutions;
         }
 
         expr_ref mk_leaves(node_info const* root_node, expr_ref_vector const& root_args, bool substitute_template_params = true) const {
@@ -1007,7 +1022,7 @@ namespace datalog {
                 }
                 expr_ref_vector rule_subst(m);
                 expr_ref_vector terms = get_rule_terms(ri, args, hvalues, bvalues, rule_subst, substitute_template_params);
-                STRACE("predabst", tout << "  " << mk_pp(mk_conj(terms), m) << "\n";);
+                STRACE("predabst", tout << "  " << mk_conj(terms) << "\n";);
                 cs.append(terms);
 
                 for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
@@ -1064,7 +1079,7 @@ namespace datalog {
                 if (!modref->eval(param, param_value, true)) {
                     return false;
                 }
-                STRACE("predabst", tout << "Instantiated template parameter " << mk_pp(param, m) << " := " << mk_pp(param_value, m) << "\n";);
+                STRACE("predabst", tout << "Instantiated template parameter " << param << " := " << param_value << "\n";);
                 m_template_param_values.push_back(param_value);
             }
 
@@ -1072,8 +1087,8 @@ namespace datalog {
             return true;
         }
 
-        void register_decl(model_ref const& md, func_decl* fdecl, expr* e) const {
-            STRACE("predabst", tout << "Model for " << fdecl->get_name() << "/" << fdecl->get_arity() << " is " << mk_pp(e, m) << "\n";);
+        void register_decl(model_ref const& md, func_decl* fdecl, expr_ref const& e) const {
+            STRACE("predabst", tout << "Model for " << fdecl->get_name() << "/" << fdecl->get_arity() << " is " << e << "\n";);
             if (fdecl->get_arity() == 0) {
                 md->register_decl(fdecl, e);
             }
@@ -1099,9 +1114,9 @@ namespace datalog {
 			out << "  Template parameter instances:" << std::endl;
 			CASSERT("predabst", m_input->m_template_params.size() == m_template_param_values.size());
 			for (unsigned i = 0; i < m_input->m_template_params.size(); ++i) {
-				expr* param = m_input->m_template_params.get(i);
-				expr* param_value = m_template_param_values.get(i);
-				out << "    " << i << ": " << mk_pp(param, m) << " := " << mk_pp(param_value, m) << std::endl;
+				expr_ref param(m_input->m_template_params.get(i), m);
+				expr_ref param_value(m_template_param_values.get(i), m);
+				out << "    " << i << ": " << param << " := " << param_value << std::endl;
 			}
 			out << "=====================================\n";
 		}

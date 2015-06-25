@@ -304,7 +304,7 @@ namespace datalog {
 			expr_ref_vector extra_params = get_arg_fresh_consts(r->get_decl(), "b", m);
 			expr_ref_vector extra_subst = m_subst.build(args, extra_params);
 			expr_ref extras = m_subst.apply(mk_conj(expr_ref_vector(m, r->get_tail_size(), r->get_expr_tail())), extra_subst);
-			STRACE("predabst", tout << "  " << mk_pp(extras, m) << "\n";);
+			STRACE("predabst", tout << "  " << extras << "\n";);
 
 			if (has_vars(extras)) {
 				failwith("extra template constraint has free variables");
@@ -562,7 +562,7 @@ namespace datalog {
 				}
 
 				expr_ref pred = m_subst.apply(to_expr(r->get_tail(i)), subst);
-				STRACE("predabst", tout << "  predicate " << i << ": " << mk_pp(pred, m) << "\n";);
+				STRACE("predabst", tout << "  predicate " << i << ": " << pred << "\n";);
 				m_stats.m_num_initial_predicates++;
 				si->m_initial_preds.push_back(pred);
 			}
@@ -574,7 +574,11 @@ namespace datalog {
 			out << "  Symbols:" << std::endl;
 			for (unsigned i = 0; i < m_input->m_symbols.size(); ++i) {
 				symbol_info const* si = m_input->m_symbols[i];
-				out << "    " << si << " is used by rules " << si->m_users << std::endl;
+				out << "    " << si << " is used by ";
+				if (si->m_users.empty()) {
+					out << "no ";
+				}
+				out << "rules " << si->m_users << std::endl;
 			}
 			out << "  Templates:" << std::endl;
 			for (unsigned i = 0; i < m_input->m_templates.size(); ++i) {

@@ -294,6 +294,18 @@ namespace datalog {
 			}
 		}
 
+		vector<bool> known_exprs(expr_ref_vector const& exprs) {
+			vector<bool> known_exprs;
+			for (unsigned i = 0; i < exprs.size(); ++i) {
+				bool known = get_all_vars(expr_ref(exprs.get(i), m)).empty();
+				known_exprs.push_back(known);
+				if (known) {
+					m_stats.m_num_known_explicit_arguments++;
+				}
+			}
+			return known_exprs;
+		}
+
 		void maybe_make_false(expr_ref_vector& exprs, smt::kernel* solver) const {
 			for (unsigned i = 0; i < exprs.size(); ++i) {
 				scoped_push _push(*solver);
@@ -324,7 +336,7 @@ namespace datalog {
 				if (!m.is_false(exprs.get(i)) && !m.is_true(exprs.get(i))) {
 					expr_ref g(m.mk_fresh_const("g", m.mk_bool_sort()), m);
 					expr_ref e(m.mk_iff(exprs.get(i), g), m);
-					STRACE("predabst", tout << "Asserting " << mk_pp(e, m) << "\n";);
+					STRACE("predabst", tout << "Asserting " << e << "\n";);
 					solver->assert_expr(e);
 					exprs[i] = g;
 				}
@@ -389,19 +401,10 @@ namespace datalog {
 				info->m_body.swap(body);
 
 				// instantiate explicit arguments to head applications
-				symbol_info const* si = ri->get_decl();
-				if (si) {
+				if (ri->get_decl()) {
 					expr_ref_vector head_args = m_subst.apply(ri->get_explicit_args(), info->m_rule_subst);
 					pre_simplify(head_args);
-					// >>> share code
-					vector<bool> known_args;
-					for (unsigned i = 0; i < head_args.size(); ++i) {
-						bool known = get_all_vars(expr_ref(head_args.get(i), m)).empty();
-						known_args.push_back(known);
-						if (known) {
-							m_stats.m_num_known_explicit_arguments++;
-						}
-					}
+					vector<bool> known_args = known_exprs(head_args);
 					info->m_head_explicit_args.swap(head_args);
 					info->m_head_known_args.swap(known_args);
 				}
@@ -415,18 +418,10 @@ namespace datalog {
 
 				// instantiate explicit arguments to body applications
 				for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
-					symbol_info const* si = ri->get_decl(i);
-					CASSERT("predabst", si);
+					CASSERT("predabst", ri->get_decl(i));
 					expr_ref_vector body_args = m_subst.apply(ri->get_explicit_args(i), info->m_rule_subst);
 					pre_simplify(body_args);
-					vector<bool> known_args;
-					for (unsigned j = 0; j < body_args.size(); ++j) {
-						bool known = get_all_vars(expr_ref(body_args.get(j), m)).empty();
-						known_args.push_back(known);
-						if (known) {
-							m_stats.m_num_known_explicit_arguments++;
-						}
-					}
+					vector<bool> known_args = known_exprs(body_args);
 					info->m_body_explicit_args.push_back(body_args);
 					info->m_body_known_args.push_back(known_args);
 				}
@@ -832,7 +827,7 @@ namespace datalog {
 						conjs.push_back(mk_disj(disjs));
 					}
 					expr_ref to_assert = mk_not(mk_conj(conjs));
-					STRACE("predabst", tout << "  " << mk_pp(to_assert, m) << "\n";);
+					STRACE("predabst", tout << "  " << to_assert << "\n";);
 					pre_simplify(to_assert);
 					solver_for(ri)->assert_expr(to_assert);
 				}
@@ -1199,16 +1194,14 @@ namespace datalog {
 				rule_instance_info const* info = m_rule_instances[ri];
 				out << "    " << i << ":" << std::endl;
 				out << "      head preds (" << ri->get_decl() << "): " << info->m_head_preds << "\n";
-				CASSERT("predabst", ri->get_tail_size() == info->m_body_preds.size());
-				for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
-					out << "      body preds " << i << " (" << ri->get_decl(i) << "): " << info->m_body_preds[i] << "\n";
-				}
 				out << "      head explicit args (" << ri->get_decl() << "): " << info->m_head_explicit_args << "\n";
+				CASSERT("predabst", ri->get_tail_size() == info->m_body_preds.size());
 				CASSERT("predabst", ri->get_tail_size() == info->m_body_explicit_args.size());
 				for (unsigned i = 0; i < ri->get_tail_size(); ++i) {
+					out << "      body preds " << i << " (" << ri->get_decl(i) << "): " << info->m_body_preds[i] << "\n";
 					out << "      body explicit args " << i << " (" << ri->get_decl(i) << "): " << info->m_body_explicit_args[i] << "\n";
 				}
-				out << "      body: " << info->m_body << "\n";
+				out << "      body: " << mk_conj(info->m_body) << "\n";
 			}
 			out << "=====================================\n";
 		}

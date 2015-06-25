@@ -20,6 +20,7 @@ Revision History:
 #define _PREDABST_UTIL_H_
 
 #include "ast.h"
+#include "ast_pp.h"
 
 template<typename V>
 inline bool vector_equals(V const& v1, V const& v2) {
@@ -93,11 +94,21 @@ inline std::ostream& operator<<(std::ostream& out, vector<T> const& v) {
 }
 
 template<typename T, typename TManager>
+std::ostream& operator<<(std::ostream& out, obj_ref<T, TManager> const& e) {
+	params_ref p;
+	p.set_uint("max_depth", UINT_MAX);
+	p.set_uint("min_alias_size", UINT_MAX);
+	p.set_bool("single_line", true);
+	out << mk_pp(e, e.m(), p);
+	return out;
+}
+
+template<typename T, typename TManager>
 std::ostream& operator<<(std::ostream& out, ref_vector<T, TManager> const& v) {
     TManager& m = v.m();
     for (unsigned i = 0; i < v.size(); ++i) {
         if (v[i]) {
-            out << mk_pp(v[i], m);
+            out << obj_ref<T, TManager>(v[i], m);
         }
         else {
             out << "NULL";

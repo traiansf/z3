@@ -644,6 +644,7 @@ sat_tests = [
     make_pred_refine_test("sub", 2, "(<= (- x y) 0)", "(<= x!1 x!2)"),
     make_pred_refine_test("neg", 1, "(<= (- x) 0)", "(>= x!1 0)"),
 
+    make_pred_refine_test("distinct", 1, "(distinct x 0)", "(or (< x!1 0) (> x!1 0))"),
     make_pred_refine_test("and", 2, "(and (<= x 0) (<= y 1))", "(and (<= x!1 0) (<= x!2 1))"),
     make_pred_refine_test("or", 2, "(or (<= x 0) (<= y 1))", "(or (<= x!1 0) (<= x!2 1))"),
 
@@ -846,7 +847,6 @@ unknown_tests = [
     make_pred_refine_test("mul", 2, "(<= (* x y) 2)", None),
     make_pred_refine_test("div", 2, "(<= (div x y) 2)", None),
     make_pred_refine_test("mod", 1, "(<= (mod x 2) 0)", None),
-    make_pred_refine_test("distinct", 1, "(distinct x 0)", None),
     make_pred_refine_test("xor", 2, "(xor (<= x 0) (<= y 1))", None),
     make_pred_refine_test("implies", 2, "(=> (<= x 0) (<= y 1))", None),
     make_pred_refine_test("iff", 2, "(= (<= x 0) (<= y 1))", None),

@@ -337,6 +337,15 @@ void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
     }
 }
 
+static bool is_distinct(ast_manager& m, expr const* n, expr*& s, expr*& t) {
+	if (m.is_distinct(n) && to_app(n)->get_num_args() == 2) {
+		s = to_app(n)->get_arg(0);
+		t = to_app(n)->get_arg(1);
+		return true;
+	}
+	return false;
+}
+
 static expr_ref negate_expr(expr_ref const& fml) {
     ast_manager& m = fml.get_manager();
     arith_util a(m);
@@ -347,7 +356,11 @@ static expr_ref negate_expr(expr_ref const& fml) {
         CASSERT("predabst", sort_is_int(e2, m));
         new_formula = m.mk_or(a.mk_lt(e1, e2), a.mk_gt(e1, e2));
     }
-    else if (a.is_lt(fml, e1, e2)) {
+	else if (is_distinct(m, fml, e1, e2) && sort_is_int(e1, m)) {
+		CASSERT("predabst", sort_is_int(e2, m));
+		new_formula = m.mk_eq(e1, e2);
+	}
+	else if (a.is_lt(fml, e1, e2)) {
         new_formula = a.mk_ge(e1, e2);
     }
     else if (a.is_le(fml, e1, e2)) {
@@ -363,6 +376,22 @@ static expr_ref negate_expr(expr_ref const& fml) {
         new_formula = mk_not(fml);
     }
     return new_formula;
+}
+
+static expr_ref non_negate_expr(expr_ref const& fml) {
+	ast_manager& m = fml.get_manager();
+	arith_util a(m);
+
+	expr_ref new_formula(m);
+	expr *e1, *e2;
+	if (is_distinct(m, fml, e1, e2) && sort_is_int(e1, m)) {
+		CASSERT("predabst", sort_is_int(e2, m));
+		new_formula = m.mk_or(a.mk_lt(e1, e2), a.mk_gt(e1, e2));
+	}
+	else {
+		new_formula = fml;
+	}
+	return new_formula;
 }
 
 static expr_ref negate_and_to_nnf(expr_ref const& fml) {
@@ -409,7 +438,7 @@ expr_ref to_nnf(expr_ref const& fml) {
         return negate_and_to_nnf(expr_ref(to_app(fml)->get_arg(0), m));
     }
     else {
-        return fml;
+        return non_negate_expr(fml);
     }
 }
 

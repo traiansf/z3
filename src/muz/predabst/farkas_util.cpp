@@ -768,7 +768,7 @@ expr_ref normalize_pred(expr_ref const& e, var_ref_vector const& vars) {
     th_rewriter tw(m);
     expr_ref e2 = e;
     tw(e2); // >>> convert 0 = 0 to true, etc.
-    e2 = to_nnf(e2); // >>> bit of a hack; eliminates 'not'; but also turns not (x=y) into a disjunction, which we probably don't want here.
+    e2 = to_nnf(e2); // >>> bit of a hack; eliminates 'not'; but also turns (not (x=y)) into a disjunction, which we probably don't want here.
     for (unsigned i = 0; i < vars.size(); ++i) {
         if (!sort_is_int(vars.get(i), m)) {
             STRACE("predabst", tout << e2 << "\n";);

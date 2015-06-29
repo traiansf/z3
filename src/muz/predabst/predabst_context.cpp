@@ -111,7 +111,8 @@ namespace datalog {
         mutable stats                 m_stats;       // statistics information specific to the predabst module.
 		
 		scoped_ptr<predabst_input>    m_input;
-        expr_ref_vector               m_template_param_values;
+		expr_ref_vector               m_template_params;
+		expr_ref_vector               m_template_param_values;
 	    expr_ref_vector               m_template_constraint_vars;
         expr_ref_vector               m_template_constraints;
 
@@ -136,6 +137,7 @@ namespace datalog {
             m_fp_params(fp_params),
             m_cancel(false),
 			m_current_solver(NULL),
+			m_template_params(m),
             m_template_param_values(m),
             m_template_constraints(m),
             m_template_constraint_vars(m) {
@@ -144,7 +146,11 @@ namespace datalog {
         }
 
 		lbool query(rule_set& rules) {
-			m_input = make_predabst_input(rules, m, m_subst, m_template_param_values, m_fp_params);
+			m_input = make_predabst_input(rules, m_fp_params);
+
+			for (unsigned i = 0; i < m_input->m_template_vars.size(); ++i) {
+				m_template_params.push_back(m.mk_fresh_const("p", get_sort(m_input->m_template_vars.get(i))));
+			}
 
 			for (unsigned i = 0; i < m_input->m_symbols.size(); ++i) {
 				symbol_info* si = m_input->m_symbols[i];
@@ -307,7 +313,8 @@ namespace datalog {
             CASSERT("predabst", rule_subst.empty());
             expr_ref_vector unification_terms(m);
             rule_subst.swap(get_subst_vect(ri, hargs, hvalues, bvalues, "s", unification_terms));
-            expr_ref_vector body_terms = m_subst.apply(ri->get_body(substitute_template_params), rule_subst);
+			expr_ref_vector const& temp_params = substitute_template_params ? m_template_param_values : m_template_params;
+            expr_ref_vector body_terms = m_subst.apply(ri->get_body(temp_params, m_subst), rule_subst);
             return vector_concat(unification_terms, body_terms);
         }
 
@@ -323,7 +330,7 @@ namespace datalog {
 			// templated predicate symbols are instantiated
 			for (unsigned i = 0; i < m_input->m_templates.size(); ++i) {
 				template_info const* ti = m_input->m_templates[i];
-				expr_ref body = mk_conj(ti->get_body(ti->m_vars.c_ptr()));
+				expr_ref body = ti->get_body_from_extras(m_template_param_values, m_subst);
 				register_decl(md, ti->m_fdecl, body);
 			}
 			// other predicate symbols are concretized
@@ -346,7 +353,7 @@ namespace datalog {
 					return l_true;
 				}
 
-				predabst_core core(m_input->m_symbols, m_input->m_rules, m_fp_params, m);
+				predabst_core core(m_input->m_symbols, m_input->m_rules, m_template_param_values, m_fp_params, m);
 
 				// The only things that change on subsequent iterations of this loop are
 				// the predicate lists
@@ -605,7 +612,7 @@ namespace datalog {
 
         void constrain_templates(node_info const* error_node, expr_ref_vector const& error_args, counterexample_kind error_kind) {
             expr_ref cs = mk_leaves(error_node, error_args, false);
-            quantifier_elimination(vector_concat(error_args, m_input->m_template_params), cs);
+            quantifier_elimination(vector_concat(error_args, m_template_params), cs);
 
             expr_ref to_solve(m);
             if (error_kind == reached_query) {
@@ -624,8 +631,8 @@ namespace datalog {
             for (unsigned i = 0; i < error_args.size(); ++i) {
                 evars.erase(error_args.get(i));
             }
-            for (unsigned i = 0; i < m_input->m_template_params.size(); ++i) {
-                evars.erase(m_input->m_template_params.get(i));
+            for (unsigned i = 0; i < m_template_params.size(); ++i) {
+                evars.erase(m_template_params.get(i));
             }
 
             m_template_constraint_vars.append(error_args);
@@ -946,7 +953,7 @@ namespace datalog {
 			vector<linear_inequality> assertion_inequalities;
 			for (unsigned i = 0; i < assertions.size(); ++i) {
 				assertion_inequalities.push_back(linear_inequality(vars.size(), m));
-				if (!assertion_inequalities.back().set_from_expr(to_nnf(expr_ref(assertions.get(i), m)), vars)) { // >>> to_nnf is a bit of a hack to handle things like (not (x < y)); really need to do to_dnf to handle more complex expressions
+				if (!assertion_inequalities.back().set_from_expr(to_nnf(expr_ref(assertions.get(i), m)), vars)) { // >>> to_nnf is a bit of a hack; perhaps the elimination of "not" should be put back into set_from_expr
 					STRACE("predabst", tout << "Cannot solve clauses: not a system of linear (in)equalities\n";);
 					return core_clause_solutions();
 				}
@@ -1057,7 +1064,7 @@ namespace datalog {
             smt::kernel solver(m, new_param);
             set_logic(solver);
             if (m_input->m_template_extras) {
-                solver.assert_expr(m_input->m_template_extras);
+                solver.assert_expr(m_subst.apply(m_input->m_template_extras, m_subst.build(m_input->m_template_vars, m_template_params)));
             }
             for (unsigned i = 0; i < constraints.size(); ++i) {
                 solver.assert_expr(constraints.get(i));
@@ -1073,8 +1080,8 @@ namespace datalog {
             solver.get_model(modref);
 
             m_template_param_values.reset();
-            for (unsigned i = 0; i < m_input->m_template_params.size(); ++i) {
-                expr_ref param(m_input->m_template_params.get(i), m);
+            for (unsigned i = 0; i < m_template_params.size(); ++i) {
+                expr_ref param(m_template_params.get(i), m);
                 expr_ref param_value(m);
                 if (!modref->eval(param, param_value, true)) {
                     return false;
@@ -1112,11 +1119,17 @@ namespace datalog {
 				out << "predicates " << si->m_preds << std::endl;
 			}
 			out << "  Template parameter instances:" << std::endl;
-			CASSERT("predabst", m_input->m_template_params.size() == m_template_param_values.size());
-			for (unsigned i = 0; i < m_input->m_template_params.size(); ++i) {
-				expr_ref param(m_input->m_template_params.get(i), m);
+			CASSERT("predabst", m_template_params.size() == m_input->m_template_vars.size());
+			CASSERT("predabst", m_template_param_values.size() == m_input->m_template_vars.size());
+			for (unsigned i = 0; i < m_input->m_template_vars.size(); ++i) {
+				expr_ref param(m_template_params.get(i), m);
 				expr_ref param_value(m_template_param_values.get(i), m);
 				out << "    " << i << ": " << param << " := " << param_value << std::endl;
+			}
+			out << "  Rule bodies:" << std::endl;
+			for (unsigned i = 0; i < m_input->m_rules.size(); ++i) {
+				rule_info const* ri = m_input->m_rules[i];
+				out << "    " << i << ": " << ri->get_body(m_template_param_values, m_subst) << std::endl;
 			}
 			out << "=====================================\n";
 		}

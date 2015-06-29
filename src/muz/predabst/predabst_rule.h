@@ -94,8 +94,29 @@ namespace datalog {
 
 	class rule_info;
 
-	struct symbol_info {
-		func_decl*               const m_fdecl;
+	struct fdecl_info {
+		func_decl* const m_fdecl;
+
+		fdecl_info(func_decl* fdecl) :
+			m_fdecl(fdecl) {
+		}
+
+		unsigned hash() const {
+			return m_fdecl->hash();
+		}
+
+		friend std::ostream& operator<<(std::ostream& out, fdecl_info const* fi) {
+			if (fi) {
+				out << fi->m_fdecl->get_name() << "/" << fi->m_fdecl->get_arity();
+			}
+			else {
+				out << "<none>";
+			}
+			return out;
+		}
+	};
+
+	struct symbol_info : public fdecl_info {
 		bool                     const m_is_dwf;
 		expr_ref_vector          m_initial_preds;
 		expr_ref_vector          m_preds;
@@ -106,7 +127,7 @@ namespace datalog {
 		vector<rule_info const*> m_users;
 
 		symbol_info(func_decl* fdecl, bool is_dwf, ast_manager& m) :
-			m_fdecl(fdecl),
+			fdecl_info(fdecl),
 			m_is_dwf(is_dwf),
 			m_initial_preds(m),
 			m_preds(m),
@@ -128,89 +149,50 @@ namespace datalog {
 			}
 			return abstracted_args;
 		}
-
-		unsigned hash() const {
-			return m_fdecl->hash();
-		}
-
-		friend std::ostream& operator<<(std::ostream& out, symbol_info const* si) {
-			if (si) {
-				out << si->m_fdecl->get_name() << "/" << si->m_fdecl->get_arity();
-			}
-			else {
-				out << "<none>";
-			}
-			return out;
-		}
 	};
 
-	struct template_info {
-		func_decl*             const m_fdecl;
-		var_ref_vector         const m_vars;
-		expr_ref_vector        const m_body;
+	struct template_info : public fdecl_info {
+		var_ref_vector const m_vars;
+		expr_ref       const m_body;
 
-	private:
-		expr_ref_vector const& m_template_params;
-		expr_ref_vector const& m_template_param_values;
-		subst_util&            m_subst;
-
-	public:
-		template_info(func_decl* fdecl, var_ref_vector const& vars, expr_ref_vector const& body, expr_ref_vector const& template_params, expr_ref_vector const& template_param_values, subst_util& subst) :
-			m_fdecl(fdecl),
+		template_info(func_decl* fdecl, var_ref_vector const& vars, expr_ref const& body) :
+			fdecl_info(fdecl),
 			m_vars(vars),
-			m_body(body),
-			m_template_params(template_params),
-			m_template_param_values(template_param_values),
-			m_subst(subst) {
+			m_body(body) {
 		}
 
-		expr_ref_vector get_body(expr* const* args, bool substitute_template_params = true) const {
-			expr_ref_vector temp_args(m_vars.m(), m_vars.size() - m_template_params.size(), args);
-			expr_ref_vector const& temp_params = substitute_template_params ? m_template_param_values : m_template_params;
-			return m_subst.apply(m_body, m_subst.build(m_vars, vector_concat(temp_args, temp_params)));
+		expr_ref get_body_from_args(expr_ref_vector const& args, subst_util& subst) const {
+			CASSERT("predabst", args.size() == m_vars.size());
+			return subst.apply(m_body, subst.build(m_vars, args));
 		}
 
-		expr_ref_vector get_body(var* const* args, bool substitute_template_params = true) const {
-			return get_body((expr* const*)args, substitute_template_params);
-		}
-
-		unsigned hash() const {
-			return m_fdecl->hash();
-		}
-
-		friend std::ostream& operator<<(std::ostream& out, template_info const* ti) {
-			if (ti) {
-				out << ti->m_fdecl->get_name() << "/" << ti->m_fdecl->get_arity();
-			}
-			else {
-				out << "<none>";
-			}
-			return out;
+		expr_ref get_body_from_extras(expr_ref_vector const& extras, subst_util& subst) const {
+			return inv_shift(subst.apply(m_body, extras), extras.size());
 		}
 	};
 
 	class rule_info {
-		unsigned               const m_id;
-		rule*                  const m_rule;
-		symbol_info*           const m_head_symbol;
-		template_info*         const m_head_template;
-		vector<symbol_info*>   const m_tail_symbols;
-		vector<template_info*> const m_tail_templates;
-		vector<unsigned>       const m_symbol_pos;
-		vector<unsigned>       const m_template_pos;
-		ast_manager&           m;
+		unsigned             const m_id;
+		rule*                const m_rule;
+		expr_ref_vector      const m_body;
+		symbol_info*         const m_head_symbol;
+		vector<symbol_info*> const m_tail_symbols;
+		vector<unsigned>     const m_symbol_pos;
+		ast_manager&         m;
 
 	public:
-		rule_info(unsigned id, rule* r, symbol_info* head_symbol, template_info* head_template, vector<symbol_info*> const& tail_symbols, vector<template_info*> const& tail_templates, vector<unsigned> const& symbol_pos, vector<unsigned> const& template_pos, ast_manager& m) :
+		rule_info(unsigned id, rule* r, expr_ref_vector const& body, symbol_info* head_symbol, vector<symbol_info*> const& tail_symbols, vector<unsigned> const& symbol_pos, ast_manager& m) :
 			m_id(id),
 			m_rule(r),
+			m_body(body),
 			m_head_symbol(head_symbol),
-			m_head_template(head_template),
 			m_tail_symbols(tail_symbols),
-			m_tail_templates(tail_templates),
 			m_symbol_pos(symbol_pos),
-			m_template_pos(template_pos),
 			m(m) {
+		}
+
+		expr_ref_vector get_body(expr_ref_vector const& template_params, subst_util& subst) const {
+			return inv_shift(subst.apply(m_body, template_params), template_params.size());
 		}
 
 		unsigned get_tail_size() const {
@@ -230,7 +212,6 @@ namespace datalog {
 		expr_ref_vector get_abstracted_args(unsigned i) const;
 		expr_ref_vector get_explicit_args() const;
 		expr_ref_vector get_explicit_args(unsigned i) const;
-		expr_ref_vector get_body(bool substitute_template_params = true) const;
 		used_vars get_used_vars() const;
 
 		unsigned hash() const {
@@ -256,14 +237,9 @@ namespace datalog {
 			return m_rule->get_head();
 		}
 
-		app* get_symbol_tail(unsigned i) const {
+		app* get_tail(unsigned i) const {
 			CASSERT("predabst", i < m_symbol_pos.size());
 			return m_rule->get_tail(m_symbol_pos[i]);
-		}
-
-		app* get_template_tail(unsigned i) const {
-			CASSERT("predabst", i < m_template_pos.size());
-			return m_rule->get_tail(m_template_pos[i]);
 		}
 	};
 

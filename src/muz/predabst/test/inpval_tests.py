@@ -256,7 +256,7 @@ unknown_tests = [
 (declare-fun __exparg__ (Int) Bool)
 (assert (forall ((x Int)) (p x)))
 (assert (forall ((x Int) (y Int)) (=> (__exparg__ y) (__expargs__p x))))""",
-     "explicit argument list for p has __exparg__ predicate with argument that does not appear in the head"),
+     "explicit argument list for p has free variables"),
 
     ("expargs-duplicate-exparg",
      """
@@ -366,7 +366,7 @@ unknown_tests = [
 (declare-fun __pred__p (Int) Bool)
 (assert (forall ((x Int)) (p x)))
 (assert (forall ((x Int) (y Int)) (=> (= x y) (__pred__p x))))""",
-     "predicate for p has free variables"),
+     "predicate list for p has free variables"),
 
     ("plist-explicit-args",
      """
@@ -474,7 +474,7 @@ unknown_tests = [
 (declare-fun __name__foo (Int) Bool)
 (assert (forall ((x Int)) (p x)))
 (assert (forall ((x Int) (y Int)) (=> (__name__foo y) (__names__p x))))""",
-     "argument name list for p has __name__X predicate with argument that does not appear in the head"),
+     "argument name list for p has free variables"),
 
     ("names-zero-length-name",
      """

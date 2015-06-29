@@ -21,6 +21,7 @@ Revision History:
 #include "smt_kernel.h"
 #include "smt_params.h"
 #include "qe_lite.h"
+#include "rewriter.h"
 
 var_ref_vector to_vars(expr_ref_vector const& exprs) {
     var_ref_vector vars(exprs.m());
@@ -271,6 +272,53 @@ var_ref_vector get_arg_vars(func_decl* fdecl, ast_manager& m) {
 	return args;
 }
 
+expr_ref_vector shift(expr_ref_vector const& exprs, unsigned n) {
+	ast_manager& m = exprs.m();
+	expr_ref_vector exprs2(m);
+	var_shifter shift(m);
+	for (unsigned i = 0; i < exprs.size(); ++i) {
+		expr_ref e(exprs.get(i), m);
+		expr_ref e2(m);
+		shift(e, n, e2);
+		exprs2.push_back(e2);
+	}
+	return exprs2;
+}
+
+var_ref_vector shift(var_ref_vector const& exprs, unsigned n) {
+	ast_manager& m = exprs.m();
+	var_ref_vector exprs2(m);
+	var_shifter shift(m);
+	for (unsigned i = 0; i < exprs.size(); ++i) {
+		expr_ref e(exprs.get(i), m);
+		expr_ref e2(m);
+		shift(e, n, e2);
+		exprs2.push_back(to_var(e2.get()));
+	}
+	return exprs2;
+}
+
+expr_ref inv_shift(expr_ref const& e, unsigned n) {
+	ast_manager& m = e.m();
+	expr_ref e2(m);
+	inv_var_shifter shift(m);
+	shift(e, n, e2);
+	return e2;
+}
+
+expr_ref_vector inv_shift(expr_ref_vector const& exprs, unsigned n) {
+	ast_manager& m = exprs.m();
+	expr_ref_vector exprs2(m);
+	inv_var_shifter shift(m);
+	for (unsigned i = 0; i < exprs.size(); ++i) {
+		expr_ref e(exprs.get(i), m);
+		expr_ref e2(m);
+		shift(e, n, e2);
+		exprs2.push_back(e2);
+	}
+	return exprs2;
+}
+
 void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml) {
     ast_manager& m = fml.get_manager();
     app_ref_vector q_vars(m);
@@ -423,4 +471,14 @@ expr_ref to_dnf(expr_ref const& fml) {
         disjs.push_back(mk_conj(dnf_struct[i]));
     }
     return mk_disj(disjs);
+}
+
+used_vars get_used_vars(datalog::rule const* r) {
+	// The following is a clone of r->get_used_vars(&used), which is unfortunately inaccessible.
+	used_vars used;
+	used.process(r->get_head());
+	for (unsigned i = 0; i < r->get_tail_size(); ++i) {
+		used.process(r->get_tail(i));
+	}
+	return used;
 }

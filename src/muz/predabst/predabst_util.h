@@ -21,6 +21,8 @@ Revision History:
 
 #include "ast.h"
 #include "ast_pp.h"
+#include "used_vars.h"
+#include "dl_rule.h"
 
 template<typename V>
 inline bool vector_equals(V const& v1, V const& v2) {
@@ -145,9 +147,16 @@ expr_ref_vector get_args_vector(app* a, ast_manager& m);
 expr_ref_vector get_arg_fresh_consts(func_decl* fdecl, char const* prefix, ast_manager& m);
 var_ref_vector get_arg_vars(func_decl* fdecl, ast_manager& m);
 
+expr_ref_vector shift(expr_ref_vector const& exprs, unsigned n);
+var_ref_vector shift(var_ref_vector const& exprs, unsigned n);
+expr_ref inv_shift(expr_ref const& e, unsigned n);
+expr_ref_vector inv_shift(expr_ref_vector const& exprs, unsigned n);
+
 void quantifier_elimination(expr_ref_vector const& vars, expr_ref& fml);
 
 expr_ref to_nnf(expr_ref const& fml);
 expr_ref to_dnf(expr_ref const& fml);
+
+used_vars get_used_vars(datalog::rule const* r);
 
 #endif /* _PREDABST_UTIL_H */

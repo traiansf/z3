@@ -108,7 +108,7 @@ namespace datalog {
 			}
 		};
 
-		predabst_core(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m);
+		predabst_core(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, expr_ref_vector const& template_param_values, fixedpoint_params const& fp_params, ast_manager& m);
 		~predabst_core();
 		bool find_solution(unsigned refine_count);
 		expr_ref get_model(symbol_info const* si) const;

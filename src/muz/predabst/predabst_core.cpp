@@ -69,6 +69,7 @@ namespace datalog {
 		};
 
 		vector<rule_info*> const&                     m_rules;
+		expr_ref_vector const&                        m_template_param_values;
 		obj_map<rule_info const, rule_instance_info*> m_rule_instances;
 		vector<node_info*>                            m_nodes;
 		obj_map<symbol_info const, node_vector>       m_max_reach_nodes;
@@ -84,8 +85,9 @@ namespace datalog {
 		ast_manager&								  m;
 
 	public:
-		imp(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m) :
+		imp(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, expr_ref_vector const& template_param_values, fixedpoint_params const& fp_params, ast_manager& m) :
 			m_rules(rules),
+			m_template_param_values(template_param_values),
 			m_solver(NULL),
 			m_simplifier(m),
 			m_fp_params(fp_params),
@@ -396,7 +398,7 @@ namespace datalog {
 
 			try {
 				// create ground body
-				expr_ref_vector body = m_subst.apply(ri->get_body(), info->m_rule_subst);
+				expr_ref_vector body = m_subst.apply(ri->get_body(m_template_param_values, m_subst), info->m_rule_subst);
 				pre_simplify(body);
 				info->m_body.swap(body);
 
@@ -1229,8 +1231,8 @@ namespace datalog {
 		}
 	};
 
-	predabst_core::predabst_core(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, fixedpoint_params const& fp_params, ast_manager& m) :
-		m_imp(alloc(imp, symbols, rules, fp_params, m)) {
+	predabst_core::predabst_core(vector<symbol_info*> const& symbols, vector<rule_info*> const& rules, expr_ref_vector const& template_param_values, fixedpoint_params const& fp_params, ast_manager& m) :
+		m_imp(alloc(imp, symbols, rules, template_param_values, fp_params, m)) {
 	}
 	
 	predabst_core::~predabst_core() {

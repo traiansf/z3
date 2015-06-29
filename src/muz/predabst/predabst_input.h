@@ -27,12 +27,12 @@ namespace datalog {
 		vector<symbol_info*>                m_symbols;
 		vector<template_info*>              m_templates;
 		vector<rule_info*>                  m_rules;
+		var_ref_vector                      m_template_vars;
 		expr_ref                            m_template_extras;
-		expr_ref_vector                     m_template_params;
 
 		predabst_input(ast_manager& m) :
-			m_template_extras(m),
-			m_template_params(m) {
+			m_template_vars(m), 
+			m_template_extras(m) {
 		}
 
 		~predabst_input() {
@@ -74,7 +74,7 @@ namespace datalog {
 		};
 	};
 
-	predabst_input* make_predabst_input(rule_set& rules, ast_manager& m, subst_util& subst, expr_ref_vector const& template_param_values, fixedpoint_params const& fp_params);
+	predabst_input* make_predabst_input(rule_set& rules, fixedpoint_params const& fp_params);
 }
 
 #endif /* _PREDABST_INPUT_H */

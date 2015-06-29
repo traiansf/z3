@@ -627,14 +627,14 @@ sat_tests = [
     make_pred_refine_test("gt", 1, "(> x 0)", "(> x!1 0)"),
     make_pred_refine_test("lt", 1, "(< x 0)", "(< x!1 0)"),
     make_pred_refine_test("eq", 1, "(= x 0)", "(= x!1 0)"),
-    make_pred_refine_test("eq3", 3, "(= x y z)", "(and (= x!1 x!2) (= x!1 x!3))"),
+    make_pred_refine_test("eq3", 3, "(= x y z)", "(and (= x!2 x!1) (= x!3 x!2))"),
 
     make_pred_refine_test("not-ge", 1, "(not (>= x 0))", "(< x!1 0)"),
     make_pred_refine_test("not-le", 1, "(not (<= x 0))", "(> x!1 0)"),
     make_pred_refine_test("not-gt", 1, "(not (> x 0))", "(<= x!1 0)"),
     make_pred_refine_test("not-lt", 1, "(not (< x 0))", "(>= x!1 0)"),
-    make_pred_refine_test("not-eq", 1, "(not (= x 0))", "(or (> x!1 0) (< x!1 0))"),
-    make_pred_refine_test("not-eq3", 3, "(not (= x y z))", "(or (> x!1 x!2) (< x!1 x!2) (> x!1 x!3) (< x!1 x!3))"),
+    make_pred_refine_test("not-eq", 1, "(not (= x 0))", "(or (< x!1 0) (> x!1 0))"),
+    make_pred_refine_test("not-eq3", 3, "(not (= x y z))", "(or (< x!1 x!2) (< x!2 x!1) (< x!2 x!3) (< x!3 x!2))"),
 
     make_pred_refine_test("not-not", 1, "(not (not (<= x 0)))", "(<= x!1 0)"),
 
@@ -643,6 +643,9 @@ sat_tests = [
     make_pred_refine_test("add3", 3, "(<= (+ x y z) 0)", "(<= (+ x!1 x!2 x!3) 0)"),
     make_pred_refine_test("sub", 2, "(<= (- x y) 0)", "(<= x!1 x!2)"),
     make_pred_refine_test("neg", 1, "(<= (- x) 0)", "(>= x!1 0)"),
+
+    make_pred_refine_test("and", 2, "(and (<= x 0) (<= y 1))", "(and (<= x!1 0) (<= x!2 1))"),
+    make_pred_refine_test("or", 2, "(or (<= x 0) (<= y 1))", "(or (<= x!1 0) (<= x!2 1))"),
 
     # Multiple predicates with the same name but different arity and/or argument
     # types should be allowed.
@@ -844,8 +847,6 @@ unknown_tests = [
     make_pred_refine_test("div", 2, "(<= (div x y) 2)", None),
     make_pred_refine_test("mod", 1, "(<= (mod x 2) 0)", None),
     make_pred_refine_test("distinct", 1, "(distinct x 0)", None),
-    make_pred_refine_test("and", 2, "(and (<= x 0) (<= y 1))", None),
-    make_pred_refine_test("or", 2, "(or (<= x 0) (<= y 1))", None),
     make_pred_refine_test("xor", 2, "(xor (<= x 0) (<= y 1))", None),
     make_pred_refine_test("implies", 2, "(=> (<= x 0) (<= y 1))", None),
     make_pred_refine_test("iff", 2, "(= (<= x 0) (<= y 1))", None),

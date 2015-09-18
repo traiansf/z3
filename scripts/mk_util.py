@@ -855,9 +855,11 @@ class DLLComponent(Component):
             if not dep in self.reexports:
                 c_dep = get_component(dep)
                 out.write(' %s$(LIB_EXT)' % os.path.join(c_dep.build_dir, c_dep.name))
-        out.write(' %s' % os.path.join(self.to_src_dir.replace('dll','java'), 'Native.cpp'))
+        out.write(' %s' % os.path.join(get_component('java').to_src_dir, 'Native.cpp'))
         out.write('\n')
-        t = '\t$(CXX) $(CXXFLAGS) $(CXX_OUT_FLAG)api/java/Native$(OBJ_EXT) -I"%s/include" -I"%s/include/PLATFORM" -I%s %s/Native.cpp\n' % (JAVA_HOME, JAVA_HOME, get_component('api').to_src_dir, self.to_src_dir.replace('dll','java'))
+        t = '\t$(CXX) $(CXXFLAGS) $(CXX_OUT_FLAG)api/java/Native$(OBJ_EXT) ' \
+            '-I"%s/include" -I"%s/include/PLATFORM" -I%s %s/Native.cpp\n' % \
+            (JAVA_HOME, JAVA_HOME, get_component('api').to_src_dir, get_component('java').to_src_dir)
         if IS_OSX:
             t = t.replace('PLATFORM', 'darwin')
         elif IS_LINUX:

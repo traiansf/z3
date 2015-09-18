@@ -855,7 +855,16 @@ class DLLComponent(Component):
             if not dep in self.reexports:
                 c_dep = get_component(dep)
                 out.write(' %s$(LIB_EXT)' % os.path.join(c_dep.build_dir, c_dep.name))
+        out.write(' %s' % os.path.join(self.to_src_dir.replace('dll','java'), 'Native.cpp'))
         out.write('\n')
+        t = '\t$(CXX) $(CXXFLAGS) $(CXX_OUT_FLAG)api/java/Native$(OBJ_EXT) -I"%s/include" -I"%s/include/PLATFORM" -I%s %s/Native.cpp\n' % (JAVA_HOME, JAVA_HOME, get_component('api').to_src_dir, self.to_src_dir.replace('dll','java'))
+        if IS_OSX:
+            t = t.replace('PLATFORM', 'darwin')
+        elif IS_LINUX:
+            t = t.replace('PLATFORM', 'linux')
+        else:
+            t = t.replace('PLATFORM', 'win32')
+        out.write(t)
         out.write('\t$(LINK) $(SLINK_OUT_FLAG)%s $(SLINK_FLAGS)' % dllfile)
         for obj in objs:
             out.write(' ')
@@ -864,6 +873,7 @@ class DLLComponent(Component):
             if not dep in self.reexports:
                 c_dep = get_component(dep)
                 out.write(' %s$(LIB_EXT)' % os.path.join(c_dep.build_dir, c_dep.name))
+        out.write(' %s$(OBJ_EXT)' % os.path.join('api', 'java', 'Native'))
         out.write(' $(SLINK_EXTRA_FLAGS)')
         if IS_WINDOWS:
             out.write(' /DEF:%s.def' % os.path.join(self.to_src_dir, self.name))
@@ -1003,22 +1013,8 @@ class JavaDLLComponent(Component):
     def mk_makefile(self, out):
         if is_java_enabled():
             mk_dir(os.path.join(BUILD_DIR, 'api', 'java', 'classes'))
-            dllfile = '%s$(SO_EXT)' % self.dll_name            
             out.write('libz3java$(SO_EXT): libz3$(SO_EXT) %s\n' % os.path.join(self.to_src_dir, 'Native.cpp'))
-            t = '\t$(CXX) $(CXXFLAGS) $(CXX_OUT_FLAG)api/java/Native$(OBJ_EXT) -I"%s/include" -I"%s/include/PLATFORM" -I%s %s/Native.cpp\n' % (JAVA_HOME, JAVA_HOME, get_component('api').to_src_dir, self.to_src_dir)
-            if IS_OSX:
-                t = t.replace('PLATFORM', 'darwin')
-            elif IS_LINUX:
-                t = t.replace('PLATFORM', 'linux')
-            else:
-                t = t.replace('PLATFORM', 'win32')
-            out.write(t)
-            if IS_WINDOWS: # On Windows, CL creates a .lib file to link against.
-                out.write('\t$(SLINK) $(SLINK_OUT_FLAG)libz3java$(SO_EXT) $(SLINK_FLAGS) %s$(OBJ_EXT) libz3$(LIB_EXT)\n' %
-                          os.path.join('api', 'java', 'Native'))
-            else:
-                out.write('\t$(SLINK) $(SLINK_OUT_FLAG)libz3java$(SO_EXT) $(SLINK_FLAGS) %s$(OBJ_EXT) libz3$(SO_EXT)\n' %
-                          os.path.join('api', 'java', 'Native'))
+            out.write('\t@cp libz3$(SO_EXT) libz3java$(SO_EXT)\n\n')
             out.write('%s.jar: libz3java$(SO_EXT) ' % self.package_name)
             deps = ''
             for jfile in get_java_files(self.src_dir):

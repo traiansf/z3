@@ -1014,7 +1014,12 @@ class JavaDLLComponent(Component):
         if is_java_enabled():
             mk_dir(os.path.join(BUILD_DIR, 'api', 'java', 'classes'))
             out.write('libz3java$(SO_EXT): libz3$(SO_EXT) %s\n' % os.path.join(self.to_src_dir, 'Native.cpp'))
-            out.write('\t@cp libz3$(SO_EXT) libz3java$(SO_EXT)\n\n')
+            out.write('\t')
+            if IS_WINDOWS:
+                out.write('@copy ')
+            else:
+                out.write('@cp ')
+            out.write('libz3$(SO_EXT) libz3java$(SO_EXT)\n\n')
             out.write('%s.jar: libz3java$(SO_EXT) ' % self.package_name)
             deps = ''
             for jfile in get_java_files(self.src_dir):
